@@ -19,3 +19,8 @@ require("keymaps")
 -- 加载 plugins 目录下的所有插件模块
 require("lazy").setup("plugins")
 
+
+-- init.lua 配置（如果你用的是 Lua 配置）
+vim.opt.number = true         -- 显示绝对行号（当前行）
+vim.opt.relativenumber = true -- 其它行显示相对行号
+
