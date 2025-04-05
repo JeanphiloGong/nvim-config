@@ -45,7 +45,7 @@ go install golang.org/x/tools/gopls@latest
 ## 🔁 克隆配置
 
 ```bash
-git clone https://github.com/你的用户名/nvim-config.git ~/.config/nvim
+git@github.com:JeanphiloGong/nvim-config.git
 ```
 
 ---
