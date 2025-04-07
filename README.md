@@ -40,60 +40,17 @@ sudo npm install -g typescript typescript-language-server
 go install golang.org/x/tools/gopls@latest
 ```
 
----
-
-## 🔁 克隆配置
-
+### 3.安装对应主题
+1.安装starship
 ```bash
-git@github.com:JeanphiloGong/nvim-config.git
+curl -sS https://starship.rs/install.sh | sh
 ```
-
----
-
-## 🧩 安装插件
-
-第一次打开 Neovim 后，执行以下命令安装插件：
-
-```vim
-:PackerSync
-```
-
-或保存 `init.lua` 后自动触发插件安装。
-
----
-
-## ⚙️ 插件功能（可自定义）
-
-- [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) - LSP 支持（Python/Go/TS）
-- [packer.nvim](https://github.com/wbthomason/packer.nvim) - 插件管理器
-- [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) - 自动补全
-- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) - 模糊搜索
-- [treesitter](https://github.com/nvim-treesitter/nvim-treesitter) - 高亮与代码结构分析
-
----
-
-## 🛠️ 常见问题
-
-### Q: `nvim` 找不到命令？
-确保你添加了符号链接：
+2. 然后添加这一行到~/.bashrc
 ```bash
-sudo ln -s /opt/nvim/bin/nvim /usr/local/bin/nvim
+eval $(starship init bash)
 ```
-
-### Q: 插件没自动安装？
-进入 Neovim 后执行：
-```vim
-:PackerInstall
-```
-
----
-
-## 📚 TODO（计划添加）
-
-- 自动格式化（Black / Prettier / gofmt）
-- Git 集成
-- Debug 支持（DAP）
-- 更丰富的 statusline 和主题配置
+3.再执行
+source ~/.bashrc
 
 ---
 
