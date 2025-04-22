@@ -1,0 +1,13 @@
+{
+  "coc.preferences.autoUpdateExtensions": false,  // Disable auto-updating of extensions
+  "languageserver": {
+    "html": {
+      "command": "vscode-html-languageserver",
+      "args": ["--stdio"],
+      "filetypes": ["html", "htmldjango"]
+    }
+  },
+  "coc.preferences.extensionUpdateCheck": "never",  // Don't check for extension updates every time
+  "coc.preferences.extensionUpdateInterval": 0  // Disable automatic checking for extension updates
+}
+

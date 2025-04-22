@@ -1,9 +1,8 @@
--- lua/plugins/go-html.lua
 return {
   -- Go plugin (vim-go)
   {
     "fatih/vim-go",
-    run = ":GoInstallBinaries",
+    run = ":GoInstallBinaries",  -- Automatically install Go binaries
     config = function()
       -- Configure vim-go
       vim.g.go_fmt_command = "goimports"
@@ -16,12 +15,6 @@ return {
     end,
   },
 
-  -- Coc.nvim for autocompletion (HTML, CSS, JavaScript, etc.)
-  {
-    "neoclide/coc.nvim", branch = "release",
-    config = function()
-      vim.cmd("CocInstall coc-html")  -- Install HTML autocompletion
-    end,
-  },
+  -- Other plugins can be added here, without the coc.nvim plugin.
 }
 
