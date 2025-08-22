@@ -38,3 +38,9 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
+-- 设置加入时间戳方便记录
+vim.api.nvim_create_user_command('Time', function()
+	local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+	vim.api.nvim_put({ timestamp }, 'l', true, true)
+end, {})
+

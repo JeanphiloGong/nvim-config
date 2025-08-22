@@ -54,6 +54,26 @@ source ~/.bashrc
 
 ---
 
+# 功能板块解释
+加入时间戳功能
+
+-- 设置加入时间戳方便记录
+vim.api.nvim_create_user_command('Time', function()
+	local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+	vim.api.nvim_put({ timestamp }, 'l', true, true)
+end, {})
+
+解释:
+- os.date("%Y-%m-%d %H:%M:%S"): 获取当前的格式化时间戳。
+- vim.api.nvim_put:这个函数用于在当前光标位置插入文本,而不会改变当前模式,传入的参数是一个包含单个字符串的表
+-- 第一个参数是需要插入的内容
+-- 第二个参数'l'表示在光标所在的行插入
+-- 第三个参数true表示在光标位置插入而不会移动光标
+-- 第四个参数true表示插入的内容会被视作一行
+
+2025-08-22 16:22:26
+
+
 ## 🧑‍💻 作者
 
 Jeanphilo Gong  
