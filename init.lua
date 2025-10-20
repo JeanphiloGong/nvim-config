@@ -24,6 +24,14 @@ require("lazy").setup("plugins")
 -- init.lua 配置（如果你用的是 Lua 配置）
 vim.opt.number = true         -- 显示绝对行号（当前行）
 vim.opt.relativenumber = true -- 其它行显示相对行号
+-- Set tab size (number of spaces per tab)
+vim.opt.tabstop = 4      -- Number of spaces when pressing <Tab>
+vim.opt.softtabstop = 4  -- Number of spaces for insert mode <Tab>
+vim.opt.shiftwidth = 4    -- Number of spaces for automatic indentation
+vim.opt.expandtab = true  -- Use spaces instead of tabs
+-- auto-indentation
+vim.opt.autoindent = true
+vim.opt.smartindent = true
 
 -- 自动优化 Markdown 编辑体验
 vim.api.nvim_create_autocmd("FileType", {
