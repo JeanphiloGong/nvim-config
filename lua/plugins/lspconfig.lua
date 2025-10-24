@@ -1,41 +1,53 @@
 -- ~/.config/nvim/lua/plugins/lspconfig.lua
 return {
     -- Specify the nvim-lspconfig plugin
-    { 
-        "neovim/nvim-lspconfig",
-        config = function()
-            local lspconfig = require("lspconfig")
-            local mason_lspconfig = require("mason-lspconfig")
-            local capabilities = require("cmp_nvim_lsp").default_capabilities()
+{
+    "neovim/nvim-lspconfig",
+    config = function()
+        local lspconfig = vim.lsp.config
+        local mason_lspconfig = require("mason-lspconfig")
+        local capabilities = require("cmp_nvim_lsp").default_capabilities()
 
-            -- Create handlers for LSP setups
+        -- 检查 mason-lspconfig 是否存在 setup_handlers 函数
+        if mason_lspconfig.setup_handlers then
+            -- ✅ 新版本 mason-lspconfig 的用法
             mason_lspconfig.setup_handlers({
-                function(server_name)  -- Default handler for all servers
-                    lspconfig[server_name].setup({
+                -- 默认处理所有 LSP server
+                function(server_name)
+                    lspconfig(server_name, {
                         capabilities = capabilities,
                     })
                 end,
+                -- 单独配置 Svelte
                 ["svelte"] = function()
-                    lspconfig.svelte.setup {
-                        capabilities = capabilities, -- Use the same capabilities
-                        on_attach = function(client, bufnr)
-                            -- Key mappings specific to Svelte language server
+                    lspconfig("svelte", {
+                        capabilities = capabilities,
+                        on_attach = function(_, bufnr)
                             local opts = { noremap = true, silent = true }
                             vim.api.nvim_buf_set_keymap(bufnr, "n", "gd", "<cmd>lua vim.lsp.buf.definition()<CR>", opts)
                             vim.api.nvim_buf_set_keymap(bufnr, "n", "K", "<cmd>lua vim.lsp.buf.hover()<CR>", opts)
                             vim.api.nvim_buf_set_keymap(bufnr, "n", "<leader>rn", "<cmd>lua vim.lsp.buf.rename()<CR>", opts)
                         end,
-                    }
+                    })
                 end,
-                -- Example for other servers such as Python (Pyright)
+
+                -- Pyright 示例
                 ["pyright"] = function()
-                    lspconfig.pyright.setup({
+                    lspconfig("pyright", {
                         capabilities = capabilities,
                     })
                 end,
             })
-        end,
-    },
+        else
+            -- ⚙️ 兼容旧版 mason-lspconfig（没有 setup_handlers）
+            for _, server in ipairs(mason_lspconfig.get_installed_servers()) do
+                lspconfig(server, {
+                    capabilities = capabilities,
+                })
+            end
+        end
+    end,
+},
 
     -- Treesitter for syntax highlighting for JavaScript, HTML, etc.
     {
