@@ -54,6 +54,30 @@ source ~/.bashrc
 
 ---
 
+## 🪟 Tmux 使用指南
+
+Tmux 的配置位于 `tmux/.tmux.conf`，依赖 [TPM](https://github.com/tmux-plugins/tpm) 管理插件（包含 `vim-tmux-navigator`、`tmux-resurrect` 等）。首次在新设备使用时按以下步骤操作：
+
+### 1. 安装 TPM
+
+```bash
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+```
+
+### 2. 关联配置文件
+
+```bash
+ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf
+```
+
+### 3. 安装配置中声明的插件
+
+1. 启动 tmux：`tmux`
+2. 重新加载配置：`tmux source ~/.tmux.conf`
+3. 使用 `prefix + I`（默认 `Ctrl-a + I`）安装插件
+
+---
+
 # 功能板块解释
 加入时间戳功能
 
