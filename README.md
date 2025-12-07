@@ -23,6 +23,27 @@
    - `:TSUpdate`（安装 Treesitter 解析器）
 3) Markdown 预览若自动安装失败，可手动执行 `cd ~/.local/share/nvim/lazy/markdown-preview.nvim/app && npm install`。
 
+### Neovim 安装（Linux 示例）
+```bash
+curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
+sudo rm -rf /opt/nvim
+sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
+sudo mv /opt/nvim-* /opt/nvim
+sudo ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim
+```
+
+### 常用 LSP / 工具安装
+```bash
+# Python
+npm install -g pyright
+
+# TypeScript / JavaScript
+npm install -g typescript typescript-language-server
+
+# Go
+go install golang.org/x/tools/gopls@latest
+```
+
 ## 常用快捷键
 - 文件树：`<C-b>` 打开/关闭 Neo-tree。
 - 搜索/跳转（Telescope）：`<leader>ff` 文件、`<leader>fg` 全局搜索、`<leader>fb` 缓冲区、`<leader>fh` 帮助；`gd` 定义、`gr` 引用、`gi` 实现。
