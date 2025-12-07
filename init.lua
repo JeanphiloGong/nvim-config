@@ -33,16 +33,52 @@ vim.opt.expandtab = true  -- Use spaces instead of tabs
 vim.opt.autoindent = true
 vim.opt.smartindent = true
 
+-- 按语言设置缩进宽度
+local indent_by_ft = {
+  -- 2 spaces
+  javascript = { size = 2, expandtab = true },
+  javascriptreact = { size = 2, expandtab = true },
+  typescript = { size = 2, expandtab = true },
+  typescriptreact = { size = 2, expandtab = true },
+  svelte = { size = 2, expandtab = true },
+  html = { size = 2, expandtab = true },
+  markdown = { size = 2, expandtab = true },
+  -- 4 spaces
+  c = { size = 4, expandtab = true },
+  cpp = { size = 4, expandtab = true },
+  rust = { size = 4, expandtab = true },
+  python = { size = 4, expandtab = true },
+  -- Tabs for Go (gofmt)
+  go = { size = 4, expandtab = false, soft = 4 },
+}
+
+local indent_group = vim.api.nvim_create_augroup("IndentByFiletype", { clear = true })
+vim.api.nvim_create_autocmd("FileType", {
+  group = indent_group,
+  pattern = "*",
+  callback = function(args)
+    local cfg = indent_by_ft[args.match]
+    if not cfg then
+      return
+    end
+    local size = cfg.size or 4
+    vim.opt_local.tabstop = size
+    vim.opt_local.shiftwidth = size
+    vim.opt_local.softtabstop = cfg.soft or size
+    if cfg.expandtab ~= nil then
+      vim.opt_local.expandtab = cfg.expandtab
+    end
+  end,
+})
+
 -- 自动优化 Markdown 编辑体验
 vim.api.nvim_create_autocmd("FileType", {
+  group = indent_group,
   pattern = "markdown",
   callback = function()
     vim.opt_local.wrap = true
     vim.opt_local.linebreak = true
     vim.opt_local.spell = true
-    vim.opt_local.tabstop = 2
-    vim.opt_local.shiftwidth = 2
-    vim.opt_local.expandtab = true
   end,
 })
 

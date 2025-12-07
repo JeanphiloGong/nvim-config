@@ -3,7 +3,10 @@
 return {
   'nvim-telescope/telescope.nvim',
   branch = 'master',
-  dependencies = { 'nvim-lua/plenary.nvim' },
+  dependencies = {
+    'nvim-lua/plenary.nvim',
+    { 'nvim-telescope/telescope-fzf-native.nvim', build = 'make' }, -- 提升模糊匹配性能
+  },
   config = function()
     local telescope = require('telescope')
     local builtin = require('telescope.builtin')
@@ -16,6 +19,7 @@ return {
         layout_config = { preview_width = 0.6 },
       },
     }
+    pcall(telescope.load_extension, 'fzf') -- 如果编译成功则启用 fzf 加速
 
     -- 基础映射
     vim.keymap.set('n', '<leader>ff', builtin.find_files, {})
@@ -29,4 +33,3 @@ return {
     vim.keymap.set('n', 'gi', builtin.lsp_implementations, {})
   end
 }
-

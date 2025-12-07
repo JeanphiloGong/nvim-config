@@ -1,111 +1,68 @@
-# 🧠 Neovim Config
+# Neovim 配置
 
-我的 Neovim 配置文件，适用于 Python / Go / JavaScript 开发，跨多台设备同步使用。轻量高效，适合终端开发者使用。
+轻量、面向全栈的 Neovim 配置，涵盖前端（TS/JS/Svelte/HTML/CSS）、后端（Python/Go 等）、Markdown 与 tmux 工作流。
 
-## 📦 目录结构
-
+## 目录结构
 ```
 ~/.config/nvim
-├── init.lua         -- 主配置文件
-├── lua/             -- 插件和语言服务配置
-│   ├── plugins.lua
-│   └── lsp.lua
-└── ...
-```
-## 🚀 快速开始（适用于新设备）
-
-### 1. 安装最新版本 Neovim
-
-```bash
-curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
-sudo rm -rf /opt/nvim
-sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
-sudo mv /opt/nvim-* /opt/nvim
-sudo ln -s /opt/nvim/bin/nvim /usr/local/bin/nvim
+├── init.lua                # 主入口
+├── lua/
+│   ├── keymaps.lua         # 快捷键
+│   └── plugins/            # 插件拆分配置
+├── docs/
+│   └── plugins.md          # 插件与使用速览（新手首选）
+├── tmux/.tmux.conf         # tmux 配置
+└── test/                   # TypeScript 缩进示例
 ```
 
-### 2. 安装依赖
+## 快速开始
+1) 安装依赖：Neovim ≥ 0.11、git、make（编译 telescope-fzf-native）、node + npm/yarn（Prettier 与 Markdown 预览）、可选 go（gofmt/gopls）。
+2) 将本目录放到 `~/.config/nvim`，首次启动 Neovim 后执行：
+   - `:Lazy sync`（安装/编译插件）
+   - `:MasonInstall pyright svelte ts_ls`（安装常用 LSP）
+   - `:TSUpdate`（安装 Treesitter 解析器）
+3) Markdown 预览若自动安装失败，可手动执行 `cd ~/.local/share/nvim/lazy/markdown-preview.nvim/app && npm install`。
 
-```bash
-# Node.js 和 npm（用于安装语言服务）
-sudo apt install -y nodejs npm
+## 常用快捷键
+- 文件树：`<C-b>` 打开/关闭 Neo-tree。
+- 搜索/跳转（Telescope）：`<leader>ff` 文件、`<leader>fg` 全局搜索、`<leader>fb` 缓冲区、`<leader>fh` 帮助；`gd` 定义、`gr` 引用、`gi` 实现。
+- 诊断列表：`<leader>xx` 打开 Trouble 诊断，`<leader>xq` 打开 quickfix。
+- 补全：`<Tab>` 确认候选，`<C-Space>` 触发补全。
+- Markdown：`<leader>mp` 预览，`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。
 
-# Python LSP
-sudo npm install -g pyright
+## 插件概览
+- 语言/工具链：mason + mason-lspconfig + nvim-lspconfig（pyright、ts_ls、svelte），nvim-cmp + LuaSnip，nvim-treesitter，Prettier。
+- 导航/UI：telescope + telescope-fzf-native，neo-tree，which-key。
+- Git：gitsigns。
+- 编辑效率：Comment.nvim、nvim-surround、nvim-autopairs、trouble.nvim、indent-blankline (ibl)。
+- Markdown：vim-markdown、markdown-preview.nvim、vim-markdown-toc。
+- 终端/分窗：vim-tmux-navigator。
+- 更多细节与用法请见 `docs/plugins.md`。
 
-# TypeScript / JavaScript LSP
-sudo npm install -g typescript typescript-language-server
+## 缩进策略
+- 2 空格：JS/TS/JSX/TSX/Svelte/HTML/Markdown。
+- 4 空格：C/C++/Rust/Python；其他默认 4 空格。
+- Go：tab 宽度 4，不转空格（配合 gofmt）。
 
-# Go LSP
-go install golang.org/x/tools/gopls@latest
-```
-
-### 3.安装对应主题
-1.安装starship
+## 终端主题（可选）
+使用 starship：
 ```bash
 curl -sS https://starship.rs/install.sh | sh
-```
-2. 然后添加这一行到~/.bashrc
-```bash
-eval $(starship init bash)
-```
-3.再执行
+echo 'eval "$(starship init bash)"' >> ~/.bashrc
 source ~/.bashrc
-
----
-
-## 🪟 Tmux 使用指南
-
-Tmux 的配置位于 `tmux/.tmux.conf`，依赖 [TPM](https://github.com/tmux-plugins/tpm) 管理插件（包含 `vim-tmux-navigator`、`tmux-resurrect` 等）。首次在新设备使用时按以下步骤操作：
-
-### 1. 安装 TPM
-
-```bash
-git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 ```
 
-### 2. 关联配置文件
+## tmux 使用
+1) 安装 TPM：`git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm`
+2) 关联配置：`ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf`
+3) 启动 tmux 后执行 `tmux source ~/.tmux.conf`，再按 `prefix + I` 安装插件。
 
-```bash
-ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf
-```
+## 实用命令
+- `:Time` 在光标处插入当前时间戳（YYYY-MM-DD HH:MM:SS）。
 
-### 3. 安装配置中声明的插件
-
-1. 启动 tmux：`tmux`
-2. 重新加载配置：`tmux source ~/.tmux.conf`
-3. 使用 `prefix + I`（默认 `Ctrl-a + I`）安装插件
-
----
-
-# 功能板块解释
-加入时间戳功能
-
--- 设置加入时间戳方便记录
-vim.api.nvim_create_user_command('Time', function()
-	local timestamp = os.date("%Y-%m-%d %H:%M:%S")
-	vim.api.nvim_put({ timestamp }, 'l', true, true)
-end, {})
-
-解释:
-- os.date("%Y-%m-%d %H:%M:%S"): 获取当前的格式化时间戳。
-- vim.api.nvim_put:这个函数用于在当前光标位置插入文本,而不会改变当前模式,传入的参数是一个包含单个字符串的表
--- 第一个参数是需要插入的内容
--- 第二个参数'l'表示在光标所在的行插入
--- 第三个参数true表示在光标位置插入而不会移动光标
--- 第四个参数true表示插入的内容会被视作一行
-
-2025-08-22 16:22:26
-
-
-## 🧑‍💻 作者
-
+## 作者
 Jeanphilo Gong  
 https://github.com/JeanphiloGong
 
----
-
-## 📄 License
-
+## License
 MIT License
-```
