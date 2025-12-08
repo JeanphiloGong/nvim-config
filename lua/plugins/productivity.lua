@@ -1,4 +1,3 @@
--- 常用效率插件合集
 return {
   -- Git 变更标记与快速暂存
   {
@@ -8,42 +7,6 @@ return {
       require("gitsigns").setup({
         signs = { add = { text = "+" }, change = { text = "~" }, delete = { text = "_" } },
       })
-    end,
-  },
-
-  -- 快捷键提示
-  {
-    "folke/which-key.nvim",
-    event = "VeryLazy",
-    config = function()
-      require("which-key").setup({})
-    end,
-  },
-
-  -- 快速注释
-  {
-    "numToStr/Comment.nvim",
-    event = { "BufReadPre", "BufNewFile" },
-    config = function()
-      require("Comment").setup()
-    end,
-  },
-
-  -- 成对包裹/替换
-  {
-    "kylechui/nvim-surround",
-    event = "InsertEnter",
-    config = function()
-      require("nvim-surround").setup({})
-    end,
-  },
-
-  -- 自动补全括号/引号
-  {
-    "windwp/nvim-autopairs",
-    event = "InsertEnter",
-    config = function()
-      require("nvim-autopairs").setup({})
     end,
   },
 
@@ -59,15 +22,5 @@ return {
     config = function()
       require("trouble").setup({})
     end,
-  },
-
-  -- 缩进参考线
-  {
-    "lukas-reineke/indent-blankline.nvim",
-    main = "ibl",
-    event = { "BufReadPost", "BufNewFile" },
-    opts = {
-      indent = { char = "|" },
-    },
   },
 }

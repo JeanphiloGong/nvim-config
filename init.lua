@@ -17,8 +17,8 @@ vim.opt.rtp:prepend(lazypath)
 -- 加载快捷键配置（你已写在 lua/keymaps.lua）
 require("keymaps")
 
--- 加载 plugins 目录下的所有插件模块
-require("lazy").setup("plugins")
+-- 加载 plugins 目录下的插件配置（分组后汇总）
+require("lazy").setup(require("plugins"))
 
 
 -- init.lua 配置（如果你用的是 Lua 配置）
