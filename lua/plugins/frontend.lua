@@ -5,7 +5,7 @@ return {
     build = ":TSUpdate",
     config = function()
       require("nvim-treesitter.configs").setup({
-        ensure_installed = { "javascript", "typescript", "tsx", "html", "css", "svelte" },
+        ensure_installed = { "javascript", "typescript", "tsx", "html", "css", "svelte", "go", "gomod", "gosum", "gowork", "gotmpl" },
         highlight = { enable = true },
       })
     end,
