@@ -4,9 +4,43 @@ return {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
     config = function()
-      require("nvim-treesitter.configs").setup({
-        ensure_installed = { "javascript", "typescript", "tsx", "html", "css", "svelte" },
-        highlight = { enable = true },
+      local languages = {
+        "javascript",
+        "typescript",
+        "tsx",
+        "html",
+        "css",
+        "svelte",
+        "go",
+        "gomod",
+        "gosum",
+        "gowork",
+        "gotmpl",
+      }
+
+      local ok_configs, configs = pcall(require, "nvim-treesitter.configs")
+      if ok_configs then
+        configs.setup({
+          ensure_installed = languages,
+          highlight = { enable = true },
+        })
+        return
+      end
+
+      local ok_ts, ts = pcall(require, "nvim-treesitter")
+      if not ok_ts then
+        return
+      end
+      ts.setup({
+        install_dir = vim.fn.stdpath("data") .. "/site",
+      })
+      pcall(ts.install, languages)
+
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = "*",
+        callback = function()
+          pcall(vim.treesitter.start)
+        end,
       })
     end,
   },

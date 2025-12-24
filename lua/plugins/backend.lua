@@ -14,7 +14,7 @@ return {
     "williamboman/mason-lspconfig.nvim",
     config = function()
       require("mason-lspconfig").setup({
-        ensure_installed = { "pyright", "svelte", "ts_ls" },
+        ensure_installed = { "pyright", "svelte", "ts_ls", "gopls" },
         automatic_enable = false,
       })
     end,
@@ -51,6 +51,16 @@ return {
 
       local backend_servers = {
         pyright = with_capabilities(),
+        gopls = with_capabilities({
+          settings = {
+            gopls = {
+              analyses = {
+                unusedparams = true,
+              },
+              staticcheck = true,
+            },
+          },
+        }),
       }
 
       local function setup_group(servers)
@@ -62,6 +72,23 @@ return {
 
       setup_group(frontend_servers)
       setup_group(backend_servers)
+    end,
+  },
+
+  -- Go 开发增强
+  {
+    "ray-x/go.nvim",
+    ft = { "go", "gomod", "gowork", "gotmpl" },
+    dependencies = {
+      "ray-x/guihua.lua",
+      "neovim/nvim-lspconfig",
+      "nvim-treesitter/nvim-treesitter",
+    },
+    config = function()
+      require("go").setup({
+        lsp_cfg = false,
+        lsp_gofmt = true,
+      })
     end,
   },
 }
