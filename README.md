@@ -32,6 +32,27 @@ sudo mv /opt/nvim-* /opt/nvim
 sudo ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim
 ```
 
+### Go 安装（Linux 一键复制）
+```bash
+GO_VERSION=1.22.4
+OS=linux
+ARCH=amd64
+
+curl -LO https://go.dev/dl/go${GO_VERSION}.${OS}-${ARCH}.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go${GO_VERSION}.${OS}-${ARCH}.tar.gz
+rm -f go${GO_VERSION}.${OS}-${ARCH}.tar.gz
+
+if ! grep -q '/usr/local/go/bin' ~/.bashrc; then
+  echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+fi
+source ~/.bashrc
+
+go version
+```
+如果你用的是 zsh，把 `~/.bashrc` 改成 `~/.zshrc` 即可。
+架构说明：`uname -m` 为 `x86_64` 用 `ARCH=amd64`，为 `i686/i386` 用 `ARCH=386`。
+
 ### 常用 LSP / 工具安装
 ```bash
 # Python
