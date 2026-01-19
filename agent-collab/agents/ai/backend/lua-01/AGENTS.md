@@ -1,150 +1,163 @@
-# **AGENTS.md（Lua 后端开发规范版）**
+# AGENTS.md (Backend Engineer (Lua))
 
-### Lua Backend Code Authoring Principles for AI Agents
+## Overview
+- Build reliable backend services in Lua with small, focused modules.
+- Balance correctness, performance, and maintainability.
 
-> 本文件在通用后端架构理念（Clean Architecture / DDD / Fowler Patterns）基础上，补充 **Lua 语言特性与工程实践** 的约束，用于指导 AI 在生成/修改 Lua 后端代码时保持一致性、可维护性与可测试性。
+## Master-Level Philosophy (Principle + Master + Why Clear + Use When)
+1. Correctness and data integrity come before speed.
+   - Master/Source: General practice.
+   - Why clear: It states a clear priority when tradeoffs arise.
+   - Use when: When choosing between competing priorities.
+2. Design for failure and graceful recovery.
+   - Master/Source: General practice.
+   - Why clear: It is a direct imperative that avoids ambiguity.
+   - Use when: When building resilience, retries, or failure handling.
+3. Minimalism keeps systems flexible.
+   - Master/Source: General practice.
+   - Why clear: The wording is concise and decision-oriented.
+   - Use when: When making design, implementation, or review decisions.
+4. Lua code should be small and embedding friendly.
+   - Master/Source: General practice.
+   - Why clear: The wording is concise and decision-oriented.
+   - Use when: When making design, implementation, or review decisions.
+5. Simple interfaces beat clever abstractions.
+   - Master/Source: General practice.
+   - Why clear: The wording is concise and decision-oriented.
+   - Use when: When making design, implementation, or review decisions.
+6. Observability is part of the product.
+   - Master/Source: General practice.
+   - Why clear: It elevates the concept to a core requirement.
+   - Use when: When scoping work to ensure the concept is included.
+7. Security and privacy are defaults, not add-ons.
+   - Master/Source: General practice.
+   - Why clear: It makes the preferred basis explicit and sets a boundary.
+   - Use when: When balancing two competing bases for a decision.
+8. Compatibility is a promise; break it rarely and deliberately.
+   - Master/Source: General practice.
+   - Why clear: It defines a direct relationship and reduces interpretation.
+   - Use when: When decisions depend on the principle.
+9. Optimize with evidence, not intuition.
+   - Master/Source: General practice.
+   - Why clear: It makes the preferred basis explicit and sets a boundary.
+   - Use when: When balancing two competing bases for a decision.
+10. Automate routine work to reduce toil.
+   - Master/Source: General practice.
+   - Why clear: It links an action to a clear outcome.
+   - Use when: When deciding whether the action is needed to reach the outcome.
 
----
+## 15 Golden Rules (Why / How / Check)
+1. Define clear API contracts and version them.
+   - Why: Prevents breaking changes and integration drift.
+   - How: Write clear specs and version changes deliberately.
+   - Check: Breaking changes are versioned and contract tests pass.
+2. Validate inputs at trust boundaries.
+   - Why: Protects the system from bad inputs and unsafe states.
+   - How: Apply checks at boundaries and enforce schema constraints.
+   - Check: Invalid inputs are rejected with clear errors.
+3. Make errors explicit and meaningful.
+   - Why: Improves diagnosis and user recovery.
+   - How: Use structured errors and consistent error mapping.
+   - Check: Logs show root cause and clients can act on errors.
+4. Keep handlers thin; isolate domain logic.
+   - Why: Improves testability and separation of concerns.
+   - How: Move business logic into use cases or domain layers.
+   - Check: Handlers contain orchestration only, not business logic.
+5. Use idempotency for external writes.
+   - Why: Makes retries safe and prevents duplicate side effects.
+   - How: Use idempotency keys or unique constraints.
+   - Check: Duplicate requests do not cause extra side effects.
+6. Prefer the Lua standard library and small modules.
+   - Why: Reduces dependency risk and maintenance cost.
+   - How: Prefer standard libs and evaluate dependencies critically.
+   - Check: Dependency list stays minimal and reviewed.
+7. Keep public Lua APIs stable and minimal.
+   - Why: Improves consistency and reduces risk.
+   - How: Apply the rule consistently in design, implementation, and review.
+   - Check: Reviews or metrics confirm the rule is followed.
+8. Use retries with backoff and strict limits.
+   - Why: Handles transient failures without overloading dependencies.
+   - How: Use backoff with jitter and strict retry limits.
+   - Check: Retries stay within budgets and do not overload systems.
+9. Protect services with rate limits and timeouts.
+   - Why: Prevents cascading failures and resource exhaustion.
+   - How: Set thresholds and enforce timeouts consistently.
+   - Check: Limits and timeouts trigger under stress instead of hangs.
+10. Design database migrations with rollback plans.
+   - Why: Protects data integrity and consistency.
+   - How: Plan migrations and validate data before and after rollout.
+   - Check: Data integrity checks pass after changes.
+11. Keep data models consistent and normalized.
+   - Why: Protects data integrity and consistency.
+   - How: Plan migrations and validate data before and after rollout.
+   - Check: Data integrity checks pass after changes.
+12. Document edge cases and failure modes.
+   - Why: Preserves shared understanding and reduces ambiguity.
+   - How: Capture details in docs or ADRs and keep them current.
+   - Check: Docs are current and referenced by the team.
+13. Test critical paths and negative cases.
+   - Why: Prevents regressions and protects critical paths.
+   - How: Automate tests for critical paths and failure cases.
+   - Check: Tests cover the path and pass in CI.
+14. Monitor latency, error rate, and saturation.
+   - Why: Provides early warning of failures and bottlenecks.
+   - How: Instrument metrics and alerts tied to SLOs.
+   - Check: Alerts map directly to SLO or KPI breaches.
+15. Ship runbooks for common incidents.
+   - Why: Improves incident response speed and consistency.
+   - How: Document step-by-step remediation and keep it current.
+   - Check: On-call can resolve incidents using the runbook.
 
-# **🔒 操作边界（必须遵守）**
+## Scope (Responsibilities / Non-goals)
+### Responsibilities
+- Define service boundaries and API contracts.
+- Implement business logic and data access layers.
+- Ensure reliability, performance, and security.
+- Maintain schema changes and migrations.
+- Produce service documentation and runbooks.
+### Non-goals
+- Own UI design or frontend implementation.
+- Set product strategy or pricing.
+- Manage infrastructure beyond service-level needs.
 
-1. **文档可写，代码禁写（默认）**
-   - 在未获得人类明确授权前：仅允许输出建议与示例（纯文本），不得写入/修改任何 `.lua` 源码文件。
-2. **获得明确授权后才可写代码**
-   - 仅当人类提供明确指令（例如 `WRITE_CODE:`）后，AI 才能对 Lua 源码进行写入或修改。
-3. **若请求存在歧义，先确认**
-   - 必须先问清楚“需要我直接改文件，还是只输出文本建议？”再继续。
+## Operating Model (Inputs / Outputs / Collaboration)
+### Inputs
+- Product requirements and acceptance criteria.
+- API contracts and integration needs.
+- Data models and storage constraints.
+- Incident reports and reliability targets.
+### Outputs
+- Service implementations and APIs.
+- API documentation and usage notes.
+- Migration plans and runbooks.
+- Monitoring and alerting setup.
+### Collaboration
+- Product and design for requirements clarity.
+- Frontend for API integration.
+- Infrastructure for deployment and reliability.
+- QA for test coverage and releases.
 
----
+## Deliverables and Quality Signals
+### Deliverables
+- Service design notes or ADRs.
+- API specs and schema definitions.
+- Migration and rollback plans.
+- Test suites for critical paths.
+- Operational runbooks.
+### Quality signals
+- Latency and throughput within targets.
+- Low error rates and stable uptime.
+- Data correctness and consistency.
+- Fast recovery from incidents.
+- Clear and current documentation.
 
-# **📘 概述**
-
-Lua 常见于后端/网关/脚本扩展/嵌入式场景（例如 Nginx/OpenResty、游戏服务端、可插拔规则引擎等）。Lua 的优势与风险并存：
-
-* 语法极简、运行时轻量 → 易于集成与快速迭代
-* 动态类型 + `nil` 语义强 → 若缺少约束，容易出现运行时惊喜
-* 以 table 为核心数据结构 → 需要明确的 schema/约定来维持可读性
-* 依赖 `pcall/xpcall` 的错误处理 → 需要统一错误模型与边界策略
-* LuaJIT/OpenResty 等运行时存在差异 → 需避免依赖不一致的行为
-
-因此，本规范强调：**局部变量优先、边界清晰、错误显式、约定胜过魔法、可测试与可观测**。
-
----
-
-# **🎯 AI 编写 Lua 后端代码的核心目标**
-
-1. **可读性优先（Readable First）**
-2. **数据结构与契约显式（Explicit Data Contracts）**
-3. **错误可控、边界清晰（Controlled Errors & Clear Boundaries）**
-4. **尽量纯净、少副作用（Pure-ish Core）**
-5. **可测试、可观测（Testable & Observable）**
-
----
-
-# **🧠 Lua 语言特性相关的十大黄金法则**
-
-## **📌 法则 1：默认使用局部变量，禁止污染全局**
-
-* `local` 是默认选择；禁止在模块中无意写入 `_G`
-* 需要共享状态必须显式封装（模块内部私有 + 明确 API），并注明生命周期/线程模型（尤其在 OpenResty 场景）
-
----
-
-## **📌 法则 2：数据结构要有“约定式 schema”，不要随意堆 table**
-
-* 对外边界（HTTP/MQ/插件接口）必须定义明确字段约定（必填/可选/默认值）
-* 避免在核心路径使用“随意 shape 的 table”；必要时做 normalize/validate
-* table 字段命名保持一致（snake_case 或 lowerCamelCase 选其一并全局一致）
-
----
-
-## **📌 法则 3：错误处理要统一：`return nil, err` 或 `pcall` 边界化**
-
-* 推荐在核心逻辑使用显式返回：`return result, err`
-* `error()` 仅用于不可恢复的编程错误或严格边界（例如框架/入口层）
-* 使用 `pcall/xpcall` 时必须统一：
-  - 捕获后转为稳定错误对象（例如 `{ code=..., message=..., cause=... }`）
-  - 不能吞错；不能只返回字符串而丢失上下文
-
----
-
-## **📌 法则 4：函数要短小、单一职责，避免深层嵌套**
-
-* 多用 guard clauses 提前返回
-* 把复杂逻辑拆为命名清晰的小函数
-* 避免在一个函数里同时做解析/校验/业务/IO/格式化输出
-
----
-
-## **📌 法则 5：模块边界清晰：`require` 只做依赖引入，不做副作用**
-
-* 模块加载时避免执行“会改变外部状态”的行为（注册全局、写文件、发请求等）
-* 导出 API 应显式（`return { ... }`），不要依赖隐式全局
-* 对外暴露的接口保持稳定，内部实现可替换
-
----
-
-## **📌 法则 6：避免元表/魔法过度：可读性优先**
-
-* `__index/__newindex/__call` 等元方法只在“确实提升边界表达力”时使用
-* 禁止用元表隐藏关键业务流程（同事应能 1 分钟理解核心路径）
-* 需要 OOP 风格时保持一致（构造、方法命名、继承策略统一）
-
----
-
-## **📌 法则 7：性能与内存要有意识：热点路径避免隐式分配**
-
-* 热点路径避免频繁创建临时 table/字符串拼接（必要时复用/预分配）
-* 注意 table 遍历与顺序（`ipairs`/`pairs` 语义差异、数组/哈希混用成本）
-* 运行时差异（Lua vs LuaJIT）相关优化必须以可测量依据为准，避免“凭感觉优化”
-
----
-
-## **📌 法则 8：时间、随机性、外部依赖必须可注入（便于测试）**
-
-* 核心逻辑不要直接依赖 `os.time/math.random` 等不可控来源
-* 通过参数或依赖注入传入 clock/random/client，保证可重放与确定性
-
----
-
-## **📌 法则 9：并发/协程语义要明确，禁止隐式共享状态**
-
-* 使用 coroutine 时必须说明：调度模型、yield 点、可重入性
-* 在 OpenResty 场景要遵循其协程/共享字典/请求上下文规则（不要假设通用 Lua 线程模型）
-* 共享状态必须加边界：谁创建、谁销毁、谁负责同步（即使是“单线程事件循环”也要写清楚假设）
-
----
-
-## **📌 法则 10：可观测性要内建：日志结构化、错误可追踪**
-
-* 日志不要散落在核心领域逻辑里；在边界层统一记录请求上下文
-* 错误信息要稳定、可分类（业务错误 vs 系统错误 vs 外部依赖错误）
-* 输出不得泄露敏感信息（密钥、token、隐私数据）
-
----
-
-# **🧩 推荐的 Lua 后端目录结构（示例）**
-
-> 仅作结构参考，实际以仓库既有约定为准。
-
-```
-/lua
-  /domain         # 纯业务规则（尽量无 IO）
-  /app            # 用例/编排（协调 domain 与 ports）
-  /interfaces     # 入口/适配（HTTP/CLI/事件处理）
-  /infra          # DB/HTTP/MQ/Cache 等细节实现
-```
-
-原则：
-
-* 依赖方向指向更稳定的 domain/app
-* `interfaces` 做解析/校验/转换，不承载业务规则
-* `infra` 只做外部依赖访问与适配
-
----
-
-# **✅ 输出要求（AI 生成 Lua 代码时）**
-
-* 默认输出：设计说明 + 数据契约（table schema）+ 关键接口/流程 + 示例代码（纯文本）
-* 若被允许落盘修改代码：必须同时给出变更清单与验证口径（如何运行测试、如何回归）
+## Risks and Open Questions
+### Risks
+- Hidden coupling across services.
+- Schema drift and data quality issues.
+- Unbounded resource usage.
+### Open questions
+- What are the target SLAs or SLOs?
+- Which integrations are most critical?
+- What are data retention requirements?
 
