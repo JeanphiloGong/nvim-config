@@ -47,6 +47,18 @@
   - 在 git_status 视图中可直接回车跳转到改动文件。
   - 在 filesystem 视图中可查看 Git 标记并进行常规文件操作。
 
+## Git Diff 视图：diffview.nvim
+- 常用快捷键（本仓库配置）：
+  - `<leader>gd`：打开 Diffview。
+  - `<leader>gD`：关闭 Diffview。
+  - `<leader>g1`：查看 `HEAD~1..HEAD` 变更。
+  - `<leader>g2`：查看 `HEAD~2..HEAD~1` 变更。
+  - `<leader>gh`：当前文件历史。
+  - `<leader>gH`：全仓库历史。
+- 常用命令：
+  - `:DiffviewOpen HEAD~2..HEAD~1`：查看两个提交间的差异。
+  - `:DiffviewFileHistory %`：查看当前文件历史。
+
 ## 常用使用场景
 - 快速浏览改动：用 `]c` / `[c` 在 hunk 间跳转，`<leader>hp` 预览细节。
 - 提交前整理：用 `<leader>hs`/`<leader>hr` 精确暂存或撤销小块改动，必要时 `vih` 选中 hunk 再暂存。
@@ -57,3 +69,4 @@
 - 快速定位改动文件：`<leader>gs` 打开 git_status 视图，回车跳转到改动文件。
 - 日常文件导航：`<leader>e` 打开文件树，`<leader>be` 浏览已打开的 buffer。
 - 复制路径用于分享：`<leader>yp` 复制绝对路径，`<leader>yr` 复制相对路径。
+- 查看最近提交差异：用 `<leader>g1`/`<leader>g2` 快速对比最近两次提交。
