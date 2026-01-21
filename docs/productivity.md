@@ -7,6 +7,7 @@
 
 * [Git 变更标记：gitsigns.nvim](#git-变更标记gitsignsnvim)
 * [诊断与列表：trouble.nvim](#诊断与列表troublenvim)
+* [文件树与 Git 视图：neo-tree.nvim](#文件树与-git-视图neo-treenvim)
 * [常用使用场景](#常用使用场景)
 
 <!-- vim-markdown-toc -->
@@ -36,6 +37,16 @@
 - 交互：可在列表中 `<cr>` 跳转到具体位置，支持筛选与折叠。
 - 适合与 Telescope、LSP 一起使用：例如先用 `gr` 搜索引用，再在 Trouble 中统一浏览。
 
+## 文件树与 Git 视图：neo-tree.nvim
+- 常用快捷键（本仓库配置）：
+  - `<C-b>`：切换 Neo-tree。
+  - `<leader>e`：文件树（filesystem）。
+  - `<leader>gs`：Git 状态视图（git_status，浮窗）。
+  - `<leader>be`：Buffers 视图。
+- 说明：
+  - 在 git_status 视图中可直接回车跳转到改动文件。
+  - 在 filesystem 视图中可查看 Git 标记并进行常规文件操作。
+
 ## 常用使用场景
 - 快速浏览改动：用 `]c` / `[c` 在 hunk 间跳转，`<leader>hp` 预览细节。
 - 提交前整理：用 `<leader>hs`/`<leader>hr` 精确暂存或撤销小块改动，必要时 `vih` 选中 hunk 再暂存。
@@ -43,3 +54,6 @@
 - 快速对比差异：`<leader>hd`/`<leader>hD` 查看当前文件与版本的 diff。
 - 集中处理问题：`<leader>xx` 打开诊断列表，逐条跳转修复。
 - 快速定位搜索结果：在 quickfix 里汇总查找结果，用 `<leader>xq` 统一浏览。
+- 快速定位改动文件：`<leader>gs` 打开 git_status 视图，回车跳转到改动文件。
+- 日常文件导航：`<leader>e` 打开文件树，`<leader>be` 浏览已打开的 buffer。
+- 复制路径用于分享：`<leader>yp` 复制绝对路径，`<leader>yr` 复制相对路径。
