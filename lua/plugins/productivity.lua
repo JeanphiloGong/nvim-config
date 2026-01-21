@@ -38,6 +38,24 @@ return {
     end,
   },
 
+  -- Git 侧边 diff / 历史
+  {
+    "sindrets/diffview.nvim",
+    dependencies = { "nvim-lua/plenary.nvim" },
+    cmd = { "DiffviewOpen", "DiffviewClose", "DiffviewFileHistory" },
+    keys = {
+      { "<leader>gd", "<cmd>DiffviewOpen<cr>", desc = "Diffview Open" },
+      { "<leader>gD", "<cmd>DiffviewClose<cr>", desc = "Diffview Close" },
+      { "<leader>g1", "<cmd>DiffviewOpen HEAD~1..HEAD<cr>", desc = "Diffview HEAD~1..HEAD" },
+      { "<leader>g2", "<cmd>DiffviewOpen HEAD~2..HEAD~1<cr>", desc = "Diffview HEAD~2..HEAD~1" },
+      { "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "Diffview File History" },
+      { "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Diffview History" },
+    },
+    config = function()
+      require("diffview").setup({})
+    end,
+  },
+
   -- 统一查看诊断/引用/quickfix
   {
     "folke/trouble.nvim",
