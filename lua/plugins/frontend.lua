@@ -4,53 +4,37 @@ return {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
     config = function()
-      local languages = {
-        "javascript",
-        "typescript",
-        "tsx",
-        "html",
-        "css",
-        "svelte",
-        "c",
-        "cpp",
-        "rust",
-        "go",
-        "gomod",
-        "gosum",
-        "gowork",
-        "gotmpl",
-      }
-
       local ok_configs, configs = pcall(require, "nvim-treesitter.configs")
-      if ok_configs then
-        configs.setup({
-          ensure_installed = languages,
-          highlight = { enable = true },
-        })
+      if not ok_configs then
         return
       end
 
-      local ok_ts, ts = pcall(require, "nvim-treesitter")
-      if not ok_ts then
-        return
-      end
-      ts.setup({
-        install_dir = vim.fn.stdpath("data") .. "/site",
-      })
-      pcall(ts.install, languages)
-
-      vim.api.nvim_create_autocmd("FileType", {
-        pattern = "*",
-        callback = function()
-          pcall(vim.treesitter.start)
-        end,
+      configs.setup({
+        ensure_installed = {
+          "javascript",
+          "typescript",
+          "tsx",
+          "html",
+          "css",
+          "svelte",
+          "c",
+          "cpp",
+          "rust",
+          "go",
+          "gomod",
+          "gosum",
+          "gowork",
+          "gotmpl",
+        },
+        auto_install = true,
+        highlight = { enable = true },
       })
     end,
   },
 
   {
     "prettier/vim-prettier",
-    run = "yarn install --frozen-lockfile --production",
+    build = "yarn install --frozen-lockfile --production",
     ft = { "javascript", "javascriptreact", "typescript", "typescriptreact", "html", "css", "markdown" },
     config = function()
       vim.g.prettier_autoformat = 1

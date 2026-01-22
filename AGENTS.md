@@ -1,94 +1,116 @@
-概述
+# AGENTS.md (Project Rules)
+## Overview
+- Project: nvim-config
+- Purpose: A portable, one-command Neovim configuration for multiple devices.
+- Tech stack: LazyVim, Lua.
+- Key paths: init.lua, lua/, docs/, test/, tmux/, lazy-lock.json, README.md.
+- Collaboration: Single-agent; the owner is the sole approver.
 
-本文件是项目级 AGENTS 规范模板，用于定义多智能体在技术项目中的协作方式与权限边界。
-核心目标：负责人绝对主导、多智能体像真实团队协作、禁止自动改动代码逻辑。
+## Core Principles
+1) Portability comes first.
+2) Keep changes minimal and intentional.
+3) Prefer stable, predictable behavior over novelty.
+4) Document non-obvious behavior changes.
+5) Keep startup reliable and clean.
 
-一、核心原则
-1) 文档可写，代码禁写
-- AI 仅可写文档类文件（.md/.txt 等）。
-- 任何代码或配置变更必须由负责人明确授权（WRITE_CODE），并指定范围。
+## Domain Philosophies (Master-Level)
+### Engineering
+- Goal: A reliable, maintainable config that boots cleanly anywhere.
+- Constraints: No machine-specific assumptions or fragile startup ordering.
+- Evidence: Clean startup on a fresh machine; no errors in :messages.
+- Failure Cost: Editor becomes unusable or inconsistent across devices.
+- Tradeoffs: Prefer simplicity and clarity over complex customization.
+- Non-negotiables: The config must load without manual fixes after clone.
 
-2) 分层协作 + 代表制
-- 个人层：每个 agent 维护 plan/log/inbox/outbox。
-- 部门层：部门内讨论只在部门频道进行。
-- 全局层：跨部门沟通由部门代表发起与汇总。
-- 领导层：所有部门代表向最高负责人汇报。
+### Product (Developer Experience)
+- Goal: Fast, consistent editing workflow across machines.
+- Constraints: Avoid friction in install and daily use.
+- Evidence: One-command install and :Lazy sync complete without errors.
+- Failure Cost: Slow onboarding or broken workflows.
+- Tradeoffs: Favor stable defaults over experimental features.
+- Non-negotiables: Core workflows remain discoverable and stable.
 
-3) 结果导向汇报
-- 不需要逐行代码汇报。
-- 汇报只包含：交付物、风险、下一步、所需支持。
+## Product & Project Standards
+- Goals: One-command setup; consistent behavior across devices.
+- Success signals: Fresh clone boots without errors; no per-machine edits required.
+- Scope: Repository-local Neovim config and supporting docs.
+- Release: Normal release; no special gates.
 
-二、组织架构与汇报链路
-当前组织架构（可按需扩展）：
-- human/gong（最高负责人）
-  - ai/tech-lead/rep-01（技术负责人/DRI）
-    - ai/backend/rep-01（后端代表）
-    - ai/frontend/rep-01（前端代表）
-  - ai/agent-orchestrator/01（AI 编排负责人/跨部门）
+## 12 Golden Rules (Why / How / Check)
+1) Keep the config portable.
+   - Why: The project exists to work across devices.
+   - How: Avoid absolute paths and machine-specific settings.
+   - Check: No device-specific paths added in diffs.
+2) Follow LazyVim conventions.
+   - Why: Consistency reduces conflicts and surprises.
+   - How: Use the standard plugin spec layout and patterns.
+   - Check: New additions match existing LazyVim structure.
+3) Make changes as small as possible.
+   - Why: Smaller diffs reduce breakage risk.
+   - How: Limit edits to the smallest necessary area.
+   - Check: Diffs are scoped to the requested change.
+4) Document behavior changes.
+   - Why: Portability requires shared understanding.
+   - How: Update docs when workflows or keymaps change.
+   - Check: docs/ reflects new behavior.
+5) Keep startup stable.
+   - Why: Broken startup blocks all work.
+   - How: Avoid heavy sync or blocking work on startup.
+   - Check: No new startup errors introduced.
+6) Avoid plugin sprawl.
+   - Why: Extra plugins increase maintenance cost.
+   - How: Add only when there is a clear need.
+   - Check: Each plugin has a stated purpose.
+7) Keep keymaps consistent.
+   - Why: Consistency improves muscle memory.
+   - How: Follow existing leader prefixes and patterns.
+   - Check: No conflicting mappings are added.
+8) Treat the lockfile as a contract.
+   - Why: Reproducibility across machines.
+   - How: Update lazy-lock.json only when plugin versions change.
+   - Check: Lockfile changes correspond to plugin updates.
+9) Do not commit secrets.
+   - Why: Security and portability.
+   - How: Keep tokens and private keys out of config.
+   - Check: No secrets in diffs.
+10) Keep files ASCII unless required.
+   - Why: Portability and tooling compatibility.
+   - How: Use ASCII for new content by default.
+   - Check: New files are ASCII-only.
+11) Keep docs accurate.
+   - Why: Users rely on docs for setup.
+   - How: Update README or docs when instructions change.
+   - Check: Docs match current behavior.
+12) Require explicit owner request for code/config edits.
+   - Why: Single-owner control of changes.
+   - How: Only edit code/config when asked.
+   - Check: Changes map to a clear owner request.
 
-组织架构文件：coordination/org_chart.md
+## Scope Boundaries
+- In scope: All paths in this repository.
+- Forbidden: None specified.
+- High-risk areas: None specified.
 
-三、协作系统（agent-collab）
-协作资料统一放在：
-- 工作副本：agent-collab/
-- 模板副本：agent-collab.template/
+## Permission Model
+- Docs can be edited when requested.
+- Code and config changes require explicit owner request.
+- No forbidden paths; repo-wide edits are allowed with approval.
 
-建议结构：
-- agents/：角色计划与日志
-- channels/：部门频道、全局频道、领导频道
-- coordination/：requests/decisions/risks/roadmap/standups/org_chart
-- templates/：新增角色或部门的模板（含 role/ 复制包）
+## Execution Rules
+- Default to proposing changes before writing files.
+- Keep diffs minimal and scoped to the request.
+- Avoid destructive commands and history rewrites.
+- Note any assumptions or missing information.
 
-四、新会话 = 新员工接入流程
-1) 角色判断
-- 接管旧角色：必须复用原 agent.id，不允许新建 ID。
-- 负责新模块：创建新的唯一 agent.id。
+## Quality Bar
+- Tests: Not required.
+- Evidence of done: Requested changes applied; no obvious startup errors if checked.
 
-2) 接管旧角色
-- 复用原 agent.id 的 plan/log/inbox/outbox。
-- 在 log 中写明“接管说明”，标注时间与职责范围。
+## Decision & Accountability
+- Decision owner: Single owner.
+- Decision log: Git commit messages (no separate log defined).
+- Risk log: None specified; if needed, record in this file.
 
-3) 新建角色
-- 选择唯一 ID（推荐 ai/<dept>/rep-01 或 ai/<dept>/<n>）。
-- 从 templates/role/ 复制为 agents/<id>/。
-- 替换文件内的 ID 与角色信息。
-- 在 agents/<id>/ 下创建空的 AGENTS.md（由负责人后续注入角色规范）。
-- 人类角色使用 agents/human/<name>/。
-- 在部门频道公告加入。
-- 如果是代表角色，必须在 global + leadership 频道公告。
-
-五、沟通路径
-- 一对一：agents/<id>/inbox.md 与 outbox.md
-- 部门内：channels/dept-*.md
-- 跨部门：channels/global.md（仅代表）
-- 领导汇报：channels/leadership.md 或 agents/human/<owner>/inbox.md
-
-六、记录与决策
-- 决策：coordination/decisions.md
-- 请求：coordination/requests.md
-- 风险：coordination/risks.md
-- 进度：coordination/standups.md
-- 组织架构：coordination/org_chart.md
-- 全部 append-only，不改写历史
-
-七、权限边界
-禁止 AI 自动执行：
-- 修改任何源代码文件（.js/.ts/.py/.go/.java 等）
-- 修改配置文件（.env、Dockerfile、CI、部署脚本）
-- 自动 refactor、自动 patch、自动修 bug
-- 执行带副作用的系统指令
-
-八、交互规则
-- 默认文档模式：只输出文本，不写文件。
-- 若需求不明确，必须先确认是否允许写入。
-
-九、可覆盖默认规则的指令
-- WRITE_DOC：允许修改文档类文件
-- WRITE_CODE：允许修改代码文件（需谨慎）
-- APPLY_PATCH：仅应用用户提供的补丁
-- GENERATE_CODE：只输出代码文本，不写文件
-- 执行前必须声明“已进入特权模式”
-
-十、模板使用说明
-- 本文件用于生成项目内 AGENTS.md。
-- 由负责人手动替换/裁剪后生效。
+## Risks & Open Questions
+- Risks: None specified.
+- Open questions: None.

@@ -88,11 +88,5 @@ vim.api.nvim_create_user_command('Time', function()
 	vim.api.nvim_put({ timestamp }, 'l', true, true)
 end, {})
 
--- 设置加入时间戳方便记录
-vim.api.nvim_create_user_command('Time', function()
-	local timestamp = os.date("%Y-%m-%d %H:%M:%S")
-	vim.api.nvim_put({ timestamp }, 'l', true, true)
-end, {})
-
 -- 设置系统粘贴板
 vim.opt.clipboard = "unnamedplus"

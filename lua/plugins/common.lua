@@ -78,7 +78,6 @@ return {
         },
       })
 
-      vim.keymap.set("n", "<C-b>", "<cmd>Neotree toggle<CR>", { desc = "Toggle NeoTree" })
     end,
   },
 
