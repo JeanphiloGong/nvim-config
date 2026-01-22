@@ -17,6 +17,7 @@ return {
           "html",
           "css",
           "svelte",
+          "solidity",
           "c",
           "cpp",
           "rust",
