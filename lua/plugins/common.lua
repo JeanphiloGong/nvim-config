@@ -64,6 +64,33 @@ return {
             hide_gitignored = true,
           },
         },
+        git_status = {
+          window = {
+            mappings = {
+              ["D"] = "open_and_diff",
+            },
+          },
+          commands = {
+            open_and_diff = function(state)
+              local commands = require("neo-tree.sources.common.commands")
+              commands.open(state)
+              vim.schedule(function()
+                local tab = vim.api.nvim_get_current_tabpage()
+                local cur = vim.api.nvim_get_current_win()
+                for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+                  if vim.wo[win].diff then
+                    if win == cur then
+                      vim.wo[win].diff = false
+                    else
+                      vim.api.nvim_win_close(win, true)
+                    end
+                  end
+                end
+                require("gitsigns").diffthis("~")
+              end)
+            end,
+          },
+        },
         default_component_configs = {
           git_status = {
             symbols = {
