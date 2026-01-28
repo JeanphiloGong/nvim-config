@@ -1,0 +1,79 @@
+##### 基本设置（WSL 通用）#####
+set -g prefix C-a
+unbind C-b
+bind C-a send-prefix
+set -g default-terminal "screen-256color"
+set-option -sa terminal-overrides ',xterm-256color:RGB'
+
+# 鼠标支持（含滚动与选择）
+set -g mouse on
+
+# 复制模式使用 vi 风格按键
+setw -g mode-keys vi
+
+# 复制模式快捷键（在 vim/nvim 内保持原按键）
+unbind -n C-o
+bind -n C-o if-shell \
+  "ps -o comm= -t '#{pane_tty}' | grep -iqE '^(vim|nvim)$'" \
+  "send-keys C-o" \
+  "copy-mode"
+
+# 复制模式搜索与跳转
+bind / command-prompt -p "search down" "send -X search-forward '%%'"
+bind ? command-prompt -p "search up" "send -X search-backward '%%'"
+
+# 历史行数（适度增大，避免滚动卡顿）
+set -g history-limit 10000
+
+##### 面板切换 #####
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+
+##### Plugins（保持与主配置一致）#####
+set -g @plugin 'tmux-plugins/tpm'
+set -g @plugin 'tmux-plugins/tmux-sensible'
+set -g @plugin 'jimeh/tmux-themepack'
+set -g @plugin 'christoomey/vim-tmux-navigator'
+set -g @plugin 'tmux-plugins/tmux-yank'
+set -g @plugin 'tmux-plugins/tmux-resurrect'
+set -g @plugin 'tmux-plugins/tmux-continuum'
+
+##### tmux-yank：禁止默认绑定 y（防止被 clip.exe 覆盖）#####
+set -g @yank_key 'None'
+
+##### tmux-yank #####
+# 默认 y 会 yank 并退出复制模式（copy-pipe-and-cancel）；这里改为 yank 后仍停留在复制模式（copy-pipe）
+# set -g @yank_action 'copy-pipe'
+
+##### tmux-yank：指定 Windows 剪贴板工具（UTF-8 友好）#####
+set -g @clipboard 'win32yank.exe -i --crlf'
+set -g @yank_selection 'clipboard'
+
+##### Continuum settings #####
+set -g @continuum-restore 'on'
+set -g @continuum-save-interval '15'
+
+##### tmux-resurrect #####
+set -g @resurrect-capture-pane-contents 'on'
+
+##### 初始化 TPM（必须放在最底部）#####
+run '~/.tmux/plugins/tpm/tpm'
+
+##### 状态栏（CPU / RAM / 时间）#####
+set -g status-interval 2
+set -g status-right-length 200
+set -g status-left-length 40
+
+# in .tmux.conf
+set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
+set -g status-left ""
+
+##### Yank：复制后仍停留在 copy-mode（Windows UTF-8）#####
+# 注意：这段必须放在 TPM 之后，确保覆盖 tmux-yank 的默认绑定
+unbind-key -T copy-mode-vi y
+unbind-key -T copy-mode y
+
+bind-key -T copy-mode-vi y send -X copy-pipe "win32yank.exe -i --crlf"
+bind-key -T copy-mode y     send -X copy-pipe "win32yank.exe -i --crlf"
