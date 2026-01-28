@@ -2,7 +2,7 @@ return {
   -- Git 变更标记与快速暂存
   {
     "lewis6991/gitsigns.nvim",
-    event = { "BufReadPre", "BufNewFile" },
+    lazy = false,
     config = function()
       require("gitsigns").setup({
         signs = { add = { text = "+" }, change = { text = "~" }, delete = { text = "_" } },

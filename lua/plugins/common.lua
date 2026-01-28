@@ -38,6 +38,26 @@ return {
       "MunifTanjim/nui.nvim",
     },
     config = function()
+      local function diff_with_gitsigns(base)
+        local gs = require("gitsigns")
+        local cache = require("gitsigns.cache").cache
+        local bufnr = vim.api.nvim_get_current_buf()
+        local function try_diff(remaining)
+          if cache[bufnr] then
+            gs.diffthis(base)
+            return
+          end
+          if remaining <= 0 then
+            gs.diffthis(base)
+            return
+          end
+          vim.defer_fn(function()
+            try_diff(remaining - 1)
+          end, 50)
+        end
+        try_diff(20)
+      end
+
       require("neo-tree").setup({
         close_if_last_window = true,
         enable_git_status = true,
@@ -87,7 +107,7 @@ return {
                     end
                   end
                 end
-                require("gitsigns").diffthis()
+                diff_with_gitsigns()
               end)
             end,
             open_and_diff_head = function(state)
@@ -105,7 +125,7 @@ return {
                     end
                   end
                 end
-                require("gitsigns").diffthis("~")
+                diff_with_gitsigns("~")
               end)
             end,
           },
