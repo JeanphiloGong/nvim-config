@@ -47,6 +47,7 @@
   - 在 git_status 视图中可直接回车跳转到改动文件。
   - 在 git_status 视图中按 `D` 打开并进入 diff（对齐 `git diff`，会覆盖当前 tab 内已有 diff 视图）。
   - 在 git_status 视图中按 `H` 打开并对比 `HEAD~1`（用于查看最近一次提交）。
+  - `D`/`H` 会在打开文件后等待 gitsigns attach 完成，首次使用无需先进入文件。
   - 在 filesystem 视图中可查看 Git 标记并进行常规文件操作。
 
 ## Git Diff 视图：diffview.nvim
