@@ -26,8 +26,8 @@
 
 ## 搜索与跳转
 - `nvim-telescope/telescope.nvim` + `telescope-fzf-native.nvim`
-  - 快捷键：`<leader>ff` 文件，`<leader>fg` 全局搜索（ripgrep），`<leader>fb` 缓冲区，`<leader>fh` 帮助。
-  - LSP 入口：`gd` 定义，`gr` 引用，`gi` 实现（调用 Telescope 内置）。
+  - 快捷键：`<leader>ff` 文件，`<leader>fg` 全局搜索（ripgrep），`<leader>fb` 缓冲区，`<leader>fh` 帮助；在 Telescope 内可用 `<leader>s` 智能分屏打开条目。
+  - LSP 入口：`gd` 智能分屏打开定义（宽高比决定横/竖）、`gD` 定义列表、`gr` 引用、`gi` 实现。
   - 界面前缀/指示符已定制，安装时会自动编译 fzf-native。
 
 ## 包裹/编辑增强

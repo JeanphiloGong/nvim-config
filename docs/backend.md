@@ -24,7 +24,7 @@
 ## 日常使用
 - Mason 管理：`:Mason` 查看状态，`:MasonInstall <pkg>`/`:MasonUninstall <pkg>` 控制安装，`:MasonLog` 查看日志。
 - LSP 状态：`:LspInfo` 查看当前 buffer 的客户端，`:LspStop <name>`/`:LspStart <name>` 手动控制。
-- 预设按键：在 Svelte buffer 中提供 `gd` 跳转定义、`K` 悬停、`<leader>rn` 重命名（其他语言可使用 Telescope 全局映射 `gd/gr/gi` 调用 LSP）。
+- 预设按键：在 Svelte buffer 中提供 `gd` 智能分屏打开定义（宽高比决定横/竖）、`gD` 定义列表、`K` 悬停、`<leader>rn` 重命名（其他语言可使用全局映射 `gd/gD/gr/gi` 调用 LSP）。
 - 诊断与引用：结合 `trouble.nvim`（`<leader>xx`）或 Telescope（`gr` 引用、`gi` 实现）统一查看。
 
 ## 扩展与自定义

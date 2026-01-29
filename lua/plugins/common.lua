@@ -158,6 +158,38 @@ return {
     config = function()
       local telescope = require("telescope")
       local builtin = require("telescope.builtin")
+      local actions = require("telescope.actions")
+      local function select_smart(prompt_bufnr)
+        local columns = vim.o.columns
+        local lines = vim.o.lines
+        if lines > 0 and (columns / lines) >= 2 then
+          actions.select_vertical(prompt_bufnr)
+        else
+          actions.select_horizontal(prompt_bufnr)
+        end
+      end
+      local function lsp_definition_split()
+        local params = vim.lsp.util.make_position_params()
+        vim.lsp.buf_request(0, "textDocument/definition", params, function(err, result, ctx)
+          if err or not result or vim.tbl_isempty(result) then
+            return
+          end
+          local location = result
+          if vim.tbl_islist(result) then
+            location = result[1]
+          end
+          local client = ctx and vim.lsp.get_client_by_id(ctx.client_id) or nil
+          local encoding = client and client.offset_encoding or "utf-16"
+          local win_width = vim.api.nvim_win_get_width(0)
+          local win_height = vim.api.nvim_win_get_height(0)
+          if win_height > 0 and (win_width / win_height) >= 2 then
+            vim.cmd("vsplit")
+          else
+            vim.cmd("split")
+          end
+          vim.lsp.util.jump_to_location(location, encoding)
+        end)
+      end
 
       telescope.setup({
         defaults = {
@@ -165,6 +197,14 @@ return {
           selection_caret = "➤ ",
           layout_strategy = "horizontal",
           layout_config = { preview_width = 0.6 },
+          mappings = {
+            i = {
+              ["<leader>s"] = select_smart,
+            },
+            n = {
+              ["<leader>s"] = select_smart,
+            },
+          },
         },
       })
       pcall(telescope.load_extension, "fzf")
@@ -174,7 +214,8 @@ return {
       vim.keymap.set("n", "<leader>fb", builtin.buffers, {})
       vim.keymap.set("n", "<leader>fh", builtin.help_tags, {})
 
-      vim.keymap.set("n", "gd", builtin.lsp_definitions, {})
+      vim.keymap.set("n", "gd", lsp_definition_split, {})
+      vim.keymap.set("n", "gD", builtin.lsp_definitions, {})
       vim.keymap.set("n", "gr", builtin.lsp_references, {})
       vim.keymap.set("n", "gi", builtin.lsp_implementations, {})
     end,
