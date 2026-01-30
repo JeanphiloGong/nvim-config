@@ -19,7 +19,7 @@ touch "$f"
 if tmux display-popup -E -w 80% -h 60% -T "Focus" "$editor" "$f" 2>/dev/null; then
   :
 else
-  tmux new-window -n "Focus" "FOCUS_FILE=\"$f\" FOCUS_EDITOR=\"$editor\" sh -lc 'touch \"\\$FOCUS_FILE\"; \"\\$FOCUS_EDITOR\" \"\\$FOCUS_FILE\"; line=\\$(head -n 1 \"\\$FOCUS_FILE\" 2>/dev/null | tr -d \"\\\\r\"); [ -z \"\\$line\" ] && line=\"-\"; current=\\$(tmux show -gv @focus 2>/dev/null || true); [ \"\\$line\" = \"\\$current\" ] || tmux set -g @focus \"\\$line\"'"
+  tmux new-window -n "Focus" "FOCUS_FILE=\"$f\" FOCUS_EDITOR=\"$editor\" sh -lc 'touch \"\$FOCUS_FILE\"; \"\$FOCUS_EDITOR\" \"\$FOCUS_FILE\"; line=\$(head -n 1 \"\$FOCUS_FILE\" 2>/dev/null | tr -d \"\\\\r\"); [ -z \"\$line\" ] && line=\"-\"; current=\$(tmux show -gv @focus 2>/dev/null || true); [ \"\$line\" = \"\$current\" ] || tmux set -g @focus \"\$line\"'"
   exit 0
 fi
 
@@ -27,4 +27,3 @@ line="$(head -n 1 "$f" 2>/dev/null | tr -d '\r')"
 [ -z "$line" ] && line="-"
 current="$(tmux show -gv @focus 2>/dev/null || true)"
 [ "$line" = "$current" ] || tmux set -g @focus "$line"
-
