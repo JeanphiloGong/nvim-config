@@ -65,6 +65,8 @@ while IFS="$tab" read -r ts win pane path summary; do
 
   label="$ts $win $short"
   [ -n "${summary:-}" ] && label="$label | $summary"
+  # display-menu treats labels as tmux formats; escape '#' to avoid accidental expansions.
+  label="${label//#/##}"
 
   session="${win%%:*}"
   cmd="switch-client -t $session; select-window -t $win; select-pane -t $pane"
@@ -75,4 +77,3 @@ done <"$tmp"
 rm -f "$tmp"
 
 tmux "$@"
-

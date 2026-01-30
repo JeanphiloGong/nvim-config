@@ -101,8 +101,8 @@ tmux list-keys -T copy-mode-vi | grep ' y '
 Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的命令。这里提供一个 tmux
 集成脚本模板：`tmux/bin/codex-tmux-notify`。
 
-效果：
-- turn 完成时弹出一条 tmux “toast” 提示（默认用 popup，更像系统通知）：`Codex done: <session:window> | <summary?>`
+效果（推荐：不打断输入）：
+- 状态栏第 2 行常驻显示最近一次完成信息：`Codex: <session:window> | <summary?>`
   - `<summary?>` 会尽量从 notify 的 JSON 里取最后一条回复的首行（依赖 `python3`，没有也不影响跳转）
 - 快速跳回：
   - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
@@ -135,7 +135,7 @@ notify = ["/home/<you>/.local/bin/codex-tmux-notify"]
 
 ### 3) 验证
 1) 在 tmux 里运行 Codex，等它完成一次 turn。
-2) 应出现 `Codex done ...` 的 popup/message 提示（会自动消失）。
+2) 状态栏第 2 行应更新为最新的 `Codex: ...`（并写入历史文件）。
 3) 用 `<prefix> + J` 跳回最后一次完成的位置。
 4) 用 `<prefix> + C` 打开列表，选择后跳回。
 
@@ -150,10 +150,11 @@ notify 每次触发都会：
 
 可选参数（写在 `tmux/.tmux.conf(.wsl)` 里）：
 - `set -g @codex_history_limit 12`：列表最多显示多少条（默认 12）
-- `set -g @codex_notify_mode popup`：用 popup 弹窗提示（推荐；不支持时自动降级为 message）
-- `set -g @codex_notify_mode message`：用 tmux 消息条提示
-- `set -g @codex_notify_mode off`：关闭提示（只保留跳回能力）
+- `set -g @codex_notify_mode off`：不弹窗/不消息条（推荐，配合第 2 行状态栏即可）
+- `set -g @codex_notify_mode message`：额外用 tmux 消息条提示（非模态）
+- `set -g @codex_notify_mode popup`：额外用 popup 弹窗提示（模态：会捕获按键并暂停 pane 刷新）
 - `set -g @codex_popup_corner br`：popup 位置：`tr/br/tl/bl`（右上/右下/左上/左下）
+- `set -g @codex_popup_margin 1`：popup 距离窗口边缘的留白（默认 1）
 - `set -g @codex_popup_width 60`：popup 宽度（字符数）
 - `set -g @codex_popup_height 6`：popup 高度（字符数）
 - `set -g @codex_popup_duration 2`：popup 停留秒数

@@ -55,6 +55,7 @@ tmux set -gq @codex_last_win "$win"
 tmux set -gq @codex_last_pane "$pane"
 tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
+tmux refresh-client -S 2>/dev/null || true
 
 # Append to a simple history file so tmux can show a menu (latest first).
 # Format (tab-separated):
@@ -99,28 +100,33 @@ elif [ "$mode" = "popup" ]; then
   #
   # Position is configurable via @codex_popup_corner:
   #   tr|br|tl|bl (default: br)
+  # NOTE: tmux popups are modal and will capture input while shown.
   # Fall back to display-message if display-popup isn't available.
   corner="$(tmux show -gv @codex_popup_corner 2>/dev/null || true)"
   [ -n "$corner" ] || corner="br"
 
+  # Margin from the client edge (in cells). Default: 1.
+  margin="$(tmux show -gv @codex_popup_margin 2>/dev/null || true)"
+  [ -n "$margin" ] || margin="1"
+
   # These are tmux format strings (evaluated by tmux, not by the shell).
-  # We compute "right/bottom minus popup size" so the box anchors to corners.
+  # We anchor to the *client* (whole window), not the current pane.
   case "$corner" in
     tr)
-      pos_x='#{e|-:#{popup_pane_right},#{popup_width}}'
-      pos_y='#{popup_pane_top}'
+      pos_x="#{e|-:#{e|-:#{client_width},#{popup_width}},$margin}"
+      pos_y="$margin"
       ;;
     tl)
-      pos_x='#{popup_pane_left}'
-      pos_y='#{popup_pane_top}'
+      pos_x="$margin"
+      pos_y="$margin"
       ;;
     bl)
-      pos_x='#{popup_pane_left}'
-      pos_y='#{e|-:#{popup_pane_bottom},#{popup_height}}'
+      pos_x="$margin"
+      pos_y="#{e|-:#{e|-:#{client_height},#{popup_height}},$margin}"
       ;;
     br|*)
-      pos_x='#{e|-:#{popup_pane_right},#{popup_width}}'
-      pos_y='#{e|-:#{popup_pane_bottom},#{popup_height}}'
+      pos_x="#{e|-:#{e|-:#{client_width},#{popup_width}},$margin}"
+      pos_y="#{e|-:#{e|-:#{client_height},#{popup_height}},$margin}"
       ;;
   esac
 
