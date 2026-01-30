@@ -67,7 +67,7 @@ go install golang.org/x/tools/gopls@latest
 
 ## 常用快捷键
 - 文件树：`<C-b>` 打开/关闭 Neo-tree。
-- 搜索/跳转（Telescope）：`<leader>ff` 文件、`<leader>fg` 全局搜索、`<leader>fb` 缓冲区、`<leader>fh` 帮助；`gd` 智能分屏打开定义（宽高比决定横/竖）、`gD` 定义列表、`gr` 引用、`gi` 实现；在 Telescope 内用 `<leader>s` 智能分屏打开条目。
+- 搜索/跳转（Telescope）：`<leader>ff` 文件、`<leader>fg` 全局搜索、`<leader>fb` 缓冲区、`<leader>fh` 帮助；`gd` 智能分屏打开定义（优先均衡分布，必要时再按宽高比兜底）、`gD` 定义列表、`gr` 引用、`gi` 实现；在 Telescope 内用 `<leader>s` 智能分屏打开条目。
 - 诊断列表：`<leader>xx` 打开 Trouble 诊断，`<leader>xq` 打开 quickfix。
 - 补全：`<Tab>` 确认候选，`<C-Space>` 触发补全。
 - Markdown：`<leader>mp` 预览，`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。

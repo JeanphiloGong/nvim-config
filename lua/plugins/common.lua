@@ -159,15 +159,62 @@ return {
       local telescope = require("telescope")
       local builtin = require("telescope.builtin")
       local actions = require("telescope.actions")
+      local action_state = require("telescope.actions.state")
+
+      local function smart_split_direction(base_win)
+        -- Prefer a "balanced" layout:
+        -- - If we already have more columns than rows, create a row (split).
+        -- - If we have more rows than columns, create a column (vsplit).
+        -- - If equal, fall back to current window aspect ratio.
+        local wins = vim.api.nvim_tabpage_list_wins(0)
+        local cols, rows, normal_wins = {}, {}, {}
+        for _, win in ipairs(wins) do
+          local cfg = vim.api.nvim_win_get_config(win)
+          if cfg.relative == "" then
+            table.insert(normal_wins, win)
+            local pos = vim.api.nvim_win_get_position(win)
+            rows[pos[1]] = true
+            cols[pos[2]] = true
+          end
+        end
+
+        local col_count = vim.tbl_count(cols)
+        local row_count = vim.tbl_count(rows)
+        if col_count > row_count then
+          return "horizontal"
+        elseif row_count > col_count then
+          return "vertical"
+        end
+
+        local win = base_win
+        if not win or win == 0 then
+          win = vim.api.nvim_get_current_win()
+        end
+        if vim.api.nvim_win_get_config(win).relative ~= "" then
+          win = normal_wins[1] or win
+        end
+
+        local win_width = vim.api.nvim_win_get_width(win)
+        local win_height = vim.api.nvim_win_get_height(win)
+        if win_height > 0 and (win_width / win_height) >= 2 then
+          return "vertical"
+        end
+        return "horizontal"
+      end
+
       local function select_smart(prompt_bufnr)
-        local columns = vim.o.columns
-        local lines = vim.o.lines
-        if lines > 0 and (columns / lines) >= 2 then
+        local picker = action_state.get_current_picker(prompt_bufnr)
+        local base_win = picker and picker.original_win_id or nil
+        if smart_split_direction(base_win) == "vertical" then
           actions.select_vertical(prompt_bufnr)
         else
           actions.select_horizontal(prompt_bufnr)
         end
+        vim.schedule(function()
+          pcall(vim.cmd, "wincmd =")
+        end)
       end
+
       local function lsp_definition_split()
         local params = vim.lsp.util.make_position_params()
         vim.lsp.buf_request(0, "textDocument/definition", params, function(err, result, ctx)
@@ -180,13 +227,12 @@ return {
           end
           local client = ctx and vim.lsp.get_client_by_id(ctx.client_id) or nil
           local encoding = client and client.offset_encoding or "utf-16"
-          local win_width = vim.api.nvim_win_get_width(0)
-          local win_height = vim.api.nvim_win_get_height(0)
-          if win_height > 0 and (win_width / win_height) >= 2 then
+          if smart_split_direction(0) == "vertical" then
             vim.cmd("vsplit")
           else
             vim.cmd("split")
           end
+          vim.cmd("wincmd =")
           vim.lsp.util.jump_to_location(location, encoding)
         end)
       end
