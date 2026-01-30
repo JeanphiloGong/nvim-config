@@ -93,3 +93,62 @@ tmux list-keys -T copy-mode-vi | grep ' y '
   - `ls -ld ~/.tmux-focus.md`
 - 如果状态栏频繁闪烁，通常是 `status-interval` 太短或 status-right 命令太重：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
+
+## Codex（可选）：turn 完成提示 + 快速跳回
+如果你在 tmux 里运行 Codex CLI，经常会切到别的 pane 做其他事，那么“回到 Codex 输出的 pane”
+会有点麻烦。
+
+Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的命令。这里提供一个 tmux
+集成脚本模板：`tmux/bin/codex-tmux-notify`。
+
+效果：
+- turn 完成时弹出一条 tmux “toast” 提示：`Codex done: <session:window> | <summary?>`
+  - `<summary?>` 会尽量从 notify 的 JSON 里取最后一条回复的首行（依赖 `python3`，没有也不影响跳转）
+- 快速跳回：
+  - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
+  - `<prefix> + C`：弹出最近完成列表，选择后跳回（同时跑多个 Codex 也能用）
+
+### 1) 安装/放置脚本（本机一次性）
+建议把脚本放到 `~/.local/bin`（或任何在 PATH 里的目录）：
+```sh
+mkdir -p ~/.local/bin
+# 如果你就在本仓库根目录执行（~/.config/nvim），可以用 $PWD：
+# ln -sf "$PWD/tmux/bin/codex-tmux-notify" ~/.local/bin/codex-tmux-notify
+#
+# 更通用的写法（本仓库默认安装在 ~/.config/nvim）：
+ln -sf "$HOME/.config/nvim/tmux/bin/codex-tmux-notify" ~/.local/bin/codex-tmux-notify
+chmod +x ~/.local/bin/codex-tmux-notify
+```
+
+### 2) 配置 Codex notify（本机一次性）
+编辑 `~/.codex/config.toml`，加入（路径请写绝对路径）：
+```toml
+notify = ["/home/<you>/.local/bin/codex-tmux-notify"]
+```
+注意：
+- `notify = [...]` 必须写在 `config.toml` 的“全局区域”（第一个 `[projects."..."]` 之前），不要写进某个 `[projects]` 里。
+- TOML 不支持 `~` / `$HOME` 展开，所以这里必须写绝对路径。
+- 修改 `~/.codex/config.toml` 后，需要重启一次 Codex CLI（新启动的 codex 才会读取新配置）。
+
+### 3) 验证
+1) 在 tmux 里运行 Codex，等它完成一次 turn。
+2) 应出现 `Codex done: ...` 提示（5 秒自动消失）。
+3) 用 `<prefix> + J` 跳回最后一次完成的位置。
+4) 用 `<prefix> + C` 打开列表，选择后跳回。
+
+### 4) 多个 Codex 同时完成怎么办？
+notify 每次触发都会：
+- 更新 `@codex_last_win/@codex_last_pane`（用于“一键跳回最后一个”）
+- 追加一条到 `~/.tmux-codex-history`（用于历史列表）
+
+打开历史列表（无额外依赖，使用 tmux 自带 `display-menu`）：
+- `<prefix> + C`：弹出最近完成列表，选择后跳回对应 pane
+  - 列表按“最新在上”显示
+
+可选参数（写在 `tmux/.tmux.conf(.wsl)` 里）：
+- `set -g @codex_history_limit 12`：列表最多显示多少条（默认 12）
+- `set -g @codex_notify_mode off`：关闭 turn 完成提示（只保留跳回能力）
+
+排查：
+- 如果你“跳不回去”，最常见原因是你在不同 tmux server（例如用了不同的 `tmux -L <name>`）。
+  - 同一个 tmux server 里的不同 session 是可以跳转的（本模板会先 `switch-client` 再切 window/pane）。

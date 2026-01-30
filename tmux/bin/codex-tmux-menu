@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Show a tmux menu for recent Codex completions (newest first) and jump back.
+# History is appended by tmux/bin/codex-tmux-notify in a simple TSV file.
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
+[ -n "$file" ] || file="$HOME/.tmux-codex-history"
+
+if [ ! -f "$file" ]; then
+  tmux display-message "Codex: no history"
+  exit 0
+fi
+
+limit="$(tmux show -gv @codex_history_limit 2>/dev/null || true)"
+[ -n "$limit" ] || limit=12
+
+tmp="$(mktemp 2>/dev/null || mktemp -t tmux-codex)"
+if ! tail -n "$limit" "$file" 2>/dev/null | awk '{a[NR]=$0} END{for(i=NR;i>=1;i--) print a[i]}' >"$tmp"; then
+  rm -f "$tmp"
+  tmux display-message "Codex: no history"
+  exit 0
+fi
+
+if [ ! -s "$tmp" ]; then
+  rm -f "$tmp"
+  tmux display-message "Codex: no history"
+  exit 0
+fi
+
+target_pane="${TMUX_PANE:-}"
+if [ -n "$target_pane" ]; then
+  set -- display-menu -t "$target_pane" -T "Codex (recent)" -x R -y P
+else
+  set -- display-menu -T "Codex (recent)" -x R -y P
+fi
+
+# Optional: add a "jump last" entry.
+last_pane="$(tmux show -gv @codex_last_pane 2>/dev/null || true)"
+last_win="$(tmux show -gv @codex_last_win 2>/dev/null || true)"
+if [ -n "$last_pane" ] && [ -n "$last_win" ]; then
+  last_session="${last_win%%:*}"
+  set -- "$@" "Jump last: $last_win $last_pane" "L" "switch-client -t $last_session; select-window -t $last_win; select-pane -t $last_pane"
+fi
+
+tab="$(printf "\t")"
+i=1
+letters=abcdef
+
+while IFS="$tab" read -r ts win pane path summary; do
+  [ -n "$win" ] || continue
+
+  short="${path##*/}"
+  [ -n "$short" ] || short="$path"
+
+  if [ "$i" -le 9 ]; then
+    key="$i"
+  else
+    idx=$((i - 9))
+    key="$(printf "%s" "$letters" | cut -c "$idx" 2>/dev/null || true)"
+    [ -n "$key" ] || key=""
+  fi
+
+  label="$ts $win $short"
+  [ -n "${summary:-}" ] && label="$label | $summary"
+
+  session="${win%%:*}"
+  cmd="switch-client -t $session; select-window -t $win; select-pane -t $pane"
+  set -- "$@" "$label" "$key" "$cmd"
+  i=$((i + 1))
+done <"$tmp"
+
+rm -f "$tmp"
+
+tmux "$@"
+

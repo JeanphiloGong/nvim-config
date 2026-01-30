@@ -58,7 +58,7 @@ set -g @continuum-save-interval '15'
 ##### tmux-resurrect #####
 set -g @resurrect-capture-pane-contents 'on'
 
-##### 初始化 TPM（必须放在最底部）#####
+##### 初始化 TPM（建议靠近底部；本文件后面还有覆盖绑定）#####
 run '~/.tmux/plugins/tpm/tpm'
 
 ##### 状态栏（Focus / CPU / RAM / 时间）#####
@@ -68,6 +68,19 @@ set -g status-left-length 100
 
 # in .tmux.conf
 set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
+
+##### Codex（可选）：turn 完成提示 + 快速跳回 #####
+# 依赖 Codex CLI 的 notify hook（agent-turn-complete）把位置写入 tmux option：
+# - @codex_last_win  / @codex_last_pane：最后一次完成的位置
+# - ~/.tmux-codex-history：历史记录（用于菜单选择）
+set -g @codex_history_file "$HOME/.tmux-codex-history"
+set -g @codex_notify_mode "message" # message | off
+
+# <prefix> + C：弹出最近完成列表（最新在上），选择后跳回对应 pane
+bind-key C run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-menu"'
+
+# <prefix> + J：一键跳回“最后一次完成”的 Codex pane
+bind-key J run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-jump-last"'
 
 ##### Focus：常驻显示“当前最重要的事”（不闪烁版） #####
 
@@ -81,50 +94,10 @@ set -g @focus "-"
 set -g status-left 'FOCUS: #{@focus}'
 
 ##### 启动/重载时：仅当内容变化才更新（避免闪烁） #####
-run-shell '
-f="$HOME/.tmux-focus.md"
-[ -f "$f" ] || exit 0
-
-line=$(head -n 1 "$f" 2>/dev/null | tr -d "\015")
-[ -z "$line" ] && line="-"
-
-current=$(tmux show -gv @focus)
-
-# 只有变化才 set（关键）
-if [ "$line" != "$current" ]; then
-  tmux set -g @focus "$line"
-fi
-'
+run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-focus-sync"'
 
 ##### Focus 编辑快捷键：按 f 打开编辑，保存后同步首行 #####
-bind-key f run-shell '
-f="$HOME/.tmux-focus.md"
-
-# 自动选择编辑器
-editor="nvim"
-command -v "$editor" >/dev/null 2>&1 || editor="vim"
-command -v "$editor" >/dev/null 2>&1 || editor="vi"
-
-touch "$f"
-
-# 优先 popup（tmux >= 3.2）
-if tmux display-popup -E -w 80% -h 60% -T "Focus" "$editor" "$f" 2>/dev/null; then
-  :
-else
-  tmux new-window -n "Focus" "$editor $f"
-fi
-
-# 编辑结束后读取首行
-line=$(head -n 1 "$f" 2>/dev/null | tr -d "\015")
-[ -z "$line" ] && line="-"
-
-current=$(tmux show -gv @focus)
-
-# 只有变化才更新（避免 redraw 闪烁）
-if [ "$line" != "$current" ]; then
-  tmux set -g @focus "$line"
-fi
-'
+bind-key f run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-focus-edit"'
 
 ##### Yank：复制后仍停留在 copy-mode（Windows UTF-8）#####
 # 注意：这段必须放在 TPM 之后，确保覆盖 tmux-yank 的默认绑定

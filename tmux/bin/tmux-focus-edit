@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Edit the focus file (popup if supported) and sync first line into @focus.
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+f="$(tmux show -gv @focus_file 2>/dev/null || true)"
+[ -n "$f" ] || f="$HOME/.tmux-focus.md"
+
+editor="nvim"
+command -v "$editor" >/dev/null 2>&1 || editor="vim"
+command -v "$editor" >/dev/null 2>&1 || editor="vi"
+
+touch "$f"
+
+# Prefer popup (tmux >= 3.2). If not available, fall back to a window that
+# updates @focus after the editor exits (so we don't need hooks).
+if tmux display-popup -E -w 80% -h 60% -T "Focus" "$editor" "$f" 2>/dev/null; then
+  :
+else
+  tmux new-window -n "Focus" "FOCUS_FILE=\"$f\" FOCUS_EDITOR=\"$editor\" sh -lc 'touch \"\\$FOCUS_FILE\"; \"\\$FOCUS_EDITOR\" \"\\$FOCUS_FILE\"; line=\\$(head -n 1 \"\\$FOCUS_FILE\" 2>/dev/null | tr -d \"\\\\r\"); [ -z \"\\$line\" ] && line=\"-\"; current=\\$(tmux show -gv @focus 2>/dev/null || true); [ \"\\$line\" = \"\\$current\" ] || tmux set -g @focus \"\\$line\"'"
+  exit 0
+fi
+
+line="$(head -n 1 "$f" 2>/dev/null | tr -d '\r')"
+[ -z "$line" ] && line="-"
+current="$(tmux show -gv @focus 2>/dev/null || true)"
+[ "$line" = "$current" ] || tmux set -g @focus "$line"
+
