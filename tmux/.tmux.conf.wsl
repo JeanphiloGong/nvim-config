@@ -1,28 +1,28 @@
-##### 基本设置 #####
+##### 基本设置（WSL 通用）#####
 set -g prefix C-a
 unbind C-b
 bind C-a send-prefix
 set -g default-terminal "screen-256color"
 set-option -sa terminal-overrides ',xterm-256color:RGB'
 
-# 鼠标支持
+# 鼠标支持（含滚动与选择）
 set -g mouse on
 
-# 更好的复制模式
+# 复制模式使用 vi 风格按键
 setw -g mode-keys vi
 
-# 设置复制模式快捷键
+# 复制模式快捷键（在 vim/nvim 内保持原按键）
 unbind -n C-o
 bind -n C-o if-shell \
   "ps -o comm= -t '#{pane_tty}' | grep -iqE '^(vim|nvim)$'" \
   "send-keys C-o" \
   "copy-mode"
 
-# 搜索和跳转
+# 复制模式搜索与跳转
 bind / command-prompt -p "search down" "send -X search-forward '%%'"
 bind ? command-prompt -p "search up" "send -X search-backward '%%'"
 
-# 平滑滚动体验（避免卡）
+# 历史行数（适度增大，避免滚动卡顿）
 set -g history-limit 10000
 
 ##### 面板切换 #####
@@ -31,7 +31,7 @@ bind j select-pane -D
 bind k select-pane -U
 bind l select-pane -R
 
-##### Plugins #####
+##### Plugins（保持与主配置一致）#####
 set -g @plugin 'tmux-plugins/tpm'
 set -g @plugin 'tmux-plugins/tmux-sensible'
 set -g @plugin 'jimeh/tmux-themepack'
@@ -40,9 +40,16 @@ set -g @plugin 'tmux-plugins/tmux-yank'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
 set -g @plugin 'tmux-plugins/tmux-continuum'
 
+##### tmux-yank：禁止默认绑定 y（防止被 clip.exe 覆盖）#####
+set -g @yank_key 'None'
+
 ##### tmux-yank #####
 # 默认 y 会 yank 并退出复制模式（copy-pipe-and-cancel）；这里改为 yank 后仍停留在复制模式（copy-pipe）
-set -g @yank_action 'copy-pipe'
+# set -g @yank_action 'copy-pipe'
+
+##### tmux-yank：指定 Windows 剪贴板工具（UTF-8 友好）#####
+set -g @clipboard 'win32yank.exe -i --crlf'
+set -g @yank_selection 'clipboard'
 
 ##### Continuum settings #####
 set -g @continuum-restore 'on'
@@ -65,16 +72,6 @@ set -g status-left-length 30
 set -g status 2
 set -g status-format[1] '#[align=left]#{?@codex_last_win,#[fg=cyan]Codex#[default]: #{@codex_last_win}#{?@codex_last_summary, | #{=/60/...:@codex_last_summary},},#[fg=cyan]Codex#[default]: -}#[align=right]#[fg=colour208,bold]Focus: #{=/60/...:@focus}#[default]'
 
-# Focus：常驻显示“当前最重要的事”
-# - 展示：状态栏第 2 行右侧显示 tmux option `@focus`（避免每次刷新都执行外部命令）
-# - 来源：编辑 `~/.tmux-focus.md` 后，将首行同步到 `@focus`
-set -g @focus "-"
-# 第 1 行左侧只显示 session 名称（导航信息，避免抢占注意力）
-set -g status-left '#[fg=colour245][#{session_name}]'
-
-# 启动/重载时：如果 focus 文件存在，则同步一次首行到 `@focus`
-run-shell -b 'f="$HOME/.tmux-focus.md"; [ -f "$f" ] || exit 0; line=$(head -n 1 "$f" 2>/dev/null | tr -d "\015"); [ -z "$line" ] && line="-"; tmux set -g @focus "$line"'
-
 # in .tmux.conf
 set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
 
@@ -92,5 +89,28 @@ bind-key C run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/c
 # <prefix> + J：一键跳回“最后一次完成”的 Codex pane
 bind-key J run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-jump-last"'
 
-# Focus：弹窗/窗口编辑（display-popup 失败时自动 fallback）
-bind-key f run-shell -b 'f="$HOME/.tmux-focus.md"; editor="nvim"; command -v "$editor" >/dev/null 2>&1 || editor="vim"; command -v "$editor" >/dev/null 2>&1 || editor="vi"; touch "$f"; if tmux display-popup -E -w 80% -h 60% -T "Focus" "$editor" "$f" 2>/dev/null; then line=$(head -n 1 "$f" 2>/dev/null | tr -d "\015"); [ -z "$line" ] && line="-"; tmux set -g @focus "$line"; else tmux new-window -n "Focus" "FOCUS_FILE=\"$f\" FOCUS_EDITOR=\"$editor\" sh -lc 'touch \"\\$FOCUS_FILE\"; \"\\$FOCUS_EDITOR\" \"\\$FOCUS_FILE\"; line=\\$(head -n 1 \"\\$FOCUS_FILE\" 2>/dev/null | tr -d \"\\\\015\"); [ -z \"\\$line\" ] && line=\"-\"; tmux set -g @focus \"\\$line\"'"; fi'
+##### Focus：常驻显示“当前最重要的事”（不闪烁版） #####
+
+# Focus 文件路径
+set -g @focus_file "$HOME/.tmux-focus.md"
+
+# 默认值
+set -g @focus "-"
+
+# Focus 展示在状态栏第 2 行右侧（只读 option，不执行命令）
+# 第 1 行左侧只显示 session 名称（导航信息，避免抢占注意力）
+set -g status-left '#[fg=colour245][#{session_name}]'
+
+##### 启动/重载时：仅当内容变化才更新（避免闪烁） #####
+run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-focus-sync"'
+
+##### Focus 编辑快捷键：按 f 打开编辑，保存后同步首行 #####
+bind-key f run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-focus-edit"'
+
+##### Yank：复制后仍停留在 copy-mode（Windows UTF-8）#####
+# 注意：这段必须放在 TPM 之后，确保覆盖 tmux-yank 的默认绑定
+unbind-key -T copy-mode-vi y
+unbind-key -T copy-mode y
+
+bind-key -T copy-mode-vi y send -X copy-pipe "win32yank.exe -i --crlf"
+bind-key -T copy-mode y     send -X copy-pipe "win32yank.exe -i --crlf"
