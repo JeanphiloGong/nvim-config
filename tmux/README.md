@@ -71,3 +71,19 @@ tmux list-keys -T copy-mode-vi | grep ' y '
 ## 注意事项
 - `tmux-yank` 版本可能在启动时重绑 `y`，所以自定义绑定必须放在 `run '~/.tmux/plugins/tpm/tpm'` 之后。
 - 如果不方便重启 tmux server，可在当前会话里手动执行 unbind/bind 覆盖。
+
+## Focus（状态栏常驻“最重要的事”）
+本仓库的 tmux 模板提供一个很常见的工作流：
+- 状态栏左侧常驻显示 “Focus”（从文件首行读取）。
+- 需要改动时按快捷键弹出 popup（或 fallback 到新 window）编辑。
+
+约定文件：
+- `~/.tmux-focus.md`
+  - 第 1 行：状态栏展示（尽量短）
+  - 后续行：随便写细节/清单/链接
+
+使用方式：
+- 查看：看 tmux 状态栏左侧的 `FOCUS: ...`
+- 编辑：`<prefix> + f`
+  - tmux 支持 `display-popup` 时会用 popup 打开编辑器
+  - 不支持时会新开一个名为 `Focus` 的 window
