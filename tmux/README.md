@@ -107,6 +107,9 @@ Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的�
 - 快速跳回：
   - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
   - `<prefix> + C`：弹出最近完成列表，选择后跳回（同时跑多个 Codex 也能用）
+- 跳回后如何快速“返回原处”（tmux 内置）：
+  - 如果是跨 session 跳转：`<prefix> + L` 回到上一个 session（等价 `tmux switch-client -l`）
+  - 如果只是同一 window 里切 pane：`<prefix> + ;` 回到上一个 pane（last-pane）
 
 ### 1) 安装/放置脚本（本机一次性）
 建议把脚本放到 `~/.local/bin`（或任何在 PATH 里的目录）：
