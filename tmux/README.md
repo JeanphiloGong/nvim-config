@@ -74,7 +74,7 @@ tmux list-keys -T copy-mode-vi | grep ' y '
 
 ## Focus（状态栏常驻“最重要的事”）
 本仓库的 tmux 模板提供一个很常见的工作流：
-- 状态栏左侧常驻显示 “Focus”（从文件首行读取）。
+- 状态栏左侧常驻显示 “Focus”（显示的是 `@focus`，编辑后会从文件首行同步）。
 - 需要改动时按快捷键弹出 popup（或 fallback 到新 window）编辑。
 
 约定文件：
@@ -87,3 +87,9 @@ tmux list-keys -T copy-mode-vi | grep ' y '
 - 编辑：`<prefix> + f`
   - tmux 支持 `display-popup` 时会用 popup 打开编辑器
   - 不支持时会新开一个名为 `Focus` 的 window
+
+排查：
+- 如果按 `<prefix> + f` 打开的不是 `~/.tmux-focus.md`，先检查它是否被误创建成“目录/软链接”：
+  - `ls -ld ~/.tmux-focus.md`
+- 如果状态栏频繁闪烁，通常是 `status-interval` 太短或 status-right 命令太重：
+  - 可以把 `status-interval` 调大（例如 5/10 秒）

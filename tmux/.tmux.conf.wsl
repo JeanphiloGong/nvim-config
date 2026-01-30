@@ -62,20 +62,69 @@ set -g @resurrect-capture-pane-contents 'on'
 run '~/.tmux/plugins/tpm/tpm'
 
 ##### 状态栏（Focus / CPU / RAM / 时间）#####
-set -g status-interval 2
+set -g status-interval 5
 set -g status-right-length 200
 set -g status-left-length 100
 
 # in .tmux.conf
 set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
 
-# Focus：常驻显示“当前最重要的事”
-# - 文件：~/.tmux-focus.md（首行显示在状态栏；其余行可写细节/清单）
-# - 编辑：<prefix> + f（优先 popup；若 tmux 版本不支持则新开 window）
-set -g status-left '#(f="$HOME/.tmux-focus.md"; line=$(head -n 1 "$f" 2>/dev/null | tr -d "\015"); if [ -n "$line" ]; then printf "FOCUS: %s" "$line"; else printf "FOCUS: -"; fi)'
+##### Focus：常驻显示“当前最重要的事”（不闪烁版） #####
 
-# Focus：弹窗/窗口编辑（display-popup 失败时自动 fallback）
-bind-key f run-shell -b 'tmux display-popup -E -w 80% -h 60% -T "Focus" "sh -lc \"f=\\\"$HOME/.tmux-focus.md\\\"; touch \\\"$f\\\"; if command -v nvim >/dev/null 2>&1; then exec nvim \\\"$f\\\"; elif command -v vim >/dev/null 2>&1; then exec vim \\\"$f\\\"; else exec vi \\\"$f\\\"; fi\"" 2>/dev/null || tmux new-window -n "Focus" "sh -lc \"f=\\\"$HOME/.tmux-focus.md\\\"; touch \\\"$f\\\"; if command -v nvim >/dev/null 2>&1; then exec nvim \\\"$f\\\"; elif command -v vim >/dev/null 2>&1; then exec vim \\\"$f\\\"; else exec vi \\\"$f\\\"; fi\""'
+# Focus 文件路径
+set -g @focus_file "$HOME/.tmux-focus.md"
+
+# 默认值
+set -g @focus "-"
+
+# 状态栏左侧显示 Focus（只读 option，不执行命令）
+set -g status-left 'FOCUS: #{@focus}'
+
+##### 启动/重载时：仅当内容变化才更新（避免闪烁） #####
+run-shell '
+f="$HOME/.tmux-focus.md"
+[ -f "$f" ] || exit 0
+
+line=$(head -n 1 "$f" 2>/dev/null | tr -d "\015")
+[ -z "$line" ] && line="-"
+
+current=$(tmux show -gv @focus)
+
+# 只有变化才 set（关键）
+if [ "$line" != "$current" ]; then
+  tmux set -g @focus "$line"
+fi
+'
+
+##### Focus 编辑快捷键：按 f 打开编辑，保存后同步首行 #####
+bind-key f run-shell '
+f="$HOME/.tmux-focus.md"
+
+# 自动选择编辑器
+editor="nvim"
+command -v "$editor" >/dev/null 2>&1 || editor="vim"
+command -v "$editor" >/dev/null 2>&1 || editor="vi"
+
+touch "$f"
+
+# 优先 popup（tmux >= 3.2）
+if tmux display-popup -E -w 80% -h 60% -T "Focus" "$editor" "$f" 2>/dev/null; then
+  :
+else
+  tmux new-window -n "Focus" "$editor $f"
+fi
+
+# 编辑结束后读取首行
+line=$(head -n 1 "$f" 2>/dev/null | tr -d "\015")
+[ -z "$line" ] && line="-"
+
+current=$(tmux show -gv @focus)
+
+# 只有变化才更新（避免 redraw 闪烁）
+if [ "$line" != "$current" ]; then
+  tmux set -g @focus "$line"
+fi
+'
 
 ##### Yank：复制后仍停留在 copy-mode（Windows UTF-8）#####
 # 注意：这段必须放在 TPM 之后，确保覆盖 tmux-yank 的默认绑定
