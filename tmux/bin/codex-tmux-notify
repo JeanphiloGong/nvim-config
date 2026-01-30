@@ -94,4 +94,48 @@ if [ "$mode" = "message" ]; then
   else
     tmux display-message -d 5000 "Codex done: $win"
   fi
+elif [ "$mode" = "popup" ]; then
+  # A nicer in-terminal "toast": small popup that auto-closes after a moment.
+  #
+  # Position is configurable via @codex_popup_corner:
+  #   tr|br|tl|bl (default: br)
+  # Fall back to display-message if display-popup isn't available.
+  corner="$(tmux show -gv @codex_popup_corner 2>/dev/null || true)"
+  [ -n "$corner" ] || corner="br"
+
+  # These are tmux format strings (evaluated by tmux, not by the shell).
+  # We compute "right/bottom minus popup size" so the box anchors to corners.
+  case "$corner" in
+    tr)
+      pos_x='#{e|-:#{popup_pane_right},#{popup_width}}'
+      pos_y='#{popup_pane_top}'
+      ;;
+    tl)
+      pos_x='#{popup_pane_left}'
+      pos_y='#{popup_pane_top}'
+      ;;
+    bl)
+      pos_x='#{popup_pane_left}'
+      pos_y='#{e|-:#{popup_pane_bottom},#{popup_height}}'
+      ;;
+    br|*)
+      pos_x='#{e|-:#{popup_pane_right},#{popup_width}}'
+      pos_y='#{e|-:#{popup_pane_bottom},#{popup_height}}'
+      ;;
+  esac
+
+  popup_w="$(tmux show -gv @codex_popup_width 2>/dev/null || true)"
+  popup_h="$(tmux show -gv @codex_popup_height 2>/dev/null || true)"
+  [ -n "$popup_w" ] || popup_w="60"
+  [ -n "$popup_h" ] || popup_h="6"
+  popup_dur_s="$(tmux show -gv @codex_popup_duration 2>/dev/null || true)"
+  [ -n "$popup_dur_s" ] || popup_dur_s="2"
+
+  # Use bash to print the message and sleep briefly; popup closes on exit (-E).
+  # Pass the fields via env vars to avoid shell quoting issues.
+  if ! tmux display-popup -E -t "$pane" -w "$popup_w" -h "$popup_h" -x "$pos_x" -y "$pos_y" -T "Codex" \
+    -e "CODEX_TOAST_WIN=$win" -e "CODEX_TOAST_SUMMARY=$summary" -e "CODEX_TOAST_SLEEP=$popup_dur_s" \
+    "bash -lc 'printf \"Codex done\\n%s\\n\" \"\$CODEX_TOAST_WIN\"; [ -n \"\$CODEX_TOAST_SUMMARY\" ] && printf \"%s\\n\" \"\$CODEX_TOAST_SUMMARY\"; sleep \"\$CODEX_TOAST_SLEEP\"'" 2>/dev/null; then
+    tmux display-message -d 5000 "Codex done: $win${summary:+ | $summary}"
+  fi
 fi
