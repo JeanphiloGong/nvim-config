@@ -1,76 +1,58 @@
-# tmux (WSL / Windows 剪贴板)
+# tmux
 
-这份说明用于解决 Windows Terminal + WSL + tmux + tmux-yank 组合下的中文复制乱码问题。
+本目录包含 tmux 模板与辅助脚本。
 
-## 问题原因（简版）
-- tmux-yank 默认会用 `clip.exe` 把内容送到 Windows 剪贴板。
-- `clip.exe` 对 UTF-8 不友好，中文很容易乱码。
+## 安装 tmux 3.6（Linux 源码编译）
+适用于大多数 Linux 发行版（需要编译工具链 + libevent + ncurses）。
 
-## 需要安装的工具
-- `win32yank.exe`（必须）：负责把 UTF-8 文本正确写入 Windows 剪贴板。
+1) 安装依赖
 
-## 安装 win32yank（Windows 侧）
-1) 下载：
-```
-https://github.com/equalsraf/win32yank/releases
-```
-2) 解压得到 `win32yank.exe`。
-3) 放到 Windows PATH 里（推荐两种方式之一）：
-- 放到 `C:\Windows\System32\`
-- 或放到任意目录，并把该目录加入系统 PATH
-
-## 验证 win32yank 是否可用
-在 Windows PowerShell 里执行：
-```
-win32yank.exe -i --crlf
-```
-- 看到用法提示或命令等待输入，说明已可用。
-- 注意：`win32yank.exe` 没有 `--version` 参数。
-
-在 WSL 里验证：
-```
-which win32yank.exe
-```
-期望输出类似：
-```
-/mnt/c/Windows/System32/win32yank.exe
+Ubuntu / Debian：
+```sh
+sudo apt update
+sudo apt install -y build-essential pkg-config libevent-dev libncurses-dev bison
 ```
 
-快速测试剪贴板链路（WSL 内执行）：
-```
-echo "中文测试 ABC 123" | win32yank.exe -i --crlf
-```
-然后在 Windows 中粘贴，若中文正常即可。
-
-## tmux 配置要点（避免被 clip.exe 覆盖）
-关键原则：tmux-yank 会在启动时绑定 `y`，必须禁用它的默认绑定并在 TPM 之后手动绑定。
-
-推荐在 `tmux/.tmux.conf.wsl` 中保持以下配置：
-```
-# 禁止 tmux-yank 绑定 y
-set -g @yank_key 'None'
-
-# 指定 Windows 剪贴板工具
-set -g @clipboard 'win32yank.exe -i --crlf'
-set -g @yank_selection 'clipboard'
-
-# 在 TPM 之后强制覆盖 y（复制但不退出 copy-mode）
-unbind-key -T copy-mode-vi y
-unbind-key -T copy-mode y
-bind-key -T copy-mode-vi y send -X copy-pipe "win32yank.exe -i --crlf"
-bind-key -T copy-mode y     send -X copy-pipe "win32yank.exe -i --crlf"
+Fedora / RHEL / CentOS：
+```sh
+sudo dnf install -y gcc make pkgconf-pkg-config libevent-devel ncurses-devel bison
+# 旧版系统可用 yum：
+# sudo yum install -y gcc make pkgconfig libevent-devel ncurses-devel bison
 ```
 
-## 常用排查命令
-查看当前 `y` 实际绑定：
+Arch：
+```sh
+sudo pacman -S --needed base-devel pkgconf libevent ncurses bison
 ```
-tmux list-keys -T copy-mode-vi | grep ' y '
-```
-正常应看到 `win32yank.exe`，不应出现 `clip.exe`。
 
-## 注意事项
-- `tmux-yank` 版本可能在启动时重绑 `y`，所以自定义绑定必须放在 `run '~/.tmux/plugins/tpm/tpm'` 之后。
-- 如果不方便重启 tmux server，可在当前会话里手动执行 unbind/bind 覆盖。
+2) 下载与编译安装
+```sh
+wget https://github.com/tmux/tmux/releases/download/3.6/tmux-3.6.tar.gz
+tar -xzf tmux-3.6.tar.gz
+cd tmux-3.6
+./configure
+make
+sudo make install
+```
+
+3) 验证
+```sh
+tmux -V
+which tmux
+```
+期望输出 `tmux 3.6`，路径通常是 `/usr/local/bin/tmux`。
+
+可选：无 sudo 时可用自定义前缀：
+```sh
+./configure --prefix=$HOME/local
+make
+make install
+```
+并确保 `$HOME/local/bin` 在 PATH 中。
+
+## Windows / WSL 剪贴板（tmux-yank）
+Windows Terminal + WSL 的中文复制问题与配置要点见：
+[docs/windows-wsl-clipboard.md](docs/windows-wsl-clipboard.md)
 
 ## Focus（状态栏常驻“最重要的事”）
 本仓库的 tmux 模板提供一个很常见的工作流：
