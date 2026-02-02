@@ -103,7 +103,7 @@ set -g status-left '#[fg=colour245][#{session_name} #{session_id}]'
 
 # Pane 标记：显示 pane 编号/ID，并高亮“最后一次 Codex 完成”的 pane
 set -g pane-border-status top
-set -g pane-border-format '#[fg=colour240]#P#{?#{==:#{pane_id},#{@codex_last_pane}}, #[fg=colour208]CODEX,} #[fg=colour245]#{=/30/...:#{pane_title}}'
+set -g pane-border-format '#[fg=colour240]#P#{?#{==:#{pane_id},#{@codex_last_pane}}, #[fg=colour208]CODEX,} #[fg=colour245]#{=/50/...:#{pane_title}}'
 # 某些 tmux 版本不支持 pane-active-border-format，使用 active-border-style 兼容
 set -g pane-active-border-style 'fg=colour45'
 
