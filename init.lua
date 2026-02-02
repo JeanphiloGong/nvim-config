@@ -90,3 +90,16 @@ end, {})
 
 -- 设置系统粘贴板
 vim.opt.clipboard = "unnamedplus"
+
+local function set_transparent_background()
+  for _, group in ipairs({ "Normal", "NormalNC", "NormalFloat", "SignColumn", "EndOfBuffer" }) do
+    vim.api.nvim_set_hl(0, group, { bg = "NONE" })
+  end
+end
+
+local transparent_group = vim.api.nvim_create_augroup("TransparentBackground", { clear = true })
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = transparent_group,
+  callback = set_transparent_background,
+})
+set_transparent_background()
