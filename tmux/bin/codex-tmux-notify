@@ -56,6 +56,9 @@ tmux set -gq @codex_last_pane "$pane"
 tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
 tmux refresh-client -S 2>/dev/null || true
+if [ -n "$summary" ]; then
+  tmux select-pane -t "$pane" -T "$summary" 2>/dev/null || true
+fi
 
 # Append to a simple history file so tmux can show a menu (latest first).
 # Format (tab-separated):
