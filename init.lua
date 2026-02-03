@@ -91,6 +91,34 @@ end, {})
 -- 设置系统粘贴板
 vim.opt.clipboard = "unnamedplus"
 
+-- 光标样式与颜色（按模式区分）
+vim.opt.guicursor = table.concat({
+  "n:block-Cursor",
+  "v:block-CursorVisual",
+  "i:ver25-CursorInsert",
+  "c:block-CursorCommand",
+  "r:hor20-CursorReplace",
+  "o:hor50-CursorReplace",
+  "sm:block-Cursor",
+}, ",")
+
+local function set_cursor_style()
+  vim.api.nvim_set_hl(0, "Cursor", { fg = "#1b1b1b", bg = "#f2a65a" })
+  vim.api.nvim_set_hl(0, "CursorInsert", { fg = "#1b1b1b", bg = "#4cc9f0" })
+  vim.api.nvim_set_hl(0, "CursorVisual", { fg = "#1b1b1b", bg = "#c77dff" })
+  vim.api.nvim_set_hl(0, "CursorCommand", { fg = "#1b1b1b", bg = "#80ed99" })
+  vim.api.nvim_set_hl(0, "CursorReplace", { fg = "#1b1b1b", bg = "#ff6b6b" })
+  vim.api.nvim_set_hl(0, "TermCursor", { fg = "#1b1b1b", bg = "#f2a65a" })
+  vim.api.nvim_set_hl(0, "TermCursorNC", { fg = "#1b1b1b", bg = "#666666" })
+end
+
+local cursor_group = vim.api.nvim_create_augroup("CursorStyle", { clear = true })
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = cursor_group,
+  callback = set_cursor_style,
+})
+set_cursor_style()
+
 local function set_transparent_background()
   for _, group in ipairs({ "Normal", "NormalNC", "NormalFloat", "SignColumn", "EndOfBuffer" }) do
     vim.api.nvim_set_hl(0, group, { bg = "NONE" })
