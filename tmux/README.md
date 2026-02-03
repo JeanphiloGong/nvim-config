@@ -60,7 +60,7 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - 需要改动时按快捷键弹出 popup（或 fallback 到新 window）编辑。
 补充：
 - 状态栏第 1 行左侧会显示 `session_name + session_id`，便于区分不同 session。
-- 可用 `<prefix> + T` 快速修改当前 pane 标题，`<prefix> + W` 修改 window 名称（更适合标记“正在做什么”）。
+- 可用 `<prefix> + T` 快速修改当前 pane 标签（显示在 pane 边框），`<prefix> + W` 修改 window 名称（更适合标记“正在做什么”）。
 
 约定文件：
 - `~/.tmux-focus.md`
@@ -89,8 +89,8 @@ Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的�
 效果（推荐：不打断输入）：
 - 状态栏第 2 行常驻显示最近一次完成信息：`Codex: <session:window> | <summary?>`
   - `<summary?>` 会尽量从 notify 的 JSON 里取最后一条回复的首行（依赖 `python3`，没有也不影响跳转）
-- pane 顶部边框会显示 pane 编号/ID；最后一次完成的 pane 会标记 `CODEX`
-- Codex 完成后会自动把当前 pane title 更新为：`<summary>`
+- pane 顶部边框会显示三段：`编号 | 你的标签 | Codex 摘要`
+- Codex 完成后会把摘要写入当前 pane 的 `@codex_pane_summary`（不再覆盖 pane title）
 - 快速跳回：
   - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
   - `<prefix> + C`：弹出最近完成列表，选择后跳回（同时跑多个 Codex 也能用）
@@ -134,6 +134,7 @@ notify 每次触发都会：
 打开历史列表（无额外依赖，使用 tmux 自带 `display-menu`）：
 - `<prefix> + C`：弹出最近完成列表，选择后跳回对应 pane
   - 列表按“最新在上”显示
+  - 条目会附带你设置的 pane 标签（若有）
 
 可选参数（写在 `tmux/.tmux.conf(.wsl)` 里）：
 - `set -g @codex_history_limit 12`：列表最多显示多少条（默认 12）

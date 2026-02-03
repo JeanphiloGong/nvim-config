@@ -49,7 +49,7 @@ tab="$(printf "\t")"
 i=1
 letters=abcdef
 
-while IFS="$tab" read -r ts win pane path summary; do
+while IFS="$tab" read -r ts win pane path summary user_title; do
   [ -n "$win" ] || continue
 
   short="${path##*/}"
@@ -63,7 +63,12 @@ while IFS="$tab" read -r ts win pane path summary; do
     [ -n "$key" ] || key=""
   fi
 
-  label="$ts $win $short"
+  if [ -z "${user_title:-}" ] && [ -n "${pane:-}" ]; then
+    user_title="$(tmux show -p -t "$pane" @user_pane_title 2>/dev/null || true)"
+  fi
+
+  label="$win $short"
+  [ -n "${user_title:-}" ] && label="$label | $user_title"
   [ -n "${summary:-}" ] && label="$label | $summary"
   # display-menu treats labels as tmux formats; escape '#' to avoid accidental expansions.
   label="${label//#/##}"
