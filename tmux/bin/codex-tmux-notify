@@ -22,6 +22,7 @@ if [ -z "$win" ]; then
 fi
 
 path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
+user_title="$(tmux show -p -t "$pane" @user_pane_title 2>/dev/null || true)"
 
 # Optional: derive a short summary from the notify JSON payload.
 # Keep this best-effort and dependency-light (python3 is optional).
@@ -57,7 +58,7 @@ tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
 tmux refresh-client -S 2>/dev/null || true
 if [ -n "$summary" ]; then
-  tmux select-pane -t "$pane" -T "$summary" 2>/dev/null || true
+  tmux set -p -t "$pane" @codex_pane_summary "$summary" 2>/dev/null || true
 fi
 
 # Append to a simple history file so tmux can show a menu (latest first).
@@ -73,7 +74,7 @@ mkdir -p "$(dirname "$history_file")" 2>/dev/null || true
 touch "$history_file" 2>/dev/null || true
 
 _append_and_trim() {
-  printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$win" "$pane" "$path" "$summary" >>"$history_file" || return 0
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$win" "$pane" "$path" "$summary" "$user_title" >>"$history_file" || return 0
   tmp="${history_file}.tmp.$$"
   tail -n 50 "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
 }

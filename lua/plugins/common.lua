@@ -1,5 +1,18 @@
 -- 通用基础插件：补全、导航、编辑增强
 return {
+  -- 主题
+  {
+    "rebelot/kanagawa.nvim",
+    priority = 1000,
+    lazy = false,
+    config = function()
+      require("kanagawa").setup({
+        theme = "wave",
+      })
+      vim.cmd.colorscheme("kanagawa")
+    end,
+  },
+
   -- 补全（cmp + LuaSnip）
   {
     "hrsh7th/nvim-cmp",
