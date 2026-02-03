@@ -11,6 +11,10 @@ set -g mouse on
 # 复制模式使用 vi 风格按键
 setw -g mode-keys vi
 
+# Cursor: prefer terminal color, use block for clarity
+set -g cursor-style block
+set -g cursor-colour default
+
 # 复制模式快捷键（在 vim/nvim 内保持原按键）
 unbind -n C-o
 bind -n C-o if-shell \
