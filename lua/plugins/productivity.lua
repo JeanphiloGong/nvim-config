@@ -56,15 +56,6 @@ return {
     end,
   },
 
-  -- LazyGit（终端 Git UI）
-  {
-    "kdheepak/lazygit.nvim",
-    cmd = { "LazyGit" },
-    keys = {
-      { "<leader>gg", "<cmd>LazyGit<cr>", desc = "LazyGit" },
-    },
-  },
-
   -- 统一查看诊断/引用/quickfix
   {
     "folke/trouble.nvim",
