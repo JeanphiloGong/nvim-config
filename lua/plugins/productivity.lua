@@ -56,6 +56,15 @@ return {
     end,
   },
 
+  -- Git 命令视图（fugitive）
+  {
+    "tpope/vim-fugitive",
+    cmd = { "Git" },
+    keys = {
+      { "<leader>gS", "<cmd>Git<cr>", desc = "Git Status (Fugitive)" },
+    },
+  },
+
   -- 统一查看诊断/引用/quickfix
   {
     "folke/trouble.nvim",

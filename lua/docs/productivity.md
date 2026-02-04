@@ -8,6 +8,7 @@
 * [Git 变更标记：gitsigns.nvim](#git-变更标记gitsignsnvim)
 * [诊断与列表：trouble.nvim](#诊断与列表troublenvim)
 * [文件树与 Git 视图：neo-tree.nvim](#文件树与-git-视图neo-treenvim)
+* [Git 命令视图：vim-fugitive](#git-命令视图vim-fugitive)
 * [常用使用场景](#常用使用场景)
 
 <!-- vim-markdown-toc -->
@@ -62,6 +63,20 @@
   - `:DiffviewOpen HEAD~2..HEAD~1`：查看两个提交间的差异。
   - `:DiffviewFileHistory %`：查看当前文件历史。
 
+## Git 命令视图：vim-fugitive
+- 常用快捷键（本仓库配置）：
+  - `<leader>gS`：打开 `:Git`（可查看 ahead/behind、status、log 等）。
+- 常用命令：
+  - `:Git`：显示仓库状态（含 ahead/behind）。
+  - `:Git push`：推送当前分支。
+  - `:Git pull`：拉取远端变更。
+  - `:Git fetch`：更新远端引用。
+  - `:Git log --oneline -n 20`：查看最近 20 条提交。
+  - `:Git branch`：查看本地分支。
+  - `:Git switch <branch>`：切换分支。
+  - `:Git checkout -b <branch>`：新建并切换分支。
+  - `:Git stash` / `:Git stash pop`：暂存与恢复工作区。
+
 ## 常用使用场景
 - 快速浏览改动：用 `]c` / `[c` 在 hunk 间跳转，`<leader>hp` 预览细节。
 - 提交前整理：用 `<leader>hs`/`<leader>hr` 精确暂存或撤销小块改动，必要时 `vih` 选中 hunk 再暂存。
@@ -73,3 +88,4 @@
 - 日常文件导航：`<leader>e` 打开文件树，`<leader>be` 浏览已打开的 buffer。
 - 复制路径用于分享：`<leader>yp` 复制绝对路径，`<leader>yr` 复制相对路径。
 - 查看最近提交差异：用 `<leader>g1`/`<leader>g2` 快速对比最近两次提交。
+- 查看未推送提交：用 `<leader>gS` 打开 `:Git` 查看 ahead/behind。
