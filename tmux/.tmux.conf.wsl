@@ -29,11 +29,8 @@ bind ? command-prompt -p "search up" "send -X search-backward '%%'"
 # 历史行数（适度增大，避免滚动卡顿）
 set -g history-limit 10000
 
-##### 面板切换 #####
-bind h select-pane -L
-bind j select-pane -D
-bind k select-pane -U
-bind l select-pane -R
+# 窗口切换
+bind-key l last-window
 
 ##### Plugins（保持与主配置一致）#####
 set -g @plugin 'tmux-plugins/tpm'
