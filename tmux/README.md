@@ -54,33 +54,19 @@ make install
 Windows Terminal + WSL 的中文复制问题与配置要点见：
 [docs/windows-wsl-clipboard.md](docs/windows-wsl-clipboard.md)
 
-## Focus（状态栏常驻“最重要的事”）
-本仓库的 tmux 模板提供一个很常见的工作流：
-- 状态栏第 2 行右侧常驻显示 “Focus”（显示的是 `@focus`，编辑后会从文件首行同步）。
-- 需要改动时按快捷键弹出 popup（或 fallback 到新 window）编辑。
-补充：
-- 状态栏第 1 行左侧会显示 `session_name + session_id`，便于区分不同 session。
-- 状态栏第 1 行右侧显示 `CPU | RAM | git | time`，其中 Git 段为当前 pane 路径的 `git:<branch>`，有未提交改动时追加 `*`。
-- 若远端有差距，仅在非 0 时追加 `+ahead/-behind`（例如 `git:main* +2/-1`）。
-- 可用 `<prefix> + T` 快速修改当前 pane 标签（显示在 pane 边框），`<prefix> + W` 修改 window 名称（更适合标记“正在做什么”）。
+## 状态栏与快捷操作
+当前模板使用两行状态栏：
+- 第 1 行左侧：`session_name + session_id`
+- 第 1 行右侧：`CPU | RAM | time`
+- 第 2 行左侧：最近一次 Codex 完成信息
+- 第 2 行右侧（右下角）：当前 pane 路径的 Git 状态（`git:<branch>`，未提交为 `*`，有远端差距时显示 `+ahead/-behind`）
 
-约定文件：
-- `~/.tmux-focus.md`
-  - 第 1 行：状态栏展示（尽量短）
-  - 后续行：随便写细节/清单/链接
-
-使用方式：
-- 查看：看 tmux 状态栏第 2 行右侧的 `Focus: ...`
-- 编辑：`<prefix> + f`
-  - tmux 支持 `display-popup` 时会用 popup 打开编辑器
-  - 不支持时会新开一个名为 `Focus` 的 window
-- 临时终端：`<prefix> + G`
-  - 在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
-  - 退出 shell（`exit` / `Ctrl-d`）后 popup 自动关闭
+常用操作：
+- `<prefix> + T`：设置当前 pane 标签（显示在 pane 边框）
+- `<prefix> + W`：重命名当前 window
+- `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 
 排查：
-- 如果按 `<prefix> + f` 打开的不是 `~/.tmux-focus.md`，先检查它是否被误创建成“目录/软链接”：
-  - `ls -ld ~/.tmux-focus.md`
 - 如果状态栏频繁闪烁，通常是 `status-interval` 太短或 status-right 命令太重：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
 
