@@ -60,6 +60,8 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - 需要改动时按快捷键弹出 popup（或 fallback 到新 window）编辑。
 补充：
 - 状态栏第 1 行左侧会显示 `session_name + session_id`，便于区分不同 session。
+- 状态栏第 1 行右侧显示 `CPU | RAM | git | time`，其中 Git 段为当前 pane 路径的 `git:<branch>`，有未提交改动时追加 `*`。
+- 若远端有差距，仅在非 0 时追加 `+ahead/-behind`（例如 `git:main* +2/-1`）。
 - 可用 `<prefix> + T` 快速修改当前 pane 标签（显示在 pane 边框），`<prefix> + W` 修改 window 名称（更适合标记“正在做什么”）。
 
 约定文件：

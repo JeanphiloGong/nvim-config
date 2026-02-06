@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+path="${1:-}"
+[ -n "$path" ] || exit 0
+command -v git >/dev/null 2>&1 || exit 0
+
+git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+branch="$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || git -C "$path" rev-parse --short HEAD 2>/dev/null || true)"
+[ -n "$branch" ] || exit 0
+
+dirty=""
+if [ -n "$(git -C "$path" status --porcelain 2>/dev/null | head -n 1)" ]; then
+  dirty="*"
+fi
+
+sync=""
+if git -C "$path" rev-parse --abbrev-ref --symbolic-full-name "@{upstream}" >/dev/null 2>&1; then
+  counts="$(git -C "$path" rev-list --left-right --count "@{upstream}...HEAD" 2>/dev/null || true)"
+  if [ -n "$counts" ]; then
+    behind="$(printf '%s' "$counts" | awk '{print $1}')"
+    ahead="$(printf '%s' "$counts" | awk '{print $2}')"
+    behind="${behind:-0}"
+    ahead="${ahead:-0}"
+    if [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ]; then
+      sync=" +${ahead}/-${behind}"
+    fi
+  fi
+fi
+
+printf 'git:%s%s%s' "$branch" "$dirty" "$sync"
