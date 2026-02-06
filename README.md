@@ -77,8 +77,8 @@ npm install -g @mermaid-js/mermaid-cli
 - 诊断列表：`<leader>xx` 打开 Trouble 诊断，`<leader>xq` 打开 quickfix。
 - 补全：`<Tab>` 确认候选，`<C-Space>` 触发补全。
 - Markdown：`<leader>mp` 预览，`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。
-- Mermaid 导出：在 `.mmd`/`.mermaid` 文件中，`<leader>ms` 导出 SVG，`<leader>mn` 导出 PNG（等价命令 `:MermaidToSvg` / `:MermaidToPng`）。
-- Mermaid 自动导出：保存 `.mmd`/`.mermaid` 后会自动执行 `:MermaidToSvg`（需已安装 `mmdc`）。
+- Mermaid 导出：在 `.mmd`/`.mermaid` 文件中，`<leader>ms` 导出 SVG，`<leader>mn` 导出 PNG（等价命令 `:MermaidToSvg` / `:MermaidToPng`，后台异步执行）。
+- Mermaid 自动导出：保存 `.mmd`/`.mermaid` 后会后台异步执行 `:MermaidToSvg`（需已安装 `mmdc`，不阻塞编辑）。
 - Mermaid 片段：在 `markdown` 或 `.mmd` 中输入 `mflow` / `mseq` / `mstate`，然后 `<C-Space>` + `<Tab>` 展开。
 
 ## Mermaid 预览（mmd 文件）
@@ -89,7 +89,7 @@ cd docs/flows
 live-server
 ```
 2) 浏览器打开同名 `.svg`（例如 `http://127.0.0.1:8080/asset_extract.svg`）。
-3) 在 Neovim 编辑 `asset_extract.mmd` 后保存 `:w`，会自动导出并刷新页面。
+3) 在 Neovim 编辑 `asset_extract.mmd` 后保存 `:w`，会后台导出并刷新页面；连续快速保存时仅保留最新一次导出任务。
 
 ## 插件概览
 - 语言/工具链：mason + mason-lspconfig + nvim-lspconfig（pyright、ts_ls、svelte），nvim-cmp + LuaSnip，nvim-treesitter，Prettier。

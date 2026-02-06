@@ -32,6 +32,15 @@ vim.keymap.set("n", "<leader>mp", "<cmd>MarkdownPreview<cr>", { desc = "Markdown
 vim.keymap.set("n", "<leader>mt", "<cmd>GenTocGFM<cr>", { desc = "生成目录 TOC" })
 vim.keymap.set("n", "<leader>mu", "<cmd>UpdateToc<cr>", { desc = "更新目录 TOC" })
 
+local active_mermaid_jobs = {}
+
+local function trim_output(text)
+  if not text then
+    return ""
+  end
+  return tostring(text):gsub("%s+$", "")
+end
+
 local function export_mermaid(format)
   local input = vim.api.nvim_buf_get_name(0)
   if input == "" then
@@ -59,18 +68,53 @@ local function export_mermaid(format)
 
   local abs_input = vim.fn.fnamemodify(input, ":p")
   local output = vim.fn.fnamemodify(abs_input, ":r") .. "." .. format
-  local result = vim.fn.system({ "mmdc", "-i", abs_input, "-o", output })
+  local job_key = abs_input .. "::" .. format
+  local prev_job = active_mermaid_jobs[job_key]
 
-  if vim.v.shell_error ~= 0 then
-    local msg = tostring(result):gsub("%s+$", "")
-    if msg == "" then
-      msg = "未知错误"
-    end
-    vim.notify("Mermaid 导出失败: " .. msg, vim.log.levels.ERROR)
+  if prev_job and prev_job.handle then
+    prev_job.cancelled = true
+    pcall(function()
+      prev_job.handle:kill(15)
+    end)
+  end
+
+  local current_job = { cancelled = false, handle = nil }
+  active_mermaid_jobs[job_key] = current_job
+
+  local ok, handle_or_err = pcall(vim.system, { "mmdc", "-i", abs_input, "-o", output }, { text = true }, function(obj)
+    vim.schedule(function()
+      if active_mermaid_jobs[job_key] ~= current_job then
+        return
+      end
+      active_mermaid_jobs[job_key] = nil
+
+      if current_job.cancelled then
+        return
+      end
+
+      if obj.code ~= 0 then
+        local msg = trim_output(obj.stderr)
+        if msg == "" then
+          msg = trim_output(obj.stdout)
+        end
+        if msg == "" then
+          msg = "未知错误"
+        end
+        vim.notify("Mermaid 导出失败: " .. msg, vim.log.levels.ERROR)
+        return
+      end
+
+      vim.notify("Mermaid 导出成功: " .. output)
+    end)
+  end)
+
+  if not ok then
+    active_mermaid_jobs[job_key] = nil
+    vim.notify("Mermaid 导出失败: " .. trim_output(handle_or_err), vim.log.levels.ERROR)
     return
   end
 
-  vim.notify("Mermaid 导出成功: " .. output)
+  current_job.handle = handle_or_err
 end
 
 if vim.fn.exists(":MermaidToSvg") == 2 then
