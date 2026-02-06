@@ -74,6 +74,9 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - 编辑：`<prefix> + f`
   - tmux 支持 `display-popup` 时会用 popup 打开编辑器
   - 不支持时会新开一个名为 `Focus` 的 window
+- 临时终端：`<prefix> + G`
+  - 在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
+  - 退出 shell（`exit` / `Ctrl-d`）后 popup 自动关闭
 
 排查：
 - 如果按 `<prefix> + f` 打开的不是 `~/.tmux-focus.md`，先检查它是否被误创建成“目录/软链接”：
