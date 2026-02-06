@@ -90,6 +90,22 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
+-- 保存 Mermaid 文件时自动导出 SVG（依赖 mmdc + MermaidToSvg 命令）
+local mermaid_export_group = vim.api.nvim_create_augroup("MermaidAutoExport", { clear = true })
+vim.api.nvim_create_autocmd("BufWritePost", {
+  group = mermaid_export_group,
+  pattern = { "*.mmd", "*.mermaid" },
+  callback = function()
+    if vim.fn.executable("mmdc") ~= 1 then
+      return
+    end
+    if vim.fn.exists(":MermaidToSvg") ~= 2 then
+      return
+    end
+    vim.cmd("silent MermaidToSvg")
+  end,
+})
+
 -- 设置加入时间戳方便记录
 vim.api.nvim_create_user_command('Time', function()
 	local timestamp = os.date("%Y-%m-%d %H:%M:%S")
