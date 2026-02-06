@@ -20,6 +20,13 @@ require("keymaps")
 -- 加载 plugins 目录下的插件配置（分组后汇总）
 require("lazy").setup(require("plugins"))
 
+-- Mermaid filetypes
+vim.filetype.add({
+  extension = {
+    mmd = "mermaid",
+    mermaid = "mermaid",
+  },
+})
 
 -- init.lua 配置（如果你用的是 Lua 配置）
 vim.opt.number = true         -- 显示绝对行号（当前行）
@@ -43,6 +50,7 @@ local indent_by_ft = {
   svelte = { size = 2, expandtab = true },
   html = { size = 2, expandtab = true },
   markdown = { size = 2, expandtab = true },
+  mermaid = { size = 2, expandtab = true },
   -- 4 spaces
   c = { size = 4, expandtab = true },
   cpp = { size = 4, expandtab = true },

@@ -47,6 +47,11 @@ return {
           end,
         }),
         ts_ls = with_capabilities(),
+        mermaid = with_capabilities({
+          cmd = { "mermaid-language-server", "--stdio" },
+          filetypes = { "mermaid", "mmd" },
+          single_file_support = true,
+        }),
       }
 
       local backend_servers = {
@@ -66,10 +71,20 @@ return {
         }),
       }
 
+      local function should_enable(name, opts)
+        if name ~= "mermaid" then
+          return true
+        end
+        local cmd = (opts.cmd and opts.cmd[1]) or "mermaid-language-server"
+        return vim.fn.executable(cmd) == 1
+      end
+
       local function setup_group(servers)
         for name, opts in pairs(servers) do
           vim.lsp.config(name, opts)
-          vim.lsp.enable(name)
+          if should_enable(name, opts) then
+            vim.lsp.enable(name)
+          end
         end
       end
 
