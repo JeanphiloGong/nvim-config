@@ -23,10 +23,16 @@ return {
     },
     config = function()
       local cmp = require("cmp")
+      local luasnip = require("luasnip")
+      local mermaid_snippets = require("snippets.mermaid")
+
+      luasnip.add_snippets("mermaid", mermaid_snippets.mermaid, { key = "mermaid_file_snippets" })
+      luasnip.add_snippets("markdown", mermaid_snippets.markdown, { key = "mermaid_markdown_snippets" })
+
       cmp.setup({
         snippet = {
           expand = function(args)
-            require("luasnip").lsp_expand(args.body)
+            luasnip.lsp_expand(args.body)
           end,
         },
         mapping = cmp.mapping.preset.insert({

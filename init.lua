@@ -20,6 +20,13 @@ require("keymaps")
 -- 加载 plugins 目录下的插件配置（分组后汇总）
 require("lazy").setup(require("plugins"))
 
+-- Mermaid filetypes
+vim.filetype.add({
+  extension = {
+    mmd = "mermaid",
+    mermaid = "mermaid",
+  },
+})
 
 -- init.lua 配置（如果你用的是 Lua 配置）
 vim.opt.number = true         -- 显示绝对行号（当前行）
@@ -43,6 +50,7 @@ local indent_by_ft = {
   svelte = { size = 2, expandtab = true },
   html = { size = 2, expandtab = true },
   markdown = { size = 2, expandtab = true },
+  mermaid = { size = 2, expandtab = true },
   -- 4 spaces
   c = { size = 4, expandtab = true },
   cpp = { size = 4, expandtab = true },
@@ -79,6 +87,22 @@ vim.api.nvim_create_autocmd("FileType", {
     vim.opt_local.wrap = true
     vim.opt_local.linebreak = true
     vim.opt_local.spell = true
+  end,
+})
+
+-- 保存 Mermaid 文件时自动导出 SVG（依赖 mmdc + MermaidToSvg 命令）
+local mermaid_export_group = vim.api.nvim_create_augroup("MermaidAutoExport", { clear = true })
+vim.api.nvim_create_autocmd("BufWritePost", {
+  group = mermaid_export_group,
+  pattern = { "*.mmd", "*.mermaid" },
+  callback = function()
+    if vim.fn.executable("mmdc") ~= 1 then
+      return
+    end
+    if vim.fn.exists(":MermaidToSvg") ~= 2 then
+      return
+    end
+    vim.cmd("silent MermaidToSvg")
   end,
 })
 

@@ -17,6 +17,7 @@
 - `hrsh7th/nvim-cmp` + `cmp-nvim-lsp` + `LuaSnip` + `cmp_luasnip`
   - 默认按键：`<Tab>` 确认当前候选（可选中第一个），`<C-Space>` 手动触发补全。
   - Snippet 展开由 LuaSnip 接管，可根据需要添加片段文件或调用 `luasnip` API。
+  - 已内置 Mermaid 片段：`mflow`、`mseq`、`mstate`（`markdown`/`.mmd` 均可用）。
 
 ## 文件树
 - `nvim-neo-tree/neo-tree.nvim`（依赖 `plenary.nvim`、`nvim-web-devicons`、`nui.nvim`）
@@ -42,6 +43,10 @@
 - `preservim/vim-markdown`：关闭折叠/隐藏，保留原始文本；支持 TOC。
 - `mzlogin/vim-markdown-toc`：`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。
 - `iamcco/markdown-preview.nvim`：构建命令 `cd app && npm install`；快捷键 `<leader>mp` 打开预览（自动关闭 buffer 时退出）。
+- Mermaid LSP（外部依赖）：安装 `npm install -g @mermaid-js/mermaid-language-server` 后，`.mmd` 文件会启用语法诊断（filetype `mermaid`）。
+- Mermaid 导出（外部依赖）：安装 `npm install -g @mermaid-js/mermaid-cli` 后，`.mmd`/`.mermaid` 文件可用 `<leader>ms` 导出 SVG、`<leader>mn` 导出 PNG（命令：`:MermaidToSvg`、`:MermaidToPng`，后台异步执行）。
+- Mermaid 自动导出：保存 `.mmd`/`.mermaid` 会后台自动导出同名 `.svg`（自动命令触发 `:MermaidToSvg`，不阻塞编辑）。
+- Mermaid 预览（mmd）：在图目录运行 `live-server`（如 `cd docs/flows && live-server`），浏览器打开对应 `.svg`；之后每次 `:w` 会自动导出并刷新页面。
 
 ## Tmux 与快捷键提示
 - `christoomey/vim-tmux-navigator`：`Ctrl-h/j/k/l` 在 Neovim 与 tmux 分窗间无缝切换。
