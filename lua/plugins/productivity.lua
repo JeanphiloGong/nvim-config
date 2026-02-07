@@ -48,6 +48,37 @@ return {
       { "<leader>gD", "<cmd>DiffviewClose<cr>", desc = "Diffview Close" },
       { "<leader>g1", "<cmd>DiffviewOpen HEAD~1..HEAD<cr>", desc = "Diffview HEAD~1..HEAD" },
       { "<leader>g2", "<cmd>DiffviewOpen HEAD~2..HEAD~1<cr>", desc = "Diffview HEAD~2..HEAD~1" },
+      {
+        "<leader>gB",
+        function()
+          local ok, builtin = pcall(require, "telescope.builtin")
+          if not ok then
+            vim.notify("telescope not available", vim.log.levels.WARN)
+            return
+          end
+
+          local actions = require("telescope.actions")
+          local action_state = require("telescope.actions.state")
+
+          builtin.git_branches({
+            attach_mappings = function(prompt_bufnr, _)
+              actions.select_default:replace(function()
+                local selection = action_state.get_selected_entry()
+                actions.close(prompt_bufnr)
+
+                local branch = selection and selection.value or nil
+                if not branch or branch == "" then
+                  return
+                end
+
+                require("diffview").open({ branch })
+              end)
+              return true
+            end,
+          })
+        end,
+        desc = "Diffview Compare Working Tree",
+      },
       { "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "Diffview File History" },
       { "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Diffview History" },
     },
