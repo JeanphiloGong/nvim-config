@@ -85,7 +85,7 @@ Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的�
 - 历史条目会记录会话线程 ID（优先使用 `CODEX_THREAD_ID`，否则尝试从 notify JSON 提取）
 - 快速跳回：
   - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
-  - `<prefix> + C`：弹出最近完成列表，选择后复制线程 ID 并跳回（同时跑多个 Codex 也能用）
+  - `<prefix> + C`：弹出 popup 历史列表（`Enter` 跳转当前行，`y` 复制当前行 thread id）
 - 跳回后如何快速“返回原处”（tmux 内置）：
   - 如果是跨 session 跳转：`<prefix> + L` 回到上一个 session（等价 `tmux switch-client -l`）
   - 如果只是同一 window 里切 pane：`<prefix> + ;` 回到上一个 pane（last-pane）
@@ -123,11 +123,14 @@ notify 每次触发都会：
 - 更新 `@codex_last_win/@codex_last_pane`（用于“一键跳回最后一个”）
 - 更新 `~/.tmux-codex-history`（用于历史列表；同一 thread id 只保留最新一条）
 
-打开历史列表（无额外依赖，使用 tmux 自带 `display-menu`）：
-- `<prefix> + C`：弹出最近完成列表，选择后跳回对应 pane
+打开历史列表（无额外依赖，优先使用 tmux popup）：
+- `<prefix> + C`：弹出最近完成列表
   - 列表列顺序：`pane title | thread id(完整) | tmux位置(session:window + path末级) | summary`
   - 列表按“最新在上”显示
-  - 在菜单里按 `y`：复制“最新一条”的 thread id（完整）到剪贴板/tmux buffer
+  - `Enter`：跳转到当前高亮行对应 pane
+  - `y`：复制当前高亮行的 thread id（完整）到剪贴板/tmux buffer
+  - `j/k` 或 `↑/↓`：上下移动
+  - `q`：退出
   - 条目会附带你设置的 pane 标签（若有）
 
 可选参数（写在 `tmux/.tmux.conf(.wsl)` 里）：

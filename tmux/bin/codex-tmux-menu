@@ -6,6 +6,22 @@ set -euo pipefail
 
 command -v tmux >/dev/null 2>&1 || exit 0
 copy_helper="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-copy-id"
+popup_picker="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-popup-picker"
+
+# Preferred UI: popup picker (Enter jump, y copy selected tid).
+if [ -x "$popup_picker" ]; then
+  popup_cmd="$(printf 'bash %q' "$popup_picker")"
+  popup_target="${TMUX_PANE:-}"
+  if [ -n "$popup_target" ]; then
+    if tmux display-popup -E -t "$popup_target" -w 92% -h 80% -T "Codex (recent)" "$popup_cmd" 2>/dev/null; then
+      exit 0
+    fi
+  else
+    if tmux display-popup -E -w 92% -h 80% -T "Codex (recent)" "$popup_cmd" 2>/dev/null; then
+      exit 0
+    fi
+  fi
+fi
 
 file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
 [ -n "$file" ] || file="$HOME/.tmux-codex-history"
@@ -98,10 +114,6 @@ while IFS="$tab" read -r ts win pane path col5 col6 col7; do
 
   session="${win%%:*}"
   cmd="switch-client -t $session; select-window -t $win; select-pane -t $pane"
-  if [ -n "${thread_id:-}" ]; then
-    copy_cmd="run-shell -b 'bash \"$copy_helper\" \"$thread_id\"'"
-    cmd="$copy_cmd; $cmd"
-  fi
   set -- "$@" "$label" "$key" "$cmd"
   i=$((i + 1))
 done <"$tmp"

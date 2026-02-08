@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Popup picker for Codex history:
+# - Enter: jump to selected pane
+# - y: copy selected thread id
+# - j/k or Up/Down: move selection
+# - q: quit
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+history_file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
+[ -n "$history_file" ] || history_file="$HOME/.tmux-codex-history"
+
+if [ ! -f "$history_file" ]; then
+  tmux display-message "Codex: no history"
+  exit 0
+fi
+
+limit="$(tmux show -gv @codex_history_limit 2>/dev/null || true)"
+[ -n "$limit" ] || limit=12
+
+copy_helper="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-copy-id"
+tab="$(printf "\t")"
+
+declare -a labels
+declare -a wins
+declare -a panes
+declare -a tids
+
+while IFS="$tab" read -r ts win pane path col5 col6 col7; do
+  [ -n "$win" ] || continue
+
+  thread_id=""
+  summary="${col5:-}"
+  user_title="${col6:-}"
+
+  # Backward-compatible parse:
+  # old rows: <ts> <win> <pane> <path> <summary> <user_title>
+  # new rows: <ts> <win> <pane> <path> tid:<id> <summary> <user_title>
+  if [ -n "${col5:-}" ] && [ "${col5#tid:}" != "$col5" ]; then
+    thread_id="${col5#tid:}"
+    summary="${col6:-}"
+    user_title="${col7:-}"
+  fi
+
+  if [ -z "${user_title:-}" ] && [ -n "${pane:-}" ]; then
+    user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
+  fi
+
+  short_path="${path##*/}"
+  [ -n "$short_path" ] || short_path="$path"
+
+  title_col="${user_title:-}"
+  [ -n "$title_col" ] || title_col="-"
+  tid_col="${thread_id:--}"
+
+  line="$title_col | $tid_col | $win $short_path"
+  [ -n "${summary:-}" ] && line="$line | $summary"
+
+  labels+=("$line")
+  wins+=("$win")
+  panes+=("$pane")
+  tids+=("$thread_id")
+done < <(tail -n "$limit" "$history_file" 2>/dev/null | awk '{a[NR]=$0} END{for(i=NR;i>=1;i--) print a[i]}')
+
+count="${#labels[@]}"
+if [ "$count" -eq 0 ]; then
+  tmux display-message "Codex: no history"
+  exit 0
+fi
+
+idx=0
+status=""
+
+_trim_line() {
+  local line="$1"
+  local width="$2"
+  if [ "$width" -lt 4 ]; then
+    printf '%s' "$line"
+    return
+  fi
+  if [ "${#line}" -le "$width" ]; then
+    printf '%s' "$line"
+    return
+  fi
+  printf '%s...' "${line:0:$((width - 3))}"
+}
+
+_render() {
+  local cols
+  cols="$(tput cols 2>/dev/null || printf '120')"
+  [ "$cols" -gt 10 ] || cols=120
+  local width=$((cols - 1))
+
+  printf '\033[H\033[2J'
+  printf 'Codex Recent (Enter: jump, y: copy current tid, j/k or Up/Down: move, q: quit)\n'
+  printf '%s\n' "$(printf '%*s' "$width" '' | tr ' ' '-')"
+
+  local i row
+  for ((i = 0; i < count; i++)); do
+    row="$(_trim_line "${labels[i]}" "$width")"
+    if [ "$i" -eq "$idx" ]; then
+      printf '\033[7m%s\033[0m\n' "$row"
+    else
+      printf '%s\n' "$row"
+    fi
+  done
+
+  printf '%s\n' "$(printf '%*s' "$width" '' | tr ' ' '-')"
+  [ -n "$status" ] && printf '%s\n' "$status"
+}
+
+_move_up() {
+  idx=$((idx - 1))
+  if [ "$idx" -lt 0 ]; then
+    idx=$((count - 1))
+  fi
+}
+
+_move_down() {
+  idx=$((idx + 1))
+  if [ "$idx" -ge "$count" ]; then
+    idx=0
+  fi
+}
+
+_copy_current_tid() {
+  local tid="${tids[idx]}"
+  if [ -z "$tid" ]; then
+    status="Current row has no thread id"
+    return
+  fi
+  bash "$copy_helper" "$tid" >/dev/null 2>&1 || true
+  local short_tid="$tid"
+  [ "${#short_tid}" -gt 8 ] && short_tid="${short_tid:0:8}"
+  status="Copied tid: $short_tid"
+}
+
+_jump_current() {
+  local win="${wins[idx]}"
+  local pane="${panes[idx]}"
+  [ -n "$win" ] || return
+  local session="${win%%:*}"
+  tmux switch-client -t "$session" 2>/dev/null || true
+  tmux select-window -t "$win" 2>/dev/null || true
+  tmux select-pane -t "$pane" 2>/dev/null || true
+  exit 0
+}
+
+while true; do
+  _render
+  key=""
+  if ! IFS= read -rsn1 key; then
+    exit 0
+  fi
+
+  case "$key" in
+    q|Q)
+      exit 0
+      ;;
+    j)
+      _move_down
+      ;;
+    k)
+      _move_up
+      ;;
+    y|Y)
+      _copy_current_tid
+      ;;
+    $'\n'|$'\r')
+      _jump_current
+      ;;
+    $'\x1b')
+      seq1=""
+      seq2=""
+      IFS= read -rsn1 -t 0.01 seq1 || true
+      if [ "$seq1" = "[" ]; then
+        IFS= read -rsn1 -t 0.01 seq2 || true
+        case "$seq2" in
+          A) _move_up ;;
+          B) _move_down ;;
+        esac
+      fi
+      ;;
+  esac
+done
