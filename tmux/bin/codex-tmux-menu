@@ -85,7 +85,7 @@ while IFS="$tab" read -r ts win pane path col5 col6 col7; do
   fi
 
   if [ -z "${user_title:-}" ] && [ -n "${pane:-}" ]; then
-    user_title="$(tmux show -p -t "$pane" @user_pane_title 2>/dev/null || true)"
+    user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
   fi
 
   title_col="${user_title:-}"

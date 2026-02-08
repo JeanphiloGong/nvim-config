@@ -22,7 +22,7 @@ if [ -z "$win" ]; then
 fi
 
 path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
-user_title="$(tmux show -p -t "$pane" @user_pane_title 2>/dev/null || true)"
+user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
 thread_id="${CODEX_THREAD_ID:-}"
 
 # Optional: derive a short summary from the notify JSON payload.
