@@ -23,6 +23,7 @@ fi
 
 path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
 user_title="$(tmux show -p -t "$pane" @user_pane_title 2>/dev/null || true)"
+thread_id="${CODEX_THREAD_ID:-}"
 
 # Optional: derive a short summary from the notify JSON payload.
 # Keep this best-effort and dependency-light (python3 is optional).
@@ -52,10 +53,41 @@ PY
 )"
 fi
 
+# Prefer CODEX_THREAD_ID (stable env var). Fall back to best-effort JSON fields.
+if [ -z "$thread_id" ] && [ -n "$_payload" ] && command -v python3 >/dev/null 2>&1; then
+  thread_id="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+  payload = json.loads(sys.argv[1])
+except Exception:
+  sys.exit(0)
+
+def pick(obj, *keys):
+  if not isinstance(obj, dict):
+    return ""
+  for key in keys:
+    value = obj.get(key)
+    if value:
+      return str(value)
+  return ""
+
+candidate = (
+  pick(payload, "thread_id", "thread-id", "session_id", "session-id", "id")
+  or pick(payload.get("event"), "thread_id", "thread-id", "session_id", "session-id", "id")
+  or pick(payload.get("session"), "thread_id", "thread-id", "session_id", "session-id", "id")
+)
+
+if candidate:
+  print(candidate.strip())
+PY
+)"
+fi
+
 tmux set -gq @codex_last_win "$win"
 tmux set -gq @codex_last_pane "$pane"
 tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
+[ -n "$thread_id" ] && tmux set -gq @codex_last_thread_id "$thread_id"
 tmux refresh-client -S 2>/dev/null || true
 if [ -n "$summary" ]; then
   tmux set -p -t "$pane" @codex_pane_summary "$summary" 2>/dev/null || true
@@ -63,18 +95,20 @@ fi
 
 # Append to a simple history file so tmux can show a menu (latest first).
 # Format (tab-separated):
-#   <ts>  <session:win>  <pane_id>  <pane_path>  <summary?>
+#   <ts>  <session:win>  <pane_id>  <pane_path>  <thread_ref?>  <summary?>  <user_title?>
 history_file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
 if [ -z "$history_file" ]; then
   history_file="$HOME/.tmux-codex-history"
 fi
 ts="$(date '+%Y-%m-%d %H:%M:%S')"
+thread_ref=""
+[ -n "$thread_id" ] && thread_ref="tid:$thread_id"
 
 mkdir -p "$(dirname "$history_file")" 2>/dev/null || true
 touch "$history_file" 2>/dev/null || true
 
 _append_and_trim() {
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$win" "$pane" "$path" "$summary" "$user_title" >>"$history_file" || return 0
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$win" "$pane" "$path" "$thread_ref" "$summary" "$user_title" >>"$history_file" || return 0
   tmp="${history_file}.tmp.$$"
   tail -n 50 "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
 }

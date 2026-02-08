@@ -82,9 +82,10 @@ Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的�
   - `<summary?>` 会尽量从 notify 的 JSON 里取最后一条回复的首行（依赖 `python3`，没有也不影响跳转）
 - pane 顶部边框会显示三段：`编号 | 你的标签 | Codex 摘要`
 - Codex 完成后会把摘要写入当前 pane 的 `@codex_pane_summary`（不再覆盖 pane title）
+- 历史条目会记录会话线程 ID（优先使用 `CODEX_THREAD_ID`，否则尝试从 notify JSON 提取）
 - 快速跳回：
   - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
-  - `<prefix> + C`：弹出最近完成列表，选择后跳回（同时跑多个 Codex 也能用）
+  - `<prefix> + C`：弹出最近完成列表，选择后复制线程 ID 并跳回（同时跑多个 Codex 也能用）
 - 跳回后如何快速“返回原处”（tmux 内置）：
   - 如果是跨 session 跳转：`<prefix> + L` 回到上一个 session（等价 `tmux switch-client -l`）
   - 如果只是同一 window 里切 pane：`<prefix> + ;` 回到上一个 pane（last-pane）
@@ -124,7 +125,9 @@ notify 每次触发都会：
 
 打开历史列表（无额外依赖，使用 tmux 自带 `display-menu`）：
 - `<prefix> + C`：弹出最近完成列表，选择后跳回对应 pane
+  - 列表列顺序：`pane title | thread id(完整) | tmux位置(session:window + path末级) | summary`
   - 列表按“最新在上”显示
+  - 在菜单里按 `y`：复制“最新一条”的 thread id（完整）到剪贴板/tmux buffer
   - 条目会附带你设置的 pane 标签（若有）
 
 可选参数（写在 `tmux/.tmux.conf(.wsl)` 里）：

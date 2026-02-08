@@ -5,6 +5,7 @@ set -euo pipefail
 # History is appended by tmux/bin/codex-tmux-notify in a simple TSV file.
 
 command -v tmux >/dev/null 2>&1 || exit 0
+copy_helper="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-copy-id"
 
 file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
 [ -n "$file" ] || file="$HOME/.tmux-codex-history"
@@ -45,12 +46,32 @@ if [ -n "$last_pane" ] && [ -n "$last_win" ]; then
   set -- "$@" "Jump last: $last_win $last_pane" "L" "switch-client -t $last_session; select-window -t $last_win; select-pane -t $last_pane"
 fi
 
+# Optional: y copies the latest recorded thread id (if available).
+latest_thread_id="$(awk -F '\t' 'NR==1 {if ($5 ~ /^tid:/) {sub(/^tid:/,"",$5); print $5}}' "$tmp" 2>/dev/null || true)"
+if [ -n "$latest_thread_id" ]; then
+  short_latest="$latest_thread_id"
+  [ "${#short_latest}" -gt 8 ] && short_latest="${short_latest:0:8}"
+  set -- "$@" "Copy latest tid: $short_latest" "y" "run-shell -b 'bash \"$copy_helper\" \"$latest_thread_id\"'"
+fi
+
 tab="$(printf "\t")"
 i=1
 letters=abcdef
 
-while IFS="$tab" read -r ts win pane path summary user_title; do
+while IFS="$tab" read -r ts win pane path col5 col6 col7; do
   [ -n "$win" ] || continue
+
+  thread_id=""
+  summary="${col5:-}"
+  user_title="${col6:-}"
+  # Backward-compatible parse:
+  # old rows: <ts> <win> <pane> <path> <summary> <user_title>
+  # new rows: <ts> <win> <pane> <path> tid:<id> <summary> <user_title>
+  if [ -n "${col5:-}" ] && [ "${col5#tid:}" != "$col5" ]; then
+    thread_id="${col5#tid:}"
+    summary="${col6:-}"
+    user_title="${col7:-}"
+  fi
 
   short="${path##*/}"
   [ -n "$short" ] || short="$path"
@@ -67,14 +88,20 @@ while IFS="$tab" read -r ts win pane path summary user_title; do
     user_title="$(tmux show -p -t "$pane" @user_pane_title 2>/dev/null || true)"
   fi
 
-  label="$win $short"
-  [ -n "${user_title:-}" ] && label="$label | $user_title"
+  title_col="${user_title:-}"
+  [ -n "$title_col" ] || title_col="-"
+  thread_col="${thread_id:--}"
+  label="$title_col | $thread_col | $win $short"
   [ -n "${summary:-}" ] && label="$label | $summary"
   # display-menu treats labels as tmux formats; escape '#' to avoid accidental expansions.
   label="${label//#/##}"
 
   session="${win%%:*}"
   cmd="switch-client -t $session; select-window -t $win; select-pane -t $pane"
+  if [ -n "${thread_id:-}" ]; then
+    copy_cmd="run-shell -b 'bash \"$copy_helper\" \"$thread_id\"'"
+    cmd="$copy_cmd; $cmd"
+  fi
   set -- "$@" "$label" "$key" "$cmd"
   i=$((i + 1))
 done <"$tmp"
