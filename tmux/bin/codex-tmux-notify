@@ -110,7 +110,31 @@ touch "$history_file" 2>/dev/null || true
 _append_and_trim() {
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$win" "$pane" "$path" "$thread_ref" "$summary" "$user_title" >>"$history_file" || return 0
   tmp="${history_file}.tmp.$$"
-  tail -n 50 "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
+  dedup="${history_file}.dedup.$$"
+  # Keep only the latest row for each Codex thread id.
+  # For legacy rows without tid, dedupe by session/window + pane id.
+  awk -F '\t' '
+    {
+      key = ""
+      if ($5 ~ /^tid:/) {
+        key = $5
+      } else {
+        key = "legacy:" $2 "|" $3
+      }
+      rows[NR] = $0
+      keys[NR] = key
+      last[key] = NR
+    }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (last[keys[i]] == i) {
+          print rows[i]
+        }
+      }
+    }
+  ' "$history_file" >"$dedup" 2>/dev/null || return 0
+  tail -n 50 "$dedup" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
+  rm -f "$dedup" 2>/dev/null || true
 }
 
 if command -v flock >/dev/null 2>&1; then

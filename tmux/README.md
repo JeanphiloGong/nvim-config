@@ -121,7 +121,7 @@ notify = ["/home/<you>/.local/bin/codex-tmux-notify"]
 ### 4) 多个 Codex 同时完成怎么办？
 notify 每次触发都会：
 - 更新 `@codex_last_win/@codex_last_pane`（用于“一键跳回最后一个”）
-- 追加一条到 `~/.tmux-codex-history`（用于历史列表）
+- 更新 `~/.tmux-codex-history`（用于历史列表；同一 thread id 只保留最新一条）
 
 打开历史列表（无额外依赖，使用 tmux 自带 `display-menu`）：
 - `<prefix> + C`：弹出最近完成列表，选择后跳回对应 pane
