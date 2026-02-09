@@ -5,23 +5,6 @@ set -euo pipefail
 # History is appended by tmux/bin/codex-tmux-notify in a simple TSV file.
 
 command -v tmux >/dev/null 2>&1 || exit 0
-copy_helper="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-copy-id"
-popup_picker="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-popup-picker"
-
-# Preferred UI: popup picker (Enter jump, y copy selected tid).
-if [ -x "$popup_picker" ]; then
-  popup_cmd="$(printf 'bash %q' "$popup_picker")"
-  popup_target="${TMUX_PANE:-}"
-  if [ -n "$popup_target" ]; then
-    if tmux display-popup -E -t "$popup_target" -w 92% -h 80% -T "Codex (recent)" "$popup_cmd" 2>/dev/null; then
-      exit 0
-    fi
-  else
-    if tmux display-popup -E -w 92% -h 80% -T "Codex (recent)" "$popup_cmd" 2>/dev/null; then
-      exit 0
-    fi
-  fi
-fi
 
 file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
 [ -n "$file" ] || file="$HOME/.tmux-codex-history"
@@ -54,20 +37,15 @@ else
   set -- display-menu -T "Codex (recent)" -x R -y P
 fi
 
+menu_items=0
+
 # Optional: add a "jump last" entry.
 last_pane="$(tmux show -gv @codex_last_pane 2>/dev/null || true)"
 last_win="$(tmux show -gv @codex_last_win 2>/dev/null || true)"
 if [ -n "$last_pane" ] && [ -n "$last_win" ]; then
   last_session="${last_win%%:*}"
   set -- "$@" "Jump last: $last_win $last_pane" "L" "switch-client -t $last_session; select-window -t $last_win; select-pane -t $last_pane"
-fi
-
-# Optional: y copies the latest recorded thread id (if available).
-latest_thread_id="$(awk -F '\t' 'NR==1 {if ($5 ~ /^tid:/) {sub(/^tid:/,"",$5); print $5}}' "$tmp" 2>/dev/null || true)"
-if [ -n "$latest_thread_id" ]; then
-  short_latest="$latest_thread_id"
-  [ "${#short_latest}" -gt 8 ] && short_latest="${short_latest:0:8}"
-  set -- "$@" "Copy latest tid: $short_latest" "y" "run-shell -b 'bash \"$copy_helper\" \"$latest_thread_id\"'"
+  menu_items=$((menu_items + 1))
 fi
 
 tab="$(printf "\t")"
@@ -116,8 +94,14 @@ while IFS="$tab" read -r ts win pane path col5 col6 col7; do
   cmd="switch-client -t $session; select-window -t $win; select-pane -t $pane"
   set -- "$@" "$label" "$key" "$cmd"
   i=$((i + 1))
+  menu_items=$((menu_items + 1))
 done <"$tmp"
 
 rm -f "$tmp"
+
+[ "$menu_items" -gt 0 ] || {
+  tmux display-message "Codex: no history"
+  exit 0
+}
 
 tmux "$@"
