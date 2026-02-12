@@ -58,17 +58,25 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 当前模板使用两行状态栏：
 - 第 1 行左侧：`session_name + session_id`
 - 第 1 行右侧：`CPU | RAM | time`
-- 第 2 行左侧：最近一次 Codex 完成信息
-- 第 2 行右侧（右下角）：当前 pane 路径的 Git 状态（`git:<branch>`，未提交为 `*`，有远端差距时显示 `+ahead/-behind`）
+- 第 2 行左侧：当前 pane 路径的 Git 状态（`git:<branch>`，未提交为 `*`，有远端差距时显示 `+ahead/-behind`）
+- 第 2 行右侧：共享常驻消息槽（Codex/Language 共用，后触发覆盖前触发）
 
 常用操作：
 - `<prefix> + T`：设置当前 pane 标签（显示在 pane 边框）
 - `<prefix> + W`：重命名当前 window
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
+- `<prefix> + g`：在底部输入一句中文/英文，后台生成地道英文并复制到剪贴板（可用时），完成后更新第 2 行左侧常驻消息槽
+- `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
 
 排查：
 - 如果状态栏频繁闪烁，通常是 `status-interval` 太短或 status-right 命令太重：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
+
+Language Coach 依赖（可选）：
+- 推荐安装 `translate-shell`（命令 `trans`），否则脚本会退化为原文输出。
+- 脚本优先使用 `@clipboard`，其次尝试 `pbcopy/wl-copy/xclip/xsel/win32yank.exe/clip.exe`。
+- 历史文件默认保存在 `~/.tmux-language-history`（本地文件，不入库）。
+- 输入提示固定在状态栏第 2 行（`message-line=1`）。
 
 ## Codex（可选）：turn 完成提示 + 快速跳回
 如果你在 tmux 里运行 Codex CLI，经常会切到别的 pane 做其他事，那么“回到 Codex 输出的 pane”
@@ -78,8 +86,9 @@ Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的�
 集成脚本模板：`tmux/bin/codex-tmux-notify`。
 
 效果（推荐：不打断输入）：
-- 状态栏第 2 行常驻显示最近一次完成信息：`Codex: <session:window> | <summary?>`
+- Codex 完成会更新第 2 行左侧常驻消息：`Codex: <session:window> | <summary?>`
   - `<summary?>` 会尽量从 notify 的 JSON 里取最后一条回复的首行（依赖 `python3`，没有也不影响跳转）
+- Language 翻译完成也写入同一消息槽，后触发者覆盖前一个结果
 - pane 顶部边框会显示三段：`编号 | 你的标签 | Codex 摘要`
 - Codex 完成后会把摘要写入当前 pane 的 `@codex_pane_summary`（不再覆盖 pane title）
 - 历史条目会记录会话线程 ID（优先使用 `CODEX_THREAD_ID`，否则尝试从 notify JSON 提取）
@@ -131,7 +140,7 @@ notify 每次触发都会：
 
 可选参数（写在 `tmux/.tmux.conf(.wsl)` 里）：
 - `set -g @codex_history_limit 12`：列表最多显示多少条（默认 12）
-- `set -g @codex_notify_mode off`：不弹窗/不消息条（推荐，配合第 2 行状态栏即可）
+- `set -g @codex_notify_mode off`：不额外弹窗/消息条（推荐，常驻槽模式）
 - `set -g @codex_notify_mode message`：额外用 tmux 消息条提示（非模态）
 - `set -g @codex_notify_mode popup`：额外用 popup 弹窗提示（模态：会捕获按键并暂停 pane 刷新）
 - `set -g @codex_popup_corner br`：popup 位置：`tr/br/tl/bl`（右上/右下/左上/左下）

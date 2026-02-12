@@ -88,6 +88,16 @@ tmux set -gq @codex_last_pane "$pane"
 tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
 [ -n "$thread_id" ] && tmux set -gq @codex_last_thread_id "$thread_id"
+
+# Update shared second-line status slot (persistent until overwritten).
+shared_msg="Codex: $win"
+if [ -n "$summary" ]; then
+  shared_msg="$shared_msg | $summary"
+fi
+# Prevent tmux format interpolation for user content.
+shared_msg="${shared_msg//#/##}"
+tmux set -gq @shared_status_msg "$shared_msg"
+
 tmux refresh-client -S 2>/dev/null || true
 if [ -n "$summary" ]; then
   tmux set -p -t "$pane" @codex_pane_summary "$summary" 2>/dev/null || true

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -u
+
+history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
+limit="${1:-30}"
+
+if ! printf '%s' "$limit" | grep -Eq '^[0-9]+$'; then
+  limit=30
+fi
+
+printf "Language history (latest %s)\n\n" "$limit"
+
+if [ ! -s "$history_file" ]; then
+  printf "No history yet.\n\n"
+  printf "Press Enter to close..."
+  IFS= read -r _
+  exit 0
+fi
+
+tail -n "$limit" "$history_file" | nl -ba -w2 -s'. ' | awk -F '\t' '
+{
+  idx=$1
+  ts=$2
+  in_txt=$3
+  out_txt=$4
+  printf "%s [%s]\n", idx, ts
+  printf "  IN : %s\n", in_txt
+  printf "  OUT: %s\n\n", out_txt
+}
+'
+
+printf "Press Enter to close..."
+IFS= read -r _
