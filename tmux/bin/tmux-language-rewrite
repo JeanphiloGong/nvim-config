@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -u
+
+input="${1-}"
+auto_paste="${TMUX_LANG_AUTOPASTE-0}"
+target_pane="${TMUX_LANG_TARGET-}"
+history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
+if [ -z "$input" ]; then
+  printf "Input (zh/en): "
+  IFS= read -r input || exit 0
+fi
+
+input="$(printf '%s' "$input" | sed 's/[[:space:]]\+$//')"
+if [ -z "$input" ]; then
+  tmux display-message "Language: empty input"
+  exit 0
+fi
+
+rewrite_to_english() {
+  if command -v trans >/dev/null 2>&1; then
+    # Chinese input -> English translation.
+    if printf '%s' "$input" | grep -q '[一-龥]'; then
+      trans -b zh:en "$input" 2>/dev/null && return 0
+    fi
+
+    # Non-Chinese input: try EN -> ZH -> EN for a more natural paraphrase.
+    zh_text="$(trans -b :zh "$input" 2>/dev/null || true)"
+    if [ -n "$zh_text" ]; then
+      trans -b zh:en "$zh_text" 2>/dev/null && return 0
+    fi
+
+    trans -b :en "$input" 2>/dev/null && return 0
+  fi
+
+  printf '%s' "$input"
+}
+
+result="$(rewrite_to_english | tr '\r' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+[ -n "$result" ] || result="$input"
+
+record_history() {
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  in_text="$(printf '%s' "$input" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+  out_text="$(printf '%s' "$result" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+  printf '%s\t%s\t%s\n' "$ts" "$in_text" "$out_text" >> "$history_file" 2>/dev/null || true
+}
+record_history
+
+copy_ok=0
+copy_via="tmux-buffer"
+
+# Always keep one copy in tmux buffer.
+tmux set-buffer -- "$result" >/dev/null 2>&1 || true
+
+clip_cmd="$(tmux show -gv @clipboard 2>/dev/null || true)"
+if [ -n "$clip_cmd" ] && printf '%s' "$result" | sh -c "$clip_cmd" >/dev/null 2>&1; then
+  copy_ok=1
+  copy_via="@clipboard"
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v pbcopy >/dev/null 2>&1; then
+  if printf '%s' "$result" | pbcopy >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="pbcopy"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v wl-copy >/dev/null 2>&1; then
+  if printf '%s' "$result" | wl-copy >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="wl-copy"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v xclip >/dev/null 2>&1; then
+  if printf '%s' "$result" | xclip -selection clipboard >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="xclip"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v xsel >/dev/null 2>&1; then
+  if printf '%s' "$result" | xsel --clipboard --input >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="xsel"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v win32yank.exe >/dev/null 2>&1; then
+  if printf '%s' "$result" | win32yank.exe -i --crlf >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="win32yank.exe"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v clip.exe >/dev/null 2>&1; then
+  if printf '%s' "$result" | clip.exe >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="clip.exe"
+  fi
+fi
+
+short="$(printf '%s' "$result" | cut -c1-80)"
+[ "${#result}" -gt 80 ] && short="${short}..."
+# Prevent tmux format interpolation for user content.
+short="${short//#/##}"
+
+if [ "$copy_ok" -eq 1 ]; then
+  shared_msg="Lang: $short"
+else
+  shared_msg="Lang(buffer): $short"
+fi
+tmux set -gq @shared_status_msg "$shared_msg" >/dev/null 2>&1 || true
+
+paste_back() {
+  if [ "$auto_paste" != "1" ]; then
+    return 0
+  fi
+
+  if [ -n "$target_pane" ]; then
+    tmux paste-buffer -t "$target_pane" >/dev/null 2>&1 && return 0
+  fi
+
+  tmux paste-buffer >/dev/null 2>&1 || true
+}
+
+if [ -t 1 ]; then
+  printf "\nOutput:\n%s\n\n" "$result"
+  if [ "$auto_paste" = "1" ] && [ "$copy_ok" -eq 1 ]; then
+    printf "Copied via %s. Press Enter to paste..." "$copy_via"
+  elif [ "$auto_paste" = "1" ]; then
+    printf "Copied to tmux buffer only. Press Enter to paste..."
+  elif [ "$copy_ok" -eq 1 ]; then
+    printf "Copied via %s. Press Enter to close..." "$copy_via"
+  else
+    printf "Copied to tmux buffer only. Press Enter to close..."
+  fi
+  IFS= read -r _
+  paste_back
+else
+  paste_back
+fi

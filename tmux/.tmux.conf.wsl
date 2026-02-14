@@ -77,9 +77,11 @@ set -g status-left-length 30
 
 # 两行状态栏：
 # - 第 1 行：正常状态栏（window 列表 + status-left/status-right）
-# - 第 2 行：左侧 Codex 最近一次完成；右侧 Git 状态（右下角）
+# - 第 2 行：左侧共享消息槽（Codex/Language 常驻，后触发覆盖前触发）；右侧 Git 状态
 set -g status 2
-set -g status-format[1] '#[align=left]#{?@codex_last_win,#[fg=cyan]Codex#[default]: #{@codex_last_win}#{?@codex_last_summary, | #{=/60/...:@codex_last_summary},},#[fg=cyan]Codex#[default]: -}#[align=right]#(~/.config/nvim/tmux/bin/tmux-git-status "#{pane_current_path}")'
+# 输入提示与消息显示在第 2 行（索引从 0 开始）
+set -g message-line 1
+set -g status-format[1] '#[align=left]#(~/.config/nvim/tmux/bin/tmux-git-status "#{pane_current_path}")#[align=right]#{?@shared_status_msg,#{=/110/...:@shared_status_msg},}'
 
 # in .tmux.conf
 set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
@@ -89,7 +91,7 @@ set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh)
 # - @codex_last_win  / @codex_last_pane：最后一次完成的位置
 # - ~/.tmux-codex-history：历史记录（用于菜单选择）
 set -g @codex_history_file "$HOME/.tmux-codex-history"
-# 不使用弹窗/消息条（用第 2 行状态栏显示即可）
+# Codex 和 Language 共用第二行常驻消息槽（不再额外弹消息条）
 set -g @codex_notify_mode "off" # popup | message | off
 
 # <prefix> + C：弹出最近完成列表（最新在上），选择后跳回对应 pane
@@ -113,6 +115,12 @@ bind-key W command-prompt -p "window name" "rename-window '%%'"
 
 # Popup 终端：在当前 pane 路径打开一个临时 shell
 bind-key G display-popup -E -w 90% -h 85% -T "Terminal" -d "#{pane_current_path}" "bash"
+
+# Language Coach：输入中英文（后台执行），结果复制到剪贴板并提示
+bind-key g command-prompt -p "Language input" 'run-shell -b "TMUX_LANG_AUTOPASTE=0 bash \"$HOME/.config/nvim/tmux/bin/tmux-language-rewrite\" \"%%\""'
+
+# Language Coach History：只读历史查看
+bind-key H display-popup -E -w 90% -h 65% -T "Language History" 'bash "$HOME/.config/nvim/tmux/bin/tmux-language-history"'
 
 ##### Yank：复制后仍停留在 copy-mode（Windows UTF-8）#####
 # 注意：这段必须放在 TPM 之后，确保覆盖 tmux-yank 的默认绑定
