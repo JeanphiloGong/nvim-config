@@ -67,6 +67,8 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 - `<prefix> + g`：在底部输入一句中文/英文，后台生成地道英文并复制到剪贴板（可用时），完成后更新第 2 行左侧常驻消息槽
 - `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
+- `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
+- `<prefix> + F`：下方分屏，在新 pane 执行 `codex fork <session_id>`
 
 排查：
 - 如果状态栏频繁闪烁，通常是 `status-interval` 太短或 status-right 命令太重：
@@ -95,6 +97,12 @@ Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的�
 - 快速跳回：
   - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
   - `<prefix> + C`：弹出最近完成列表，选择后跳回对应 pane
+- 快速 fork：
+  - `<prefix> + f` / `<prefix> + F`：从当前 pane 前台进程环境变量读取 `CODEX_SESSION_ID`（没有则回退 `CODEX_THREAD_ID`），并在新分屏里执行 `codex fork <id>`
+  - 若当前 pane 未取到，会继续尝试该 pane 的根进程、同 tty 的 `codex` 进程，最后回退 `@codex_last_thread_id`
+  - 注意必须是“环境变量”而不是仅 shell 内变量；并且变量要在当前 pane 对应进程里可见
+  - 每次尝试会写日志到 `~/.tmux-codex-fork.log`（可通过 `@codex_fork_log_file` 覆盖，设为 `off` 可关闭）
+  - 可用 `tmux show -gv @codex_fork_last_source` / `@codex_fork_last_pid` / `@codex_fork_last_key` 查看最近一次命中来源
 - 跳回后如何快速“返回原处”（tmux 内置）：
   - 如果是跨 session 跳转：`<prefix> + L` 回到上一个 session（等价 `tmux switch-client -l`）
   - 如果只是同一 window 里切 pane：`<prefix> + ;` 回到上一个 pane（last-pane）
