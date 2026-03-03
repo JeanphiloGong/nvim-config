@@ -88,6 +88,7 @@ tmux set -gq @codex_last_pane "$pane"
 tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
 [ -n "$thread_id" ] && tmux set -gq @codex_last_thread_id "$thread_id"
+[ -n "$thread_id" ] && tmux set -p -t "$pane" @codex_pane_thread_id "$thread_id" 2>/dev/null || true
 
 # Update shared second-line status slot (persistent until overwritten).
 shared_msg="Codex: $win"

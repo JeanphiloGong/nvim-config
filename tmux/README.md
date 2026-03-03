@@ -94,15 +94,18 @@ Codex CLI 支持 `notify` hook：每次 turn 结束会执行一次你配置的�
 - pane 顶部边框会显示三段：`编号 | 你的标签 | Codex 摘要`
 - Codex 完成后会把摘要写入当前 pane 的 `@codex_pane_summary`（不再覆盖 pane title）
 - 历史条目会记录会话线程 ID（优先使用 `CODEX_THREAD_ID`，否则尝试从 notify JSON 提取）
+- Codex 完成后会把 thread id 写到当前 pane 的 `@codex_pane_thread_id`（供 pane 内 fork 优先使用）
 - 快速跳回：
   - `<prefix> + J`：跳回“最后一次完成”的 Codex pane
   - `<prefix> + C`：弹出最近完成列表，选择后跳回对应 pane
 - 快速 fork：
   - `<prefix> + f` / `<prefix> + F`：从当前 pane 前台进程环境变量读取 `CODEX_SESSION_ID`（没有则回退 `CODEX_THREAD_ID`），并在新分屏里执行 `codex fork <id>`
-  - 若当前 pane 未取到，会继续尝试该 pane 的根进程、同 tty 的 `codex` 进程，最后回退 `@codex_last_thread_id`
+  - 若当前 pane 未取到，会继续尝试该 pane 的根进程、同 tty 的 `codex` 进程，然后回退当前 pane 的 `@codex_pane_thread_id`
+  - 严格模式：不使用全局 `@codex_last_thread_id` 兜底，避免跨 pane 误 fork
   - 注意必须是“环境变量”而不是仅 shell 内变量；并且变量要在当前 pane 对应进程里可见
   - 每次尝试会写日志到 `~/.tmux-codex-fork.log`（可通过 `@codex_fork_log_file` 覆盖，设为 `off` 可关闭）
   - 可用 `tmux show -gv @codex_fork_last_source` / `@codex_fork_last_pid` / `@codex_fork_last_key` 查看最近一次命中来源
+  - 可用 `tmux show -pv -t "$TMUX_PANE" @codex_pane_thread_id` 查看当前 pane 记录的 thread id
 - 跳回后如何快速“返回原处”（tmux 内置）：
   - 如果是跨 session 跳转：`<prefix> + L` 回到上一个 session（等价 `tmux switch-client -l`）
   - 如果只是同一 window 里切 pane：`<prefix> + ;` 回到上一个 pane（last-pane）

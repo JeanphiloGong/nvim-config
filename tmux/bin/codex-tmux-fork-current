@@ -130,10 +130,10 @@ resolve_session_id() {
     read_sid_from_pid_env "$p" "tty_codex_pid" && return 0
   done <<<"$pids"
 
-  # 4) Fallback: last captured thread id from notify hook.
-  p="$(tmux show -gv @codex_last_thread_id 2>/dev/null || true)"
+  # 4) Fallback: pane-local thread id captured by notify hook.
+  p="$(tmux show -pv -t "$target_pane" @codex_pane_thread_id 2>/dev/null || true)"
   if [ -n "$p" ]; then
-    fork_source="tmux_option:@codex_last_thread_id"
+    fork_source="pane_option:@codex_pane_thread_id"
     fork_pid="-"
     fork_key="CODEX_THREAD_ID"
     session_id="$p"
@@ -152,7 +152,7 @@ if [ -z "$session_id" ]; then
   tmux set -gq @codex_fork_last_pid "-"
   tmux set -gq @codex_fork_last_key "-"
   tmux set -gq @codex_fork_last_detail "no sid candidates=${debug_candidates:-none}"
-  tmux display-message "Codex fork: no sid (checked fg/pane/tty/fallback)"
+  tmux display-message "Codex fork: no sid (checked fg/pane/tty/pane-option only)"
   exit 0
 fi
 
