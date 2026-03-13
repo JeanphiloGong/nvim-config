@@ -1,3 +1,31 @@
+local function pick_git_branch(on_select, opts)
+  local ok, builtin = pcall(require, "telescope.builtin")
+  if not ok then
+    vim.notify("telescope not available", vim.log.levels.WARN)
+    return
+  end
+
+  local actions = require("telescope.actions")
+  local action_state = require("telescope.actions.state")
+
+  builtin.git_branches(vim.tbl_extend("force", opts or {}, {
+    attach_mappings = function(prompt_bufnr, _)
+      actions.select_default:replace(function()
+        local selection = action_state.get_selected_entry()
+        actions.close(prompt_bufnr)
+
+        local branch = selection and selection.value or nil
+        if not branch or branch == "" then
+          return
+        end
+
+        on_select(branch)
+      end)
+      return true
+    end,
+  }))
+end
+
 return {
   -- Git 变更标记与快速暂存
   {
@@ -49,35 +77,26 @@ return {
       { "<leader>g1", "<cmd>DiffviewOpen HEAD~1..HEAD<cr>", desc = "Diffview HEAD~1..HEAD" },
       { "<leader>g2", "<cmd>DiffviewOpen HEAD~2..HEAD~1<cr>", desc = "Diffview HEAD~2..HEAD~1" },
       {
-        "<leader>gB",
+        "<leader>gb",
         function()
-          local ok, builtin = pcall(require, "telescope.builtin")
-          if not ok then
-            vim.notify("telescope not available", vim.log.levels.WARN)
-            return
-          end
-
-          local actions = require("telescope.actions")
-          local action_state = require("telescope.actions.state")
-
-          builtin.git_branches({
-            attach_mappings = function(prompt_bufnr, _)
-              actions.select_default:replace(function()
-                local selection = action_state.get_selected_entry()
-                actions.close(prompt_bufnr)
-
-                local branch = selection and selection.value or nil
-                if not branch or branch == "" then
-                  return
-                end
-
-                require("diffview").open({ branch })
-              end)
-              return true
-            end,
+          pick_git_branch(function(branch)
+            require("diffview").open({ branch })
+          end, {
+            prompt_title = "Working tree vs branch",
           })
         end,
-        desc = "Diffview Compare Working Tree",
+        desc = "Diffview Working Tree vs Branch",
+      },
+      {
+        "<leader>gB",
+        function()
+          pick_git_branch(function(branch)
+            require("diffview").open({ "HEAD.." .. branch })
+          end, {
+            prompt_title = "HEAD vs branch",
+          })
+        end,
+        desc = "Diffview HEAD vs Branch",
       },
       { "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "Diffview File History" },
       { "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Diffview History" },
