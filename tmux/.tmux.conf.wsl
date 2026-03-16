@@ -126,6 +126,9 @@ bind-key W command-prompt -p "window name" "rename-window '%%'"
 # Popup 终端：在当前 pane 路径打开一个临时 shell
 bind-key G display-popup -E -w 90% -h 85% -T "Terminal" -d "#{pane_current_path}" "bash"
 
+# 复制当前 pane 路径对应仓库的 Git 分支名
+bind-key b run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-copy-git-branch" "#{pane_current_path}"'
+
 # Language Coach：输入中英文（后台执行），结果复制到剪贴板并提示
 bind-key g command-prompt -p "Language input" 'run-shell -b "TMUX_LANG_AUTOPASTE=0 bash \"$HOME/.config/nvim/tmux/bin/tmux-language-rewrite\" \"%%\""'
 
