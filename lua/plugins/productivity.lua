@@ -80,17 +80,6 @@ return {
         "<leader>gb",
         function()
           pick_git_branch(function(branch)
-            require("diffview").open({ branch })
-          end, {
-            prompt_title = "Working tree vs branch",
-          })
-        end,
-        desc = "Diffview Working Tree vs Branch",
-      },
-      {
-        "<leader>gB",
-        function()
-          pick_git_branch(function(branch)
             require("diffview").open({ "HEAD.." .. branch })
           end, {
             prompt_title = "HEAD vs branch",
