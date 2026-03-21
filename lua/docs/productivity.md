@@ -55,12 +55,14 @@
 - 常用快捷键（本仓库配置）：
   - `<leader>gd`：打开 Diffview。
   - `<leader>gD`：关闭 Diffview。
+  - `<leader>gb`：当前 `HEAD` 对比选中分支（不带当前工作区未提交修改）。
   - `<leader>g1`：查看 `HEAD~1..HEAD` 变更。
   - `<leader>g2`：查看 `HEAD~2..HEAD~1` 变更。
   - `<leader>gh`：当前文件历史。
   - `<leader>gH`：全仓库历史。
 - 常用命令：
   - `:DiffviewOpen HEAD~2..HEAD~1`：查看两个提交间的差异。
+  - `:DiffviewOpen HEAD..feature/x`：查看当前 `HEAD` 与目标分支的差异。
   - `:DiffviewFileHistory %`：查看当前文件历史。
 
 ## Git 命令视图：vim-fugitive
@@ -87,5 +89,6 @@
 - 快速定位改动文件：`<leader>gs` 打开 git_status 视图，回车跳转到改动文件。
 - 日常文件导航：`<leader>e` 打开文件树，`<leader>be` 浏览已打开的 buffer。
 - 复制路径用于分享：`<leader>yp` 复制绝对路径，`<leader>yr` 复制相对路径。
+- 对比当前提交与目标分支：用 `<leader>gb`，适合看纯提交态差异，不受未提交修改干扰。
 - 查看最近提交差异：用 `<leader>g1`/`<leader>g2` 快速对比最近两次提交。
 - 查看未推送提交：用 `<leader>gS` 打开 `:Git` 查看 ahead/behind。

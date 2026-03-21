@@ -67,6 +67,7 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + <`：当前 window 左移一位，并切换到交换后的目标位置
 - `<prefix> + >`：当前 window 右移一位，并切换到交换后的目标位置
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
+- `<prefix> + b`：复制当前 pane 路径对应仓库的 Git 分支名到剪贴板（至少会写入 tmux buffer）
 - `<prefix> + g`：在底部输入一句中文/英文，后台生成地道英文并复制到剪贴板（可用时），完成后更新第 2 行左侧常驻消息槽
 - `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
 - `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
