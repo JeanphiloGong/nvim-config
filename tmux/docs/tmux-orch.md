@@ -149,11 +149,21 @@ Inspect state:
 tmux/bin/orch status
 ```
 
+From tmux, the default quick entry is your existing `<prefix> + C` menu.
+That menu now includes an `Orch dashboard` item which opens a popup view for
+the current session.
+
 Validate cheap invariants:
 
 ```sh
 tmux/bin/orch validate
 ```
+
+Inside the popup dashboard:
+
+- `r` refreshes the view
+- `v` opens full validate output
+- `q` closes the popup
 
 ## Phase Staging
 

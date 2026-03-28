@@ -2,6 +2,12 @@
 
 本目录包含 tmux 模板与辅助脚本。
 
+## Quick Access
+
+- `<prefix> + C`：打开 `Codex / Orch` 菜单
+  - `Orch dashboard`：打开当前 tmux session 的编排状态面板
+  - 其余条目：最近完成的 Codex panes，可直接跳回
+
 ## Skill Layers
 
 `tmux/skills/` 现在按三层组织：
@@ -30,6 +36,21 @@
 - `phase-start` / `phase-close`
 - `retire-pane`
 - reviewer 专项校验
+
+### Dashboard
+
+`tmux-orch` 现在提供一个最小 popup dashboard，并挂在现有的
+`<prefix> + C` 菜单里。
+
+它展示：
+- `orch status`
+- 最近 handoffs
+- 当前 `validate` 摘要
+
+在 dashboard 里：
+- `r`：刷新
+- `v`：查看完整 validate 输出
+- `q`：关闭
 - 自动 pane 创建 / 自动 dispatch
 
 默认状态目录不放在仓库里，而是放到 XDG state 目录：

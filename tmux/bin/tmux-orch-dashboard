@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+orch_bin="$config_home/tmux/bin/orch"
+
+sanitize_name() {
+  printf '%s' "$1" | tr '/ :\t' '____' | tr -cd 'A-Za-z0-9._-'
+}
+
+print_header() {
+  local session root now
+  now="$(date '+%Y-%m-%d %H:%M:%S')"
+  session="manual"
+  if command -v tmux >/dev/null 2>&1 && [ -n "${TMUX:-}" ]; then
+    session="$(tmux display-message -p '#S' 2>/dev/null || printf 'manual')"
+  fi
+  session="$(sanitize_name "${session:-manual}")"
+  [ -n "$session" ] || session="manual"
+  root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session}}"
+
+  printf 'tmux-orch dashboard\n'
+  printf 'Time: %s\n' "$now"
+  printf 'Session: %s\n' "$session"
+  printf 'Root: %s\n' "$root"
+  printf '\n'
+}
+
+print_footer() {
+  printf '\n'
+  printf '[r] refresh  [v] validate details  [q] quit\n'
+}
+
+show_status() {
+  if [ ! -x "$orch_bin" ]; then
+    printf 'error: missing executable %s\n' "$orch_bin"
+    return 0
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf 'error: jq is required for tmux-orch status\n'
+    return 0
+  fi
+
+  if ! "$orch_bin" status 2>&1; then
+    printf '\n'
+    printf 'status unavailable; initialize the state first with:\n'
+    printf '  tmux/bin/orch init\n'
+  fi
+}
+
+show_validate_summary() {
+  local tmp rc
+
+  if [ ! -x "$orch_bin" ] || ! command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+
+  tmp="$(mktemp 2>/dev/null || mktemp -t tmux-orch-validate)"
+  rc=0
+  if ! "$orch_bin" validate >"$tmp" 2>&1; then
+    rc=$?
+  fi
+
+  printf '\nValidation:\n'
+  cat "$tmp"
+  rm -f "$tmp"
+  return "$rc"
+}
+
+show_validate_fullscreen() {
+  local tmp rc
+
+  clear
+  print_header
+  printf 'Validate Details\n'
+  printf '================\n\n'
+
+  if [ ! -x "$orch_bin" ]; then
+    printf 'error: missing executable %s\n' "$orch_bin"
+  elif ! command -v jq >/dev/null 2>&1; then
+    printf 'error: jq is required for tmux-orch validate\n'
+  else
+    tmp="$(mktemp 2>/dev/null || mktemp -t tmux-orch-validate)"
+    rc=0
+    if ! "$orch_bin" validate >"$tmp" 2>&1; then
+      rc=$?
+    fi
+    cat "$tmp"
+    rm -f "$tmp"
+    if [ "$rc" -ne 0 ]; then
+      printf '\nvalidate exited with code %s\n' "$rc"
+    fi
+  fi
+
+  printf '\nPress any key to return...'
+  IFS= read -r -s -n 1 _
+}
+
+main() {
+  local key
+
+  while :; do
+    clear
+    print_header
+    show_status
+    show_validate_summary || true
+    print_footer
+
+    IFS= read -r -s -n 1 key || exit 0
+    case "$key" in
+      q | Q)
+        exit 0
+        ;;
+      v | V)
+        show_validate_fullscreen
+        ;;
+      r | R)
+        ;;
+      *)
+        ;;
+    esac
+  done
+}
+
+main "$@"

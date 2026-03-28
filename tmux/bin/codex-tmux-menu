@@ -6,38 +6,34 @@ set -euo pipefail
 
 command -v tmux >/dev/null 2>&1 || exit 0
 
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+orch_dashboard="$config_home/tmux/bin/tmux-orch-dashboard"
 file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
 [ -n "$file" ] || file="$HOME/.tmux-codex-history"
-
-if [ ! -f "$file" ]; then
-  tmux display-message "Codex: no history"
-  exit 0
-fi
 
 limit="$(tmux show -gv @codex_history_limit 2>/dev/null || true)"
 [ -n "$limit" ] || limit=12
 
 tmp="$(mktemp 2>/dev/null || mktemp -t tmux-codex)"
-if ! tail -n "$limit" "$file" 2>/dev/null | awk '{a[NR]=$0} END{for(i=NR;i>=1;i--) print a[i]}' >"$tmp"; then
-  rm -f "$tmp"
-  tmux display-message "Codex: no history"
-  exit 0
-fi
-
-if [ ! -s "$tmp" ]; then
-  rm -f "$tmp"
-  tmux display-message "Codex: no history"
-  exit 0
+if [ -f "$file" ]; then
+  if ! tail -n "$limit" "$file" 2>/dev/null | awk '{a[NR]=$0} END{for(i=NR;i>=1;i--) print a[i]}' >"$tmp"; then
+    : >"$tmp"
+  fi
+else
+  : >"$tmp"
 fi
 
 target_pane="${TMUX_PANE:-}"
 if [ -n "$target_pane" ]; then
-  set -- display-menu -t "$target_pane" -T "Codex (recent)" -x R -y P
+  set -- display-menu -t "$target_pane" -T "Codex / Orch" -x R -y P
 else
-  set -- display-menu -T "Codex (recent)" -x R -y P
+  set -- display-menu -T "Codex / Orch" -x R -y P
 fi
 
 menu_items=0
+
+set -- "$@" "Orch dashboard" "O" "display-popup -E -w 90% -h 85% -T \"tmux-orch\" -d \"#{pane_current_path}\" \"bash \\\"$orch_dashboard\\\"\""
+menu_items=$((menu_items + 1))
 
 # Optional: add a "jump last" entry.
 last_pane="$(tmux show -gv @codex_last_pane 2>/dev/null || true)"
@@ -100,7 +96,7 @@ done <"$tmp"
 rm -f "$tmp"
 
 [ "$menu_items" -gt 0 ] || {
-  tmux display-message "Codex: no history"
+  tmux display-message "Codex: no menu entries"
   exit 0
 }
 
