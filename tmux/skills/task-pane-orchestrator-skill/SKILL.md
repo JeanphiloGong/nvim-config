@@ -1,6 +1,6 @@
 ---
 name: task-pane-orchestrator-skill
-description: v0.1.0 - Realize pane layout, lane startup, pane_id routing, and phase-scoped non-orchestrator panes inside one task window after the window-level orchestrator has chosen the lane plan.
+description: v0.1.1 - Realize pane layout, lane startup, pane_id routing, and phase-scoped non-orchestrator panes inside one task window after the project-window orchestrator has selected a target window and lane plan.
 ---
 
 # Task Pane Orchestrator Skill
@@ -8,7 +8,7 @@ description: v0.1.0 - Realize pane layout, lane startup, pane_id routing, and ph
 ## Trigger and Scope
 
 Use this skill after `task-worktree-bootstrap-skill` has created the task
-worktree and once `task-window-orchestrator-skill` has decided that the
+worktree and once `project-window-orchestrator-skill` has decided that the
 current task window needs pane or lane realization.
 
 This skill is pane-scoped. It turns an already-chosen task-window lane plan
@@ -165,8 +165,8 @@ Rules:
 
 - live message routing still resolves through tmux `pane_id` and window-scoped
   tmux options
-- task-window registration and current-phase ownership belong to
-  `task-window-orchestrator-skill`
+- project/window registration and current-phase ownership belong to
+  `project-window-orchestrator-skill`
 - durable state should record windows, panes, handoffs, and phase transitions
   without overriding live tmux routing
 - handoff records should include sender and recipient `pane_id`, not only role
@@ -177,7 +177,7 @@ Rules:
 
 Reference:
 
-- `docs/tmux-orch-state-contract.md`
+- `../project-window-orchestrator-skill/docs/tmux-orch-state-contract.md`
 
 ## Pane Communication Protocol
 
@@ -463,15 +463,15 @@ Interpretation:
 15. Print handoff commands:
    - `tmux select-window -t <window_name>`
    - pane titles and current role plan
-16. Dispatch downstream roles and report lane status back to the task-window
-    orchestrator.
+16. Dispatch downstream roles and report lane status back to the
+    `project-window-orchestrator-skill`.
 17. When a phase change is authorized, close or retire the phase-scoped panes
     and create fresh ones for the next phase while keeping the orchestrator
     pane.
 
 ## Standard Manual Flow (Recommended)
 
-Use this flow when `task-window-orchestrator-skill` has already decided the
+Use this flow when `project-window-orchestrator-skill` has already decided the
 current task window needs a coder lane plus one secondary phase lane.
 
 ```bash

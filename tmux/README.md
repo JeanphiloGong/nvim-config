@@ -6,9 +6,9 @@
 
 `tmux/skills/` 现在按三层组织：
 
-- `task-worktree-bootstrap-skill`: 创建 worktree、打开初始 task window、fork 当前 session，然后停止
-- `task-window-orchestrator-skill`: 把一个 tmux window 当成一个 task 单元，管理 phase、status、lane plan
+- `project-window-orchestrator-skill`: 项目级协调入口，管理多个 worktree / task windows、项目状态、窗口依赖与阶段推进，本身不写代码
 - `task-pane-orchestrator-skill`: 在单个 task window 内落地 pane layout、pane_id、lane fork 和 pane 级 handoff
+- `task-worktree-bootstrap-skill`: 内部 helper，用来创建新 worktree、打开初始 task window、fork 当前 session
 
 ## tmux-orch（Phase A 原型）
 仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。

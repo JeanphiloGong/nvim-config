@@ -59,13 +59,17 @@ Rules:
 
 ## State Root Rule
 
-If a `tmux-orch` state root exists, it should be shared across worktrees that
-belong to the same tracked project.
+Phase A may still use a session-scoped state root for single task-window flows.
+
+When project-level multi-window coordination becomes active, prefer a shared
+state root across the tracked project.
 
 Implications:
 
+- Phase A session-scoped roots are acceptable when one tmux session is the
+  practical orchestration boundary
 - do not fragment project-level state by storing one isolated state root inside
-  each task worktree by default
+  each task worktree once cross-window coordination is expected
 - prefer an explicit external state root or another shared location that stays
   stable across sibling worktrees
 - treat the state root as operational data, not as committed project source
@@ -74,9 +78,10 @@ Implications:
 
 ### Project Layer
 
-Use this layer only to record project-wide coordination state. A dedicated
-project-window orchestrator skill may consume it later, but this contract does
-not require that skill to exist yet.
+Use this layer to record project-wide coordination state when
+`project-window-orchestrator-skill` is active. Phase A `tmux-orch` may not
+persist this layer by default yet, but the contract reserves it for that
+coordinator.
 
 Minimum fields:
 
@@ -246,14 +251,16 @@ Bootstrap handoff should provide enough context for downstream registration:
 - current `window_id` when available
 - current orchestrator session id
 
-### task-window-orchestrator-skill
+### project-window-orchestrator-skill
 
-When `tmux-orch` exists, the window orchestrator skill should:
+When `tmux-orch` exists, the project-window orchestrator skill should:
 
-- register the task window after confirming task context
-- own current phase, task status, and blocker interpretation for one task
-  window
-- decide when a pane plan must be created, refreshed, or narrowed
+- own project-wide coordination across task windows and worktrees
+- register or refresh task windows after confirming task context
+- keep project phase, window status, dependencies, and blockers visible when a
+  shared state root exists
+- decide when a target task window needs pane realization, pane refresh, or
+  retirement
 - hand off pane realization and pane retirement work to
   `task-pane-orchestrator-skill`
 - emit phase events when lifecycle support exists

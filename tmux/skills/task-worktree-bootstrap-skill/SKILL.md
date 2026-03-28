@@ -1,16 +1,18 @@
 ---
 name: task-worktree-bootstrap-skill
-description: v0.1.0 - Create a dedicated git worktree for every code task, open the initial task window, fork the current session into that workspace, and hand off immediately to the task-window orchestrator.
+description: v0.1.1 - Internal helper for project-window orchestration that creates a dedicated task worktree, opens the initial task window, forks the current session into that workspace, and hands off to the project coordinator.
 ---
 
 # Task Worktree Bootstrap Skill
 
 ## Trigger and Scope
 
-Use this skill before any code task (`feat`, `fix`, `refactor`, `chore`).
+Use this skill as an internal helper when `project-window-orchestrator-skill`
+needs a new task worktree and tmux window.
 
-This skill is required when a task will modify source code, configs, or tests.
-Do not use it for discussion-only or docs-only work unless a branch workspace is still desired.
+This skill is not the primary public orchestration entry.
+It is the low-level boundary-creation primitive for tracked code tasks that
+need source code, config, or test changes in an isolated worktree.
 
 ## Core Purpose
 
@@ -20,7 +22,8 @@ Do not use it for discussion-only or docs-only work unless a branch workspace is
 - Reduce accidental cross-task contamination.
 - If inside tmux, open a new tmux window in the new worktree path.
 - Treat a successful fork into the new worktree as the normal completion state.
-- Hand off execution in the new worktree before any implementation begins.
+- Hand off project/window coordination in the new worktree before any
+  implementation begins.
 - Hand off the context needed for downstream pane and window state registration
   without becoming the durable owner of that state.
 
@@ -40,7 +43,9 @@ Do not use it for discussion-only or docs-only work unless a branch workspace is
 - `WORKTREE_AUTO_TMUX_WINDOW`: `1|0`, default `1`.
 - `WORKTREE_TMUX_WINDOW_NAME`: optional primary worktree window name.
 - `WORKTREE_FORK_CODEX`: `1|0`, default `1`; fork current Codex session into the new primary tmux window.
-- `WORKTREE_FORK_PROMPT`: optional fork prompt override; default must instruct the forked session to start with `task-window-orchestrator-skill` rather than direct implementation.
+- `WORKTREE_FORK_PROMPT`: optional fork prompt override; default must instruct
+  the forked session to start with `project-window-orchestrator-skill` rather
+  than direct implementation.
 - `WORKTREE_CURRENT_TASK`: task context text; when present, enables child-agent preparation.
 - `WORKTREE_AUTO_SUBAGENT`: `1|0`, default `1`.
 - `WORKTREE_SUBAGENT_PROMPT`: optional child-agent prompt override.
@@ -72,6 +77,7 @@ Do not use it for discussion-only or docs-only work unless a branch workspace is
 - If `fork_status=started-primary-window`, parent agent must stop this turn after reporting handoff.
 - Do not let bootstrap become the durable state owner for downstream
   `tmux-orch` registration; hand off repo, worktree, and window context instead.
+- Do not let bootstrap become the project-level scheduler or pane manager.
 
 ## Common Failure Modes and Fixes
 
@@ -147,8 +153,9 @@ For tracked engineering work, the default sequence is:
 
 1. bootstrap worktree
 2. fork the current session into the new worktree window
-3. start `task-window-orchestrator-skill` in the forked session
-4. let the window-level orchestrator establish task status, phase, and downstream pane orchestration before meaningful implementation starts
+3. start `project-window-orchestrator-skill` in the forked session
+4. let the project-level orchestrator establish task status, project sequencing,
+   and downstream pane orchestration before meaningful implementation starts
 5. if the core is novel or noisy, run `reference-core-impl-skill` in the new worktree
 6. use `human-core-feature-wave-skill` to land the learned core back into production code
 7. finalize with downstream execution and commit-stage skills as needed
@@ -156,7 +163,8 @@ For tracked engineering work, the default sequence is:
 Interpretation:
 - This skill owns the first boundary only: no code edits before the new worktree exists.
 - The normal end state is a successful fork into the new worktree window.
-- The forked session should begin by invoking `task-window-orchestrator-skill`, not by writing code directly.
+- The forked session should begin by invoking
+  `project-window-orchestrator-skill`, not by writing code directly.
 - `reference-core-impl-skill` and `human-core-feature-wave-skill` assume this isolation boundary already exists when they will produce or modify code.
 - Small `docs|chore|test` tasks or short exploratory spikes may follow repository policy exceptions, but they still must pass the final commit gate.
 
@@ -181,7 +189,7 @@ Interpretation:
    - use `WORKTREE_FORK_CODEX=1` by default
    - if codex session id is available (`CODEX_SESSION_ID` or `CODEX_THREAD_ID`):
      - dispatch `codex fork <session_id> <prompt> --cd <worktree_path> --no-alt-screen` into the new primary window with `tmux send-keys`
-     - the default prompt must explicitly instruct the forked session to start with `task-window-orchestrator-skill`
+     - the default prompt must explicitly instruct the forked session to start with `project-window-orchestrator-skill`
      - verify the target window exists before reporting handoff
    - if codex session id is unavailable, block and report the missing session context instead of silently downgrading the workflow
 7. Optional child-agent launch after handoff:
@@ -191,7 +199,7 @@ Interpretation:
 8. Print handoff commands:
    - `cd <worktree_path>` (non-tmux fallback)
    - `tmux select-window -t <window_name>` (tmux primary window)
-   - `next_skill_hint: task-window-orchestrator-skill`
+   - `next_skill_hint: project-window-orchestrator-skill`
    - if downstream orchestration uses an external state layer, include the
      current repo, worktree, session, and window context needed for later
      `register-window`
@@ -237,7 +245,7 @@ If Codex fork is required, inject it into that window instead of using a one-sho
 
 ```bash
 session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID}}"
-prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state, confirm task context, and then run $task-window-orchestrator-skill to decide task-window phase, lane ownership, and downstream pane execution order. After the task window is established, stop acting as the bootstrap agent.'
+prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state, confirm task context, and then run $project-window-orchestrator-skill to manage project-level sequencing, task-window state, and downstream pane execution order. After the target task window is established, stop acting as the bootstrap agent.'
 
 tmux send-keys -t "${session_name}:${window_name}" \
   "codex fork ${session_id} \"${prompt}\" --cd \"${worktree_path}\" --full-auto --no-alt-screen" C-m
@@ -283,7 +291,7 @@ fi
 
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
-prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state, confirm task context, and then run $task-window-orchestrator-skill to decide task-window phase, lane ownership, and downstream pane execution order. After the task window is established, stop acting as the bootstrap agent.'
+prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state, confirm task context, and then run $project-window-orchestrator-skill to manage project-level sequencing, task-window state, and downstream pane execution order. After the target task window is established, stop acting as the bootstrap agent.'
 printf -v fork_cmd 'codex fork %q %q --cd %q --full-auto --no-alt-screen' "$session_id" "$prompt" "$worktree_path"
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
 sleep 2
