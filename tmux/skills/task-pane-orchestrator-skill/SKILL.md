@@ -474,6 +474,13 @@ Interpretation:
 Use this flow when `project-window-orchestrator-skill` has already decided the
 current task window needs a coder lane plus one secondary phase lane.
 
+This skill may also be the first downstream step in a newly bootstrapped
+worktree window when that window is already the uniquely chosen target and no
+additional project-level scheduling decision is pending. In that case, the
+forked session should still preserve upstream visibility by reporting lane
+status and handoffs back through `tmux-orch` or the upstream
+`$project-window-orchestrator-skill`.
+
 ```bash
 session_name="$(tmux display-message -p '#S')"
 window_name="$(tmux display-message -p '#W')"
@@ -513,7 +520,7 @@ tmux set -pt "$issue_pane" @user_pane_title "issue-gate"
 Suggested issue-gate lane startup message:
 
 ```bash
-message="$(printf 'You are the issue-gate lane for this task window. Do not plan the task and do not write production code. Check whether the canonical tracking issue already exists for the agreed task. If it exists, return the issue reference. If it does not exist, create it using `issue-gate-skill` with a concise, execution-ready task framing. After issue status is clear, report the result and commit bridge back to the orchestrator, then go idle.')"
+message="$(printf 'You are the issue-gate lane for this task window. Do not plan the task and do not write production code. Check whether the canonical tracking issue already exists for the agreed task. If it exists, return the issue reference. If it does not exist, create it using `$issue-gate-skill` with a concise, execution-ready task framing. After issue status is clear, report the result and commit bridge back to the orchestrator, then go idle.')"
 tmux send-keys -t "$issue_pane" -l "$message"
 tmux send-keys -t "$issue_pane" Enter
 sleep 0.2

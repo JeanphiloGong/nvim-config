@@ -147,10 +147,15 @@ Reference:
    - `repo_root`
    - `task_kind`
    - `task_slug`
-   - the expectation that the forked session returns to
-     `project-window-orchestrator-skill`
+   - the default expectation that the forked session returns to
+     `$project-window-orchestrator-skill`
+   - exception: if bootstrap has already created the one obvious target task
+     window and the remaining work is only lane realization inside that same
+     window, the forked session may continue directly into
+     `$task-pane-orchestrator-skill` after a brief local confirmation instead
+     of re-entering the public project entry flow
 6. When a target task window needs lane realization, delegate to
-   `task-pane-orchestrator-skill` inside that task window.
+   `$task-pane-orchestrator-skill` inside that task window.
 7. Maintain project/window coordination state:
    - project phase
    - task status
@@ -172,7 +177,17 @@ tmux/bin/orch status --root "$state_root"
 If a new task window is needed, continue by invoking
 `task-worktree-bootstrap-skill` with the chosen task kind and slug. Once the
 target task window exists, register or refresh that task window and decide
-whether it needs pane realization through `task-pane-orchestrator-skill`.
+whether it needs pane realization through `$task-pane-orchestrator-skill`.
+
+Direct-pane continuation is valid when all of the following are already true:
+- the target task window is unambiguous
+- no additional project-level scheduling decision is pending
+- the next concrete action is pane or lane realization inside that same window
+
+In that case, the forked session does not need to re-advertise itself as the
+public project entry. It may act as the target-window local orchestrator,
+enter `$task-pane-orchestrator-skill`, and keep upstream visibility through
+`tmux-orch` state and explicit handoff updates.
 
 ## Output Format
 

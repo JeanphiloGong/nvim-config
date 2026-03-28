@@ -153,7 +153,7 @@ For tracked engineering work, the default sequence is:
 
 1. bootstrap worktree
 2. fork the current session into the new worktree window
-3. start `project-window-orchestrator-skill` in the forked session
+3. start `$project-window-orchestrator-skill` in the forked session
 4. let the project-level orchestrator establish task status, project sequencing,
    and downstream pane orchestration before meaningful implementation starts
 5. if the core is novel or noisy, run `reference-core-impl-skill` in the new worktree
@@ -164,7 +164,11 @@ Interpretation:
 - This skill owns the first boundary only: no code edits before the new worktree exists.
 - The normal end state is a successful fork into the new worktree window.
 - The forked session should begin by invoking
-  `project-window-orchestrator-skill`, not by writing code directly.
+  `$project-window-orchestrator-skill`, not by writing code directly.
+- Exception: if bootstrap itself has already created the one obvious target
+  task window and no further project-level scheduling decision is needed, the
+  forked session may perform a brief local confirmation and continue directly
+  into `$task-pane-orchestrator-skill` for lane realization in that window.
 - `reference-core-impl-skill` and `human-core-feature-wave-skill` assume this isolation boundary already exists when they will produce or modify code.
 - Small `docs|chore|test` tasks or short exploratory spikes may follow repository policy exceptions, but they still must pass the final commit gate.
 
@@ -189,7 +193,11 @@ Interpretation:
    - use `WORKTREE_FORK_CODEX=1` by default
    - if codex session id is available (`CODEX_SESSION_ID` or `CODEX_THREAD_ID`):
      - dispatch `codex fork <session_id> <prompt> --cd <worktree_path> --no-alt-screen` into the new primary window with `tmux send-keys`
-     - the default prompt must explicitly instruct the forked session to start with `project-window-orchestrator-skill`
+     - the default prompt should instruct the forked session to start with
+       `$project-window-orchestrator-skill`
+     - if the target task window is already selected and the next step is only
+       pane realization in that same window, the prompt may instead instruct a
+       short local confirmation followed by `$task-pane-orchestrator-skill`
      - verify the target window exists before reporting handoff
    - if codex session id is unavailable, block and report the missing session context instead of silently downgrading the workflow
 7. Optional child-agent launch after handoff:
@@ -199,7 +207,9 @@ Interpretation:
 8. Print handoff commands:
    - `cd <worktree_path>` (non-tmux fallback)
    - `tmux select-window -t <window_name>` (tmux primary window)
-   - `next_skill_hint: project-window-orchestrator-skill`
+   - `next_skill_hint: $project-window-orchestrator-skill`
+   - when the target task window is already uniquely chosen:
+     `next_skill_hint: $task-pane-orchestrator-skill`
    - if downstream orchestration uses an external state layer, include the
      current repo, worktree, session, and window context needed for later
      `register-window`
@@ -245,7 +255,7 @@ If Codex fork is required, inject it into that window instead of using a one-sho
 
 ```bash
 session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID}}"
-prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state, confirm task context, and then run $project-window-orchestrator-skill to manage project-level sequencing, task-window state, and downstream pane execution order. After the target task window is established, stop acting as the bootstrap agent.'
+prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state and confirm task context. If further project-level scheduling is still needed, run $project-window-orchestrator-skill. If this window is already the chosen task window and the next step is lane realization here, run $task-pane-orchestrator-skill instead. After the target task window is established, stop acting as the bootstrap agent.'
 
 tmux send-keys -t "${session_name}:${window_name}" \
   "codex fork ${session_id} \"${prompt}\" --cd \"${worktree_path}\" --full-auto --no-alt-screen" C-m
@@ -291,7 +301,7 @@ fi
 
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
-prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state, confirm task context, and then run $project-window-orchestrator-skill to manage project-level sequencing, task-window state, and downstream pane execution order. After the target task window is established, stop acting as the bootstrap agent.'
+prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state and confirm task context. If further project-level scheduling is still needed, run $project-window-orchestrator-skill. If this window is already the chosen task window and the next step is lane realization here, run $task-pane-orchestrator-skill instead. After the target task window is established, stop acting as the bootstrap agent.'
 printf -v fork_cmd 'codex fork %q %q --cd %q --full-auto --no-alt-screen' "$session_id" "$prompt" "$worktree_path"
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
 sleep 2
