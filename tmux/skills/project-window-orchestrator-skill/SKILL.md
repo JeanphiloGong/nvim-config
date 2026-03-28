@@ -102,6 +102,16 @@ When `tmux-orch` exists, this skill should:
 - treat tmux runtime state as the live routing truth
 - delegate pane registration to `task-pane-orchestrator-skill`
 
+State-root discipline:
+
+- prefer the session-scoped default root
+  `${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/<session_slug>}`
+- derive `<session_slug>` from the current tmux session name instead of
+  inventing an ad-hoc path
+- do not silently write orchestration state to a second root such as
+  `/tmp/tmux-orch` unless that override is intentional and propagated to every
+  downstream bootstrap, fork, and pane-orchestration step
+
 Reference:
 
 - `docs/tmux-orch-state-contract.md`
@@ -137,6 +147,8 @@ Reference:
    - dependency constraints between windows
 3. If `tmux-orch` exists, initialize or reuse the state root and refresh known
    window records.
+   - if `TMUX_ORCH_ROOT` is unset, resolve the root from the current tmux
+     session name and keep using that same root for every downstream step
 4. Decide whether the next action is:
    - create a new task worktree/window
    - resume an existing task window
@@ -169,7 +181,9 @@ Reference:
 ## Standard Manual Flow (Recommended)
 
 ```bash
-state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch}"
+session_name="$(tmux display-message -p '#S')"
+session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
+state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
 tmux/bin/orch init --root "$state_root"
 tmux/bin/orch status --root "$state_root"
 ```
@@ -178,6 +192,10 @@ If a new task window is needed, continue by invoking
 `task-worktree-bootstrap-skill` with the chosen task kind and slug. Once the
 target task window exists, register or refresh that task window and decide
 whether it needs pane realization through `$task-pane-orchestrator-skill`.
+
+If you intentionally override `TMUX_ORCH_ROOT`, export that same value before
+calling bootstrap or forking Codex so the child window does not drift onto a
+different state root.
 
 Direct-pane continuation is valid when all of the following are already true:
 - the target task window is unambiguous

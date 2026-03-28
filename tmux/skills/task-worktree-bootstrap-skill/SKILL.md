@@ -42,6 +42,9 @@ need source code, config, or test changes in an isolated worktree.
 
 - `WORKTREE_AUTO_TMUX_WINDOW`: `1|0`, default `1`.
 - `WORKTREE_TMUX_WINDOW_NAME`: optional primary worktree window name.
+- `TMUX_ORCH_ROOT`: when set, downstream forked sessions must reuse this exact
+  orchestration state root; when unset, derive the session-scoped default from
+  the current tmux session name before forking.
 - `WORKTREE_FORK_CODEX`: `1|0`, default `1`; fork current Codex session into the new primary tmux window.
 - `WORKTREE_FORK_PROMPT`: optional fork prompt override; default must instruct
   the forked session to start with `project-window-orchestrator-skill` rather
@@ -78,6 +81,9 @@ need source code, config, or test changes in an isolated worktree.
 - Do not let bootstrap become the durable state owner for downstream
   `tmux-orch` registration; hand off repo, worktree, and window context instead.
 - Do not let bootstrap become the project-level scheduler or pane manager.
+- Do not invent a second ad-hoc `tmux-orch` root such as `/tmp/tmux-orch` when
+  the current tmux session already has a default session-scoped root; either
+  reuse the existing root or propagate one explicit override consistently.
 
 ## Common Failure Modes and Fixes
 
@@ -189,6 +195,8 @@ Interpretation:
    - `git -C <repo_root> worktree add -b <branch> <worktree_path> <base_branch>`
 5. Detect tmux environment:
    - if `TMUX` is set and `tmux` exists, open a persistent shell window at `<worktree_path>`
+   - resolve `TMUX_ORCH_ROOT` from the current tmux session if it is unset, and
+     propagate that same value to the forked session
 6. Fork codex into the primary tmux window:
    - use `WORKTREE_FORK_CODEX=1` by default
    - if codex session id is available (`CODEX_SESSION_ID` or `CODEX_THREAD_ID`):
@@ -211,7 +219,7 @@ Interpretation:
    - when the target task window is already uniquely chosen:
      `next_skill_hint: $task-pane-orchestrator-skill`
    - if downstream orchestration uses an external state layer, include the
-     current repo, worktree, session, and window context needed for later
+     current repo, worktree, session, window, and `state_root` context needed for later
      `register-window`
 9. If fork started in the primary window:
    - parent agent reports "fork done" and stops immediately
@@ -246,7 +254,9 @@ If tmux is available, create a persistent window first:
 
 ```bash
 session_name="$(tmux display-message -p '#S')"
+session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
 window_name="wt-${task_slug}"
+state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
 
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
 ```
@@ -256,9 +266,9 @@ If Codex fork is required, inject it into that window instead of using a one-sho
 ```bash
 session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID}}"
 prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state and confirm task context. If further project-level scheduling is still needed, run $project-window-orchestrator-skill. If this window is already the chosen task window and the next step is lane realization here, run $task-pane-orchestrator-skill instead. After the target task window is established, stop acting as the bootstrap agent.'
-
-tmux send-keys -t "${session_name}:${window_name}" \
-  "codex fork ${session_id} \"${prompt}\" --cd \"${worktree_path}\" --full-auto --no-alt-screen" C-m
+printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --full-auto --no-alt-screen' \
+  "$state_root" "$session_id" "$prompt" "$worktree_path"
+tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
 ```
 
 Verify the window exists before reporting success:
@@ -286,8 +296,10 @@ worktree_root="$(dirname "$repo_root")"
 branch="task/${task_kind}/$(date +%Y%m%d)-${task_slug}"
 worktree_path="${worktree_root}/${task_kind}-${task_slug}"
 session_name="$(tmux display-message -p '#S')"
+session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
 window_name="wt-${task_slug}"
 session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID}}"
+state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
 
 if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$branch"; then
   echo "error: target branch already exists: $branch" >&2
@@ -302,7 +314,7 @@ fi
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
 prompt='Continue in this new worktree as the bootstrap handoff agent. Do not start implementation directly. First inspect repo state and confirm task context. If further project-level scheduling is still needed, run $project-window-orchestrator-skill. If this window is already the chosen task window and the next step is lane realization here, run $task-pane-orchestrator-skill instead. After the target task window is established, stop acting as the bootstrap agent.'
-printf -v fork_cmd 'codex fork %q %q --cd %q --full-auto --no-alt-screen' "$session_id" "$prompt" "$worktree_path"
+printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --full-auto --no-alt-screen' "$state_root" "$session_id" "$prompt" "$worktree_path"
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
 sleep 2
 tmux list-windows -t "$session_name" -F '#S:#I:#W:#{pane_current_path}'

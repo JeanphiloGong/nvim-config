@@ -80,6 +80,9 @@ Out of scope:
 - `WORKTREE_PANE_TITLE_SECONDARY`: default derived from secondary role.
 - `WORKTREE_PANE_MESSAGE_MODE`: `literal-enter|literal-double-enter`, default
   `literal-double-enter`.
+- `TMUX_ORCH_ROOT`: when set, register and refresh this task window and its
+  panes in that exact root; when unset, derive the session-scoped default from
+  the current tmux session before any pane registration.
 
 ## Fixed Defaults
 
@@ -174,6 +177,11 @@ Rules:
 - phase closure should retire completed phase-scoped panes from the durable
   active map before the next phase begins
 - non-orchestrator pane registration should record `forked_from_session_id`
+- if this skill is entered directly after bootstrap, its first durable-state
+  action should be to resolve the current `state_root` and ensure the current
+  task window is registered there before spawning secondary panes
+- do not let the current task window drift onto a different state root from the
+  one used by the parent bootstrap or project orchestrator
 
 Reference:
 
@@ -444,9 +452,12 @@ Interpretation:
    orchestrator session into that pane.
 9. Immediately send a role-first prompt to each newly created non-orchestrator
    pane.
-10. If an external `tmux-orch` state layer exists, assume the task window is
-    already registered and register each pane as it becomes active, including
-    fork provenance for non-orchestrator panes.
+10. If an external `tmux-orch` state layer exists:
+    - resolve the current `state_root` first
+    - ensure the current task window is registered in that same root before
+      spawning or registering secondary panes
+    - register each pane as it becomes active, including fork provenance for
+      non-orchestrator panes
 11. Establish one canonical pane map and role plan:
    - the current session is already the orchestrator
    - assign roles conservatively and avoid multi-writer overlap
@@ -483,10 +494,27 @@ status and handoffs back through `tmux-orch` or the upstream
 
 ```bash
 session_name="$(tmux display-message -p '#S')"
+session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
 window_name="$(tmux display-message -p '#W')"
+window_index="$(tmux display-message -p '#I')"
+window_id="${session_name}:${window_index}"
 worktree_path="$(pwd)"
 orch_pane="$(tmux display-message -p '#{pane_id}')"
 orchestrator_session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID}}"
+state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
+orch_bin="${TMUX_ORCH_BIN:-$HOME/.config/nvim/tmux/bin/orch}"
+branch="$(git -C "$worktree_path" branch --show-current)"
+
+"$orch_bin" init --root "$state_root"
+"$orch_bin" register-window \
+  --root "$state_root" \
+  --window-id "$window_id" \
+  --window-name "$window_name" \
+  --worktree-path "$worktree_path" \
+  --branch "$branch" \
+  --phase "lane-setup" \
+  --status "active"
+
 coder_pane="$(tmux split-window -P -F '#{pane_id}' -h -t "${session_name}:${window_name}.0" -c "$worktree_path")"
 issue_pane="$(tmux split-window -P -F '#{pane_id}' -v -t "$coder_pane" -c "$worktree_path")"
 
@@ -497,6 +525,10 @@ tmux set -wq @pane_issue_gate "$issue_pane"
 tmux set -pt "$orch_pane" @user_pane_title "orchestrator"
 tmux set -pt "$coder_pane" @user_pane_title "coder"
 tmux set -pt "$issue_pane" @user_pane_title "issue-gate"
+
+"$orch_bin" register-pane --root "$state_root" --window-id "$window_id" --pane-id "$orch_pane" --role orchestrator --scope window --phase lane-setup --status active
+"$orch_bin" register-pane --root "$state_root" --window-id "$window_id" --pane-id "$coder_pane" --role coder --scope phase --phase lane-setup --status active --forked-from-session-id "$orchestrator_session_id"
+"$orch_bin" register-pane --root "$state_root" --window-id "$window_id" --pane-id "$issue_pane" --role issue-gate --scope phase --phase lane-setup --status active --forked-from-session-id "$orchestrator_session_id"
 
 printf -v coder_fork_cmd 'codex fork %q %q --cd %q --full-auto --no-alt-screen' \
   "$orchestrator_session_id" \
