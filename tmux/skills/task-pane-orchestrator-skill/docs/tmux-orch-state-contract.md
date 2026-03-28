@@ -233,7 +233,7 @@ Recommended machine-readable failure ids:
 
 ## Skill Integration Rules
 
-### worktree-task-bootstrap-skill
+### task-worktree-bootstrap-skill
 
 Bootstrap should not become the durable state owner for downstream orchestration.
 
@@ -246,16 +246,27 @@ Bootstrap handoff should provide enough context for downstream registration:
 - current `window_id` when available
 - current orchestrator session id
 
-### worktree-task-orchestrator-skill
+### task-window-orchestrator-skill
 
-When `tmux-orch` exists, the orchestrator skill should:
+When `tmux-orch` exists, the window orchestrator skill should:
 
 - register the task window after confirming task context
+- own current phase, task status, and blocker interpretation for one task
+  window
+- decide when a pane plan must be created, refreshed, or narrowed
+- hand off pane realization and pane retirement work to
+  `task-pane-orchestrator-skill`
+- emit phase events when lifecycle support exists
+
+### task-pane-orchestrator-skill
+
+When `tmux-orch` exists, the pane orchestrator skill should:
+
 - register each newly created pane immediately after capture of its `pane_id`
 - keep window-scoped tmux options aligned with the active pane map
 - emit structured handoffs with sender and recipient `pane_id`
-- record phase transitions and retire phase-scoped panes before the next phase
-  becomes active
+- retire phase-scoped panes only when the window-level phase transition
+  authorizes that change
 
 ## Non-Goals
 
