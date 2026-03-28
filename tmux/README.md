@@ -2,6 +2,103 @@
 
 本目录包含 tmux 模板与辅助脚本。
 
+## Skill Layers
+
+`tmux/skills/` 现在按三层组织：
+
+- `task-worktree-bootstrap-skill`: 创建 worktree、打开初始 task window、fork 当前 session，然后停止
+- `task-window-orchestrator-skill`: 把一个 tmux window 当成一个 task 单元，管理 phase、status、lane plan
+- `task-pane-orchestrator-skill`: 在单个 task window 内落地 pane layout、pane_id、lane fork 和 pane 级 handoff
+
+兼容性说明：
+
+- `worktree-task-bootstrap-skill`
+- `worktree-task-orchestrator-skill`
+
+这两个旧名字仍保留为兼容 alias，但不再是 canonical skill 名称。
+
+## tmux-orch（Phase A 原型）
+仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。
+
+它的职责很窄：
+- tmux 仍负责 live routing
+- `pane_id` 仍是机器路由键
+- `orch` 只负责持久状态、handoff 日志和廉价 invariant 校验
+
+这版命令面刻意只覆盖 Phase A：
+- `init`
+- `register-window`
+- `register-pane`
+- `handoff`
+- `status`
+- `validate`
+
+还没有：
+- `phase-start` / `phase-close`
+- `retire-pane`
+- reviewer 专项校验
+- 自动 pane 创建 / 自动 dispatch
+
+默认状态目录不放在仓库里，而是放到 XDG state 目录：
+
+```sh
+${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/<session_name>
+```
+
+当前 Phase A 默认按 tmux session 分状态根，适合单 task-window 流程。
+如果以后要做跨 worktree / 多 task-window 的 project 级编排，再额外引入共享 project root，
+而不是现在就把原型做大。
+
+依赖：
+
+```sh
+tmux
+jq
+```
+
+安装 `jq`：
+
+Ubuntu / Debian：
+```sh
+sudo apt update
+sudo apt install -y jq
+```
+
+Fedora / RHEL / CentOS：
+```sh
+sudo dnf install -y jq
+# 旧版系统可用 yum：
+# sudo yum install -y jq
+```
+
+Arch：
+```sh
+sudo pacman -S jq
+```
+
+macOS：
+```sh
+brew install jq
+```
+
+验证：
+```sh
+jq --version
+```
+
+快速入口：
+
+```sh
+tmux/bin/orch init
+tmux/bin/orch register-window --task "prototype tmux-orch" --phase phase1
+tmux/bin/orch register-pane --role orchestrator --scope window
+tmux/bin/orch status
+tmux/bin/orch validate
+```
+
+更完整的用法与边界说明见：
+[docs/tmux-orch.md](docs/tmux-orch.md)
+
 ## 安装 tmux 3.6（Linux 源码编译）
 适用于大多数 Linux 发行版（需要编译工具链 + libevent + ncurses）。
 
