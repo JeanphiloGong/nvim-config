@@ -10,13 +10,6 @@
 - `task-window-orchestrator-skill`: 把一个 tmux window 当成一个 task 单元，管理 phase、status、lane plan
 - `task-pane-orchestrator-skill`: 在单个 task window 内落地 pane layout、pane_id、lane fork 和 pane 级 handoff
 
-兼容性说明：
-
-- `worktree-task-bootstrap-skill`
-- `worktree-task-orchestrator-skill`
-
-这两个旧名字仍保留为兼容 alias，但不再是 canonical skill 名称。
-
 ## tmux-orch（Phase A 原型）
 仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。
 
