@@ -20,6 +20,8 @@ This is a capability, not a public role.
 - keep one task per worktree and one task per task window
 - in Codex TUI mode, do not add `--full-auto` to `codex fork`; it forces the
   forked session into `workspace-write` and `on-request`
+- do not report downstream handoff as complete until the tmux task window
+  exists and the fork command has actually been injected into it
 - stop the parent agent after the fork succeeds
 
 ## Manual Flow
@@ -65,5 +67,15 @@ tmux list-windows -t "$session_name" -F '#S:#I:#W:#{pane_current_path}'
 tmux capture-pane -pt "${session_name}:${window_name}" -S -30
 ```
 
-The parent bootstrap flow should report success and stop once the forked task
-window is live.
+The parent bootstrap flow should report success and stop only after all of the
+following are true:
+
+- `window_exists=yes`
+- `window_name` is known
+- `window_id` is known or can be resolved immediately
+- `fork_status=dispatched`
+- `handoff_ready=yes`
+
+If the worktree exists but the tmux task window does not, bootstrap is still
+incomplete and the parent role must not claim task-local ownership has already
+been transferred.

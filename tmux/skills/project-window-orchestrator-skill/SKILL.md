@@ -1,6 +1,6 @@
 ---
 name: project-window-orchestrator-skill
-description: v0.2.2 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
+description: v0.2.3 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
 ---
 
 # Project Window Orchestrator Skill
@@ -299,6 +299,8 @@ Reference:
 - In Codex TUI flows, do not add `--full-auto` to `codex fork`; that flag
   forces the forked session into `workspace-write` plus `on-request`, which can
   unintentionally narrow permissions for downstream work.
+- Do not claim task-local handoff is complete until the target tmux task window
+  actually exists and the forked session has been dispatched into it.
 - Do not micromanage pane layout from the project role unless task-local
   orchestration has explicitly failed and ownership is reassigned.
 - Do not claim project-wide shared durable state if the current `tmux-orch`
@@ -338,20 +340,25 @@ Reference:
    - instruct the forked session to continue as
      `task-window-orchestrator-skill`
    - do not append `--full-auto` to the `codex fork` command in TUI mode
-6. When a task window becomes the active focus, let
+6. Before handing off to `task-window-orchestrator-skill`, verify:
+   - the target tmux window exists
+   - `window_name` and `window_id` are known
+   - the fork command has been dispatched into that window
+   - `handoff_ready=yes` only after those checks pass
+7. When a task window becomes the active focus, let
    `task-window-orchestrator-skill` own:
    - task-local phase
    - lane plan
    - review decision flow
    - commit-stage dispatch
    - merge-ready handoff
-7. Maintain project/window coordination state:
+8. Maintain project/window coordination state:
    - project phase
    - task status
    - blockers
    - dependency edges
    - next active window
-8. Report the active window map, blockers, merge-ready windows, and next
+9. Report the active window map, blockers, merge-ready windows, and next
    handoff.
 
 ## References
@@ -374,6 +381,10 @@ If a new task window is needed, follow
 `task-window-orchestrator-skill` inside that window and let it own the task's
 local lifecycle.
 
+Never report `bootstrap_needed=no` and `task_local_handoff_needed=yes` while
+the target tmux window is still missing. If the worktree exists but the tmux
+task window does not, bootstrap is still incomplete.
+
 ## Output Format
 
 ```text
@@ -393,6 +404,11 @@ local lifecycle.
 - action_type:
 - target_window:
 - bootstrap_needed:
+- window_exists:
+- window_name:
+- window_id:
+- fork_status:
+- handoff_ready:
 - task_local_handoff_needed:
 
 ## Handoff
