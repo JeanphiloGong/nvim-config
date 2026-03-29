@@ -1,6 +1,6 @@
 ---
 name: project-window-orchestrator-skill
-description: v0.2.1 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
+description: v0.2.2 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
 ---
 
 # Project Window Orchestrator Skill
@@ -296,6 +296,9 @@ Reference:
 - Do not write production code from this skill.
 - Do not let bootstrap become the public entry; bootstrap is an internal
   capability documented as a reference.
+- In Codex TUI flows, do not add `--full-auto` to `codex fork`; that flag
+  forces the forked session into `workspace-write` plus `on-request`, which can
+  unintentionally narrow permissions for downstream work.
 - Do not micromanage pane layout from the project role unless task-local
   orchestration has explicitly failed and ownership is reassigned.
 - Do not claim project-wide shared durable state if the current `tmux-orch`
@@ -332,7 +335,9 @@ Reference:
 5. If a new task window is required:
    - use `references/worktree-bootstrap.md`
    - preserve the current `TMUX_ORCH_ROOT`
-   - instruct the forked session to continue as `task-window-orchestrator-skill`
+   - instruct the forked session to continue as
+     `task-window-orchestrator-skill`
+   - do not append `--full-auto` to the `codex fork` command in TUI mode
 6. When a task window becomes the active focus, let
    `task-window-orchestrator-skill` own:
    - task-local phase

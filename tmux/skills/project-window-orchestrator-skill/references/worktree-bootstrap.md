@@ -18,6 +18,8 @@ This is a capability, not a public role.
 - do not start implementation before the handoff prompt is processed
 - do not invent a second `tmux-orch` root if one is already in use
 - keep one task per worktree and one task per task window
+- in Codex TUI mode, do not add `--full-auto` to `codex fork`; it forces the
+  forked session into `workspace-write` and `on-request`
 - stop the parent agent after the fork succeeds
 
 ## Manual Flow
@@ -39,7 +41,7 @@ state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
 prompt='Continue in this new worktree as the task-window orchestrator for this task. Do not start implementation directly. First confirm repo state, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder/reviewer/issue-gate work when needed.'
-printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --full-auto --no-alt-screen' \
+printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
   "$state_root" "$session_id" "$prompt" "$worktree_path"
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
 ```

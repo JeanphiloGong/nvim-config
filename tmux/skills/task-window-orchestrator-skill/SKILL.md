@@ -1,6 +1,6 @@
 ---
 name: task-window-orchestrator-skill
-description: v0.1.1 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
+description: v0.1.2 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
 ---
 
 # Task Window Orchestrator Skill
@@ -296,6 +296,9 @@ Reference:
 
 - Do not reduce this role to a pane factory.
 - Do not let the task window drift into project-wide scheduling.
+- In Codex TUI flows, do not add `--full-auto` when forking coder/reviewer or
+  other child sessions; it forces the forked session into `workspace-write`
+  plus `on-request`, which can unintentionally restrict permissions.
 - Do not leave post-review or post-commit behavior implicit; set a visible
   `next_action`.
 - Do not self-approve formal review from the orchestrator pane.

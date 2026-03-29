@@ -18,6 +18,9 @@ This is a capability, not a public role.
 - use tmux `pane_id` as the only machine routing key
 - treat pane titles as display only
 - register each pane immediately when `tmux-orch` is in use
+- in Codex TUI mode, do not add `--full-auto` to lane `codex fork` commands;
+  let the parent session's current permission model carry through unless an
+  explicit override is truly intended
 - use a dedicated reviewer pane for formal review
 - recreate phase-scoped panes across phase boundaries
 
