@@ -1,6 +1,6 @@
 ---
 name: tmux-task-orchestrator-skill
-description: v0.1.4 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
+description: v0.1.5 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
 ---
 
 # Tmux Task Orchestrator Skill
@@ -76,6 +76,9 @@ Requires explicit human or project-level approval when:
 - convert every handoff into a visible `next_action`
 - use `$tmux-task-lane-bootstrap-skill` for lane realization instead of
   carrying all pane mechanics inline
+- when lanes are needed, pass a lane prompt contract so each child pane knows
+  how to report back, how to refresh its pane status, and how to append a
+  matching handoff to `tmux-orch`
 
 ## Inputs And Outputs
 
@@ -373,6 +376,13 @@ Typical decision flow:
    - commit-stage work
    - merge-back preparation
 5. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
+   The lane bootstrap prompt must tell each created pane:
+   - its role
+   - the current task context and phase
+   - the orchestrator pane target
+   - the required handoff envelope
+   - how to refresh its own pane record and append a structured handoff in
+     `tmux-orch`
 6. When `coder`, `issue-gate`, or `reviewer` hands back a result:
    - record the handoff
    - update `status`, `phase`, and `next_action`

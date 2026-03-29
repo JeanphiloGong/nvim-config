@@ -1,6 +1,6 @@
 ---
 name: tmux-task-lane-bootstrap-skill
-description: v0.1.1 - Internal helper that realizes lane layout, lane startup, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
+description: v0.1.2 - Internal helper that realizes lane layout, lane startup, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
 ---
 
 # Tmux Task Lane Bootstrap Skill
@@ -72,7 +72,12 @@ Out of scope:
 4. Capture each pane's `pane_id` immediately.
 5. Register panes and fork provenance in `tmux-orch` when used.
 6. Fork child lanes from the current orchestrator session.
-7. Send role-first prompts.
+7. Send role-first prompts that include:
+   - current role and task context
+   - `window_id`, current `pane_id`, `orchestrator_pane_id`, and `TMUX_ORCH_ROOT`
+   - the required handoff message envelope
+   - how the lane should refresh its own pane status and append a matching
+     handoff in `tmux-orch`
 8. Return the resolved pane map to the task-window orchestrator.
 
 ## References

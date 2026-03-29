@@ -1,6 +1,6 @@
 ---
 name: tmux-task-window-bootstrap-skill
-description: v0.1.1 - Internal helper that creates a dedicated task worktree and tmux task window, forks the current session into it, and stops only after task-level ownership is ready.
+description: v0.1.2 - Internal helper that creates a dedicated task worktree and tmux task window, forks the current session into it, and stops only after task-level ownership is ready.
 ---
 
 # Tmux Task Window Bootstrap Skill
@@ -68,6 +68,8 @@ Out of scope:
 3. Create the worktree if it does not already exist.
 4. Create or verify the tmux task window for that worktree.
 5. Fork the current Codex session into that tmux window.
+   The injected child prompt must explicitly tell the new window to continue as
+   `$tmux-task-orchestrator-skill`.
 6. Verify:
    - `window_exists=yes`
    - `window_name` is known

@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+orch_bin="$script_dir/orch"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tmux-task-lane-bootstrap \
+    --role ROLE \
+    --task-context TEXT \
+    [--phase NAME] \
+    [--target-pane PANE_ID] \
+    [--orchestrator-pane-id PANE_ID] \
+    [--window-id WINDOW_ID] \
+    [--worktree-path PATH] \
+    [--layout h|v] \
+    [--root PATH] \
+    [--session-id ID]
+
+Roles:
+  coder | issue-gate | reviewer
+
+Notes:
+  - Requires tmux, jq, and a current Codex session id.
+  - Creates one non-orchestrator lane pane and injects a role-specific prompt.
+  - Registers the pane in tmux-orch and updates tmux window role options.
+EOF
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+tmux_session_name() {
+  tmux display-message -p '#S'
+}
+
+default_state_root() {
+  local base session
+  base="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch}"
+  session="$(tmux_session_name 2>/dev/null || printf 'manual')"
+  session="$(printf '%s' "$session" | tr '/ :\t' '____' | tr -cd 'A-Za-z0-9._-')"
+  [ -n "$session" ] || session="manual"
+  printf '%s/%s' "$base" "$session"
+}
+
+role_option_key() {
+  printf '%s' "$1" | tr '-' '_'
+}
+
+default_layout_for_role() {
+  case "$1" in
+    coder) printf 'h' ;;
+    issue-gate | reviewer) printf 'v' ;;
+    *) printf 'v' ;;
+  esac
+}
+
+build_lane_prompt() {
+  local role="$1"
+  local task_context="$2"
+  local phase="$3"
+  local window_id="$4"
+  local pane_id="$5"
+  local orchestrator_pane_id="$6"
+  local state_root="$7"
+
+  case "$role" in
+    coder)
+      cat <<EOF
+You are the coder lane for this task window.
+This lane was dispatched by \$tmux-task-orchestrator-skill.
+Task context: $task_context
+Phase: $phase
+Window id: $window_id
+Your pane id: $pane_id
+Orchestrator pane id: $orchestrator_pane_id
+State root: $state_root
+Do not redefine scope. Implement only the assigned slice, run the smallest relevant checks, then send a structured handoff back to the orchestrator pane and append the same handoff to tmux-orch.
+
+Required handoff message envelope:
+[handoff][coder->orchestrator]
+status: <review-ready|blocked|needs-clarification>
+changed_files: <list>
+checks_run: <list>
+risks: <list>
+request: <next action request>
+
+If your runtime status changes, refresh your pane record:
+tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role coder --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+
+Append the matching durable handoff:
+tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role coder --to-role orchestrator --type <status> --payload-json '{"changed_files":[],"checks_run":[],"risks":[],"request":""}'
+EOF
+      ;;
+    issue-gate)
+      cat <<EOF
+You are the issue-gate lane for this task window.
+This lane was dispatched by \$tmux-task-orchestrator-skill.
+Task context: $task_context
+Phase: $phase
+Window id: $window_id
+Your pane id: $pane_id
+Orchestrator pane id: $orchestrator_pane_id
+State root: $state_root
+Confirm issue traceability, draft or refine the issue when needed, and return a structured handoff with the issue outcome, refs line, and whether human confirmation is still needed.
+
+Required handoff message envelope:
+[handoff][issue-gate->orchestrator]
+status: <issue-ready|needs-confirmation|blocked>
+issue_ref: <issue or n/a>
+refs_line: <ISSUE: #... or n/a>
+risks: <list>
+request: <next action request>
+
+If your runtime status changes, refresh your pane record:
+tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role issue-gate --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+
+Append the matching durable handoff:
+tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role issue-gate --to-role orchestrator --type <status> --payload-json '{"issue_ref":"","refs_line":"","risks":[],"request":""}'
+EOF
+      ;;
+    reviewer)
+      cat <<EOF
+You are the reviewer lane for this task window.
+This lane was dispatched by \$tmux-task-orchestrator-skill.
+Task context: $task_context
+Phase: $phase
+Window id: $window_id
+Your pane id: $pane_id
+Orchestrator pane id: $orchestrator_pane_id
+State root: $state_root
+Review findings first. Do not edit implementation unless explicitly reassigned. Return one of approved, fix-now, or follow-up with concrete findings.
+
+Required handoff message envelope:
+[handoff][reviewer->orchestrator]
+status: <approved|fix-now|follow-up>
+findings: <list>
+checks_run: <list>
+risks: <list>
+request: <next action request>
+
+If your runtime status changes, refresh your pane record:
+tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role reviewer --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+
+Append the matching durable handoff:
+tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role reviewer --to-role orchestrator --type <status> --payload-json '{"findings":[],"checks_run":[],"risks":[],"request":""}'
+EOF
+      ;;
+    *)
+      fail "unsupported role: $role"
+      ;;
+  esac
+}
+
+role=""
+task_context=""
+phase="phase1"
+target_pane="${TMUX_PANE:-}"
+orchestrator_pane_id="${TMUX_PANE:-}"
+window_id=""
+worktree_path=""
+layout=""
+state_root=""
+session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+status="active"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --role)
+      role="$2"
+      shift 2
+      ;;
+    --task-context | --task)
+      task_context="$2"
+      shift 2
+      ;;
+    --phase)
+      phase="$2"
+      shift 2
+      ;;
+    --target-pane)
+      target_pane="$2"
+      shift 2
+      ;;
+    --orchestrator-pane-id)
+      orchestrator_pane_id="$2"
+      shift 2
+      ;;
+    --window-id)
+      window_id="$2"
+      shift 2
+      ;;
+    --worktree-path)
+      worktree_path="$2"
+      shift 2
+      ;;
+    --layout)
+      layout="$2"
+      shift 2
+      ;;
+    --root)
+      state_root="$2"
+      shift 2
+      ;;
+    --session-id)
+      session_id="$2"
+      shift 2
+      ;;
+    --status)
+      status="$2"
+      shift 2
+      ;;
+    -h | --help | help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[ -n "${TMUX:-}" ] || fail "tmux-task-lane-bootstrap must run inside tmux"
+[ -n "$role" ] || fail "--role is required"
+[ -n "$task_context" ] || fail "--task-context is required"
+[ -n "$target_pane" ] || fail "could not resolve target pane"
+[ -n "$orchestrator_pane_id" ] || fail "could not resolve orchestrator pane id"
+[ -n "$session_id" ] || fail "missing CODEX_SESSION_ID/CODEX_THREAD_ID; pass --session-id explicitly"
+
+need_cmd tmux
+need_cmd jq
+[ -x "$orch_bin" ] || fail "missing executable orch at $orch_bin"
+
+[ -n "$window_id" ] || window_id="$(tmux display-message -p -t "$orchestrator_pane_id" '#{window_id}')"
+[ -n "$worktree_path" ] || worktree_path="$(tmux display-message -p -t "$target_pane" '#{pane_current_path}')"
+[ -n "$layout" ] || layout="$(default_layout_for_role "$role")"
+[ -n "$state_root" ] || state_root="$(default_state_root)"
+
+split_flag="-v"
+[ "$layout" = "h" ] && split_flag="-h"
+
+new_pane_id="$(
+  tmux split-window -P -F '#{pane_id}' "$split_flag" -t "$target_pane" -c "$worktree_path"
+)"
+[ -n "$new_pane_id" ] || fail "failed to create lane pane"
+
+tmux set -wq -t "$window_id" @pane_orchestrator "$orchestrator_pane_id"
+tmux set -wq -t "$window_id" "@pane_$(role_option_key "$role")" "$new_pane_id"
+tmux set -pt "$orchestrator_pane_id" @user_pane_title "orchestrator"
+tmux set -pt "$new_pane_id" @user_pane_title "$role"
+
+"$orch_bin" init --root "$state_root" >/dev/null
+"$orch_bin" register-pane \
+  --root "$state_root" \
+  --window-id "$window_id" \
+  --pane-id "$new_pane_id" \
+  --role "$role" \
+  --scope phase \
+  --phase "$phase" \
+  --status "$status" \
+  --forked-from-session-id "$session_id" >/dev/null
+
+prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root")"
+printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
+  "$state_root" "$session_id" "$prompt" "$worktree_path"
+tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m
+
+printf '## Lane Bootstrap\n'
+printf -- '- role: %s\n' "$role"
+printf -- '- window_id: %s\n' "$window_id"
+printf -- '- pane_id: %s\n' "$new_pane_id"
+printf -- '- orchestrator_pane_id: %s\n' "$orchestrator_pane_id"
+printf -- '- worktree_path: %s\n' "$worktree_path"
+printf -- '- state_root: %s\n' "$state_root"

@@ -293,6 +293,27 @@ When `tmux-orch` exists, `$tmux-task-lane-bootstrap-skill` should:
 - retire phase-scoped panes only when the window-level phase transition
   authorizes that change
 
+### Lane Prompt Contract
+
+When a lane pane is created, the startup prompt should give the lane enough
+context to report back without guessing.
+
+Minimum prompt fields:
+
+- role name
+- `window_id`
+- current `pane_id`
+- `orchestrator_pane_id`
+- current phase
+- task context
+- `TMUX_ORCH_ROOT` when `tmux-orch` is in use
+
+Minimum completion behavior:
+
+- send a structured handoff back to the orchestrator pane
+- append the same handoff to `tmux-orch`
+- refresh the lane's own pane record if its status changed
+
 ## Non-Goals
 
 This contract does not authorize the plugin to:

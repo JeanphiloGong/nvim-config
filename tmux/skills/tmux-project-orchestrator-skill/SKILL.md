@@ -1,6 +1,6 @@
 ---
 name: tmux-project-orchestrator-skill
-description: v0.2.5 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to tmux-task-orchestrator operators.
+description: v0.2.6 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to tmux-task-orchestrator operators.
 ---
 
 # Tmux Project Orchestrator Skill
@@ -76,6 +76,9 @@ Requires explicit human approval when policy is unclear or impact is broad:
 - hand task-local execution to `$tmux-task-orchestrator-skill`
 - use `$tmux-task-window-bootstrap-skill` for worktree/window creation instead of
   inlining bootstrap mechanics into this role
+- when a new task window is needed, dispatch `$tmux-task-window-bootstrap-skill`
+  with an explicit downstream prompt that tells the child session to continue as
+  `$tmux-task-orchestrator-skill`
 
 ## Inputs And Outputs
 
@@ -340,6 +343,13 @@ Reference:
    - preserve the current `TMUX_ORCH_ROOT`
    - instruct the forked session to continue as
      `$tmux-task-orchestrator-skill`
+   - make the downstream prompt explicitly require:
+     - use `$tmux-task-orchestrator-skill`
+     - do not start implementation directly
+     - register or refresh the task window in `tmux-orch`
+     - decide local `phase` and `next_action`
+     - dispatch `$tmux-task-lane-bootstrap-skill` only when lane realization is
+       actually needed
    - do not append `--full-auto` to the `codex fork` command in TUI mode
 6. Before handing off to `$tmux-task-orchestrator-skill`, verify:
    - the target tmux window exists

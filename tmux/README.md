@@ -29,6 +29,37 @@
 - 不要把 internal helper 当成默认的人类入口
 - 只有在 public role 明确决定需要新 worktree 或新 lane 时，才加载对应 helper skill
 
+### Runtime Wrappers
+
+现在额外提供两条 orchestration-specific runtime wrapper：
+
+- `tmux/bin/tmux-task-window-bootstrap`
+  - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册
+  - 注入的 child prompt 会明确要求使用 `$tmux-task-orchestrator-skill`
+- `tmux/bin/tmux-task-lane-bootstrap`
+  - 负责单个 lane pane 的创建、pane 注册、role prompt 注入
+  - 注入的 child prompt 会明确 handoff envelope 和 pane status 刷新方式
+
+这两条 wrapper 是给编排流程用的。
+现有 `<prefix> + f` / `<prefix> + F` 仍然保持通用裸 `codex fork <id>`，不自动注入 orchestrator 语义。
+
+最小示例：
+
+```sh
+tmux/bin/tmux-task-window-bootstrap \
+  --repo-root "$(git rev-parse --show-toplevel)" \
+  --task-kind bugfix \
+  --task-context "make the Steps and SOP purpose difference obvious" \
+  --task-slug steps-sop-copy
+```
+
+```sh
+tmux/bin/tmux-task-lane-bootstrap \
+  --role coder \
+  --task-context "make the Steps and SOP purpose difference obvious" \
+  --phase phase1
+```
+
 ## tmux-orch（Phase A 原型）
 仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。
 

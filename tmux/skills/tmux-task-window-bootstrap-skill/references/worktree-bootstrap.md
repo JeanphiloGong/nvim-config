@@ -6,6 +6,12 @@ already decided that a new task needs its own worktree and tmux window.
 
 This is a helper capability, not a public role.
 
+Preferred runtime wrapper:
+
+```bash
+tmux/bin/tmux-task-window-bootstrap --repo-root /repo --task-context "..."
+```
+
 ## Purpose
 
 - create a dedicated git worktree for the task
@@ -42,11 +48,22 @@ state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${
 
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
-prompt='Continue in this new worktree as $tmux-task-orchestrator-skill for this task. Do not start implementation directly. First confirm repo state, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder/reviewer/issue-gate work when needed.'
+prompt='Continue in this new worktree as $tmux-task-orchestrator-skill for this task. Do not start implementation directly. First confirm repo state and task context, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed. When lane setup is needed, use $tmux-task-lane-bootstrap-skill rather than creating panes ad hoc.'
 printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
   "$state_root" "$session_id" "$prompt" "$worktree_path"
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
 ```
+
+## Prompt Contract
+
+The bootstrap prompt injected into the new task window should always include:
+
+- the fact that the child session is now acting as `$tmux-task-orchestrator-skill`
+- the task context and current repo/worktree target
+- the rule that implementation must not start before local confirmation
+- the requirement to register or refresh the task window in `tmux-orch`
+- the requirement to choose an explicit local `next_action`
+- the rule that lane realization must go through `$tmux-task-lane-bootstrap-skill`
 
 ## Handoff Data
 

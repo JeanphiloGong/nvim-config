@@ -6,6 +6,12 @@ already chosen the next local action and lane plan.
 
 This is a helper capability, not a public role.
 
+Preferred runtime wrapper:
+
+```bash
+tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phase1
+```
+
 ## Purpose
 
 - create the pane layout for one task window
@@ -63,11 +69,45 @@ You are the <role> lane for this task window.
 Suggested send pattern:
 
 ```bash
-message="$(printf 'You are the coder lane for this task window.\nThe task plan is already decided. Execute conservatively, report changed files, checks run, and risks back to the orchestrator.')"
+message="$(printf 'You are the coder lane for this task window.\nThe task plan is already decided by $tmux-task-orchestrator-skill.\nRole: coder\nWindow id: %s\nYour pane id: %s\nOrchestrator pane id: %s\nState root: %s\nBefore returning control, refresh your pane status if needed, send a structured handoff message to the orchestrator pane, and append the same handoff to tmux-orch.\nReport changed files, checks run, risks, and a clear request for the next action.' \"$window_id\" \"$coder_pane\" \"$orch_pane\" \"$state_root\")"
 tmux send-keys -t "$coder_pane" -l "$message"
 tmux send-keys -t "$coder_pane" Enter
 sleep 0.2
 tmux send-keys -t "$coder_pane" Enter
+```
+
+Recommended lane prompt contract for every created pane:
+
+- state that the pane was dispatched by `$tmux-task-orchestrator-skill`
+- include the concrete role name
+- include `window_id`, current `pane_id`, `orchestrator_pane_id`, and
+  `TMUX_ORCH_ROOT`
+- include the current phase and task context
+- require a final structured handoff back to the orchestrator pane
+- require a matching `tmux/bin/orch handoff` append when `tmux-orch` is in use
+- require the lane to refresh its own pane record via `tmux/bin/orch register-pane`
+  when status changes to values such as `active`, `blocked`, or `idle`
+
+Suggested lane-specific prompts:
+
+```text
+Coder:
+You are the coder lane for this task window. $tmux-task-orchestrator-skill has
+already decided the current plan. Do not redefine scope. Implement only the
+assigned slice, run the smallest relevant checks, then send a structured
+handoff back to the orchestrator and append the same handoff to tmux-orch.
+
+Issue-Gate:
+You are the issue-gate lane for this task window. Confirm issue traceability,
+draft or refine the issue when needed, and return a structured handoff with the
+issue outcome, refs line, and whether human confirmation is still needed. Also
+append the same handoff to tmux-orch.
+
+Reviewer:
+You are the reviewer lane for this task window. Review findings first, do not
+edit implementation unless explicitly reassigned, and hand back one of
+approved/fix-now/follow-up with concrete findings. Also append the same handoff
+to tmux-orch.
 ```
 
 ## Reviewer Startup
@@ -103,3 +143,18 @@ tmux/bin/orch handoff \
 
 `$tmux-task-orchestrator-skill` should convert each such handoff into an explicit
 `next_action`.
+
+If the lane updates its own runtime state, use the same identifiers when
+refreshing pane status:
+
+```bash
+tmux/bin/orch register-pane \
+  --root "$state_root" \
+  --window-id "$window_id" \
+  --pane-id "$coder_pane" \
+  --role coder \
+  --scope phase \
+  --phase phase1 \
+  --status active \
+  --forked-from-session-id "$orchestrator_session_id"
+```
