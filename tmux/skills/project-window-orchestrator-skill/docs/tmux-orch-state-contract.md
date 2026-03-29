@@ -111,6 +111,11 @@ Minimum fields:
   "task": "define tmux-orch state contract",
   "status": "in_progress",
   "phase": "phase1",
+  "next_action": "dispatch-coder",
+  "review_status": "pending",
+  "commit_status": "pending",
+  "merge_status": "not_ready",
+  "owner_orchestrator_pane_id": "%107",
   "depends_on": [],
   "updated_at": "2026-03-27T12:00:00Z"
 }
@@ -196,6 +201,8 @@ behaviors are the minimal contract:
 - `register-window`
   - records the task window snapshot
   - must capture `window_id`, `worktree_path`, branch, task, and active phase
+  - should capture `next_action` and task-local review/commit/merge state when
+    that information is known
 - `register-pane`
   - records pane identity, role, scope, status, and fork provenance
 - `handoff`
@@ -238,9 +245,10 @@ Recommended machine-readable failure ids:
 
 ## Skill Integration Rules
 
-### task-worktree-bootstrap-skill
+### Bootstrap Reference
 
-Bootstrap should not become the durable state owner for downstream orchestration.
+Bootstrap should not become the durable state owner for downstream
+orchestration.
 
 Bootstrap handoff should provide enough context for downstream registration:
 
@@ -259,16 +267,18 @@ When `tmux-orch` exists, the project-window orchestrator skill should:
 - register or refresh task windows after confirming task context
 - keep project phase, window status, dependencies, and blockers visible when a
   shared state root exists
-- decide when a target task window needs pane realization, pane refresh, or
-  retirement
-- hand off pane realization and pane retirement work to
-  `task-pane-orchestrator-skill`
+- decide when a target task window needs to be created, resumed, paused, or
+  closed
+- use the worktree bootstrap reference when a new task window must be created
+- hand task-local lifecycle ownership to `task-window-orchestrator-skill`
 - emit phase events when lifecycle support exists
 
-### task-pane-orchestrator-skill
+### task-window-orchestrator-skill
 
-When `tmux-orch` exists, the pane orchestrator skill should:
+When `tmux-orch` exists, the task-window orchestrator skill should:
 
+- keep task-window `status`, `phase`, and `next_action` visible
+- keep review/commit/merge state visible when that information is known
 - register each newly created pane immediately after capture of its `pane_id`
 - keep window-scoped tmux options aligned with the active pane map
 - emit structured handoffs with sender and recipient `pane_id`

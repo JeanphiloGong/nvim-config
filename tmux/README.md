@@ -10,11 +10,15 @@
 
 ## Skill Layers
 
-`tmux/skills/` 现在按三层组织：
+`tmux/skills/` 现在只保留两个公开角色：
 
-- `project-window-orchestrator-skill`: 项目级协调入口，管理多个 worktree / task windows、项目状态、窗口依赖与阶段推进，本身不写代码
-- `task-pane-orchestrator-skill`: 在单个 task window 内落地 pane layout、pane_id、lane fork 和 pane 级 handoff
-- `task-worktree-bootstrap-skill`: 内部 helper，用来创建新 worktree、打开初始 task window、fork 当前 session
+- `project-window-orchestrator-skill`: 项目级协调入口，管理多个 worktree / task windows、项目状态、依赖关系与推进顺序，本身不写代码
+- `task-window-orchestrator-skill`: 单任务窗口的长期操盘角色，负责本地 phase、lane 分配、handoff、review、commit、merge-back 与收尾
+
+其中：
+
+- worktree/bootstrap 细节下沉到 `project-window-orchestrator-skill/references/`
+- pane/lane 启动细节下沉到 `task-window-orchestrator-skill/references/`
 
 ## tmux-orch（Phase A 原型）
 仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。

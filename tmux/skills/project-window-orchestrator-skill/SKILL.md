@@ -1,6 +1,6 @@
 ---
 name: project-window-orchestrator-skill
-description: v0.1.0 - Public project-level tmux orchestration entry that coordinates multiple worktrees and task windows, updates project/window state, and delegates pane realization without doing code work itself.
+description: v0.2.0 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
 ---
 
 # Project Window Orchestrator Skill
@@ -8,43 +8,41 @@ description: v0.1.0 - Public project-level tmux orchestration entry that coordin
 ## Trigger and Scope
 
 Use this skill as the public orchestration entry for tracked tmux-based work
-that may span multiple task windows or multiple worktrees.
+that spans multiple tasks, multiple worktrees, or multiple tmux windows.
 
 This skill is project-scoped. It owns:
 
-- deciding when a new task worktree/window is needed
-- tracking active task windows for the project
-- keeping project phase, task status, blockers, and dependencies visible
-- deciding when a target task window needs pane or lane realization
-- delegating pane creation and pane retirement to `task-pane-orchestrator-skill`
+- deciding which task window should exist
+- deciding which task window should move next
+- keeping project phase, dependencies, blockers, and review/merge order visible
+- creating new task windows through a bootstrap reference flow
+- handing each selected task window to `task-window-orchestrator-skill`
 
 This skill does not perform code implementation itself.
 
 In scope:
 
 - manage multiple task windows as one tracked project surface
-- call `task-worktree-bootstrap-skill` when a new worktree/window must be
-  created
+- decide whether to create, resume, pause, or complete a task window
+- keep project-wide sequencing and dependencies visible
 - register and refresh project/task-window state in `tmux-orch` when that
   layer exists
-- choose which task window is active, blocked, review-ready, or complete
-- decide when coder, issue-gate, or reviewer lanes are needed for a target
-  task window
-- coordinate sequencing across worktrees without drifting into code ownership
+- hand off task-local execution responsibility to
+  `task-window-orchestrator-skill`
 
 Out of scope:
 
 - direct code implementation
-- low-level `tmux split-window` mechanics
-- reviewer/coder/issue-gate lane work itself
+- per-pane `tmux split-window` mechanics
+- coder/reviewer/issue-gate lane work itself
 - replacing tmux runtime routing with JSON state
 
 ## Core Purpose
 
 - Treat the project as the durable coordination unit.
 - Keep one task per task window and one worktree per task window.
-- Separate project/window coordination from pane realization.
-- Keep pane lifecycle and lane startup subordinate to project-level policy.
+- Separate project scheduling from task-local execution control.
+- Keep bootstrap and pane layout as subordinate capabilities, not public roles.
 - Ensure the public orchestration entry stays non-coding and control-plane only.
 
 ## Required Inputs
@@ -70,8 +68,8 @@ Out of scope:
 
 - `project_entry_policy=public-default`
 - `window_policy=one-task-one-window`
-- `bootstrap_policy=delegate-task-worktree-helper`
-- `pane_policy=delegate-task-pane-orchestrator`
+- `bootstrap_policy=reference-driven`
+- `task_local_policy=delegate-task-window-orchestrator`
 - `execution_mode=coordination-only`
 - `writer_policy=lanes-only`
 
@@ -82,25 +80,26 @@ Project-scoped ownership:
 - project objective
 - project phase
 - active task-window set
-- window dependency and blocker interpretation
+- dependency and blocker interpretation
 - which task window needs action next
+- when a task window is ready for review, commit, merge, or closure
 
-Task-window realization delegated out:
+Task-scoped ownership delegated out:
 
-- `task-worktree-bootstrap-skill` creates a new worktree and initial task
-  window when needed
-- `task-pane-orchestrator-skill` realizes pane layout and lane startup inside
-  a specific task window
+- `task-window-orchestrator-skill` owns one task window from local confirmation
+  through commit/merge handoff
+- worktree creation and first-window creation use the bootstrap reference in
+  `references/worktree-bootstrap.md`
 
 ## External State Contract
 
 When `tmux-orch` exists, this skill should:
 
 - initialize or reuse the orchestration state root
-- register and refresh task-window snapshots
-- keep project/window status visible when a shared state root is available
+- register or refresh task-window snapshots
+- keep project phase, window status, blockers, and dependencies visible
 - treat tmux runtime state as the live routing truth
-- delegate pane registration to `task-pane-orchestrator-skill`
+- let each task-window orchestrator own task-local pane state and handoffs
 
 State-root discipline:
 
@@ -110,7 +109,7 @@ State-root discipline:
   inventing an ad-hoc path
 - do not silently write orchestration state to a second root such as
   `/tmp/tmux-orch` unless that override is intentional and propagated to every
-  downstream bootstrap, fork, and pane-orchestration step
+  downstream step
 
 Reference:
 
@@ -119,20 +118,21 @@ Reference:
 ## Guardrails
 
 - Do not write production code from this skill.
-- Do not split panes directly unless you are explicitly executing
-  `task-pane-orchestrator-skill` within a target task window.
-- Do not let bootstrap become the public entry; bootstrap is a helper.
-- Do not let pane orchestration redefine project priorities or task sequencing.
+- Do not let bootstrap become the public entry; bootstrap is an internal
+  capability documented as a reference.
+- Do not micromanage pane layout from the project role unless task-local
+  orchestration has explicitly failed and ownership is reassigned.
 - Do not claim project-wide shared durable state if the current `tmux-orch`
   deployment is still Phase A session-scoped only.
 
 ## Recommended Task Sequence
 
 1. enter `project-window-orchestrator-skill`
-2. inspect current project windows, blockers, and target tasks
-3. if a new task window is needed, call `task-worktree-bootstrap-skill`
-4. if a target task window needs lanes, enter `task-pane-orchestrator-skill`
-5. keep coordinating handoffs and phase transitions across task windows
+2. inspect current project windows, blockers, dependencies, and merge order
+3. if a new task window is needed, use `references/worktree-bootstrap.md`
+4. hand the chosen task window to `task-window-orchestrator-skill`
+5. keep coordinating handoffs and status across task windows until the project
+   delivery slice is complete
 
 ## Workflow
 
@@ -144,39 +144,39 @@ Reference:
    - active windows
    - blocked windows
    - review-ready windows
+   - merge-ready windows
    - dependency constraints between windows
 3. If `tmux-orch` exists, initialize or reuse the state root and refresh known
    window records.
-   - if `TMUX_ORCH_ROOT` is unset, resolve the root from the current tmux
-     session name and keep using that same root for every downstream step
 4. Decide whether the next action is:
    - create a new task worktree/window
    - resume an existing task window
-   - advance a task window's phase
-   - request review in a task window
-5. If a new task window is required, call `task-worktree-bootstrap-skill` and
-   hand it:
-   - `repo_root`
-   - `task_kind`
-   - `task_slug`
-   - the default expectation that the forked session returns to
-     `$project-window-orchestrator-skill`
-   - exception: if bootstrap has already created the one obvious target task
-     window and the remaining work is only lane realization inside that same
-     window, the forked session may continue directly into
-     `$task-pane-orchestrator-skill` after a brief local confirmation instead
-     of re-entering the public project entry flow
-6. When a target task window needs lane realization, delegate to
-   `$task-pane-orchestrator-skill` inside that task window.
+   - request a task-local review/commit/merge check
+   - mark a task window complete after merge-back
+5. If a new task window is required:
+   - use `references/worktree-bootstrap.md`
+   - preserve the current `TMUX_ORCH_ROOT`
+   - instruct the forked session to continue as `task-window-orchestrator-skill`
+6. When a task window becomes the active focus, let
+   `task-window-orchestrator-skill` own:
+   - task-local phase
+   - lane plan
+   - review decision flow
+   - commit-stage dispatch
+   - merge-ready handoff
 7. Maintain project/window coordination state:
    - project phase
    - task status
    - blockers
    - dependency edges
    - next active window
-8. Keep coder/reviewer/issue-gate work in lane panes rather than absorbing that
-   work into the coordinator.
-9. Report the active window map, dependencies, blockers, and next handoff.
+8. Report the active window map, blockers, merge-ready windows, and next
+   handoff.
+
+## References
+
+- `references/worktree-bootstrap.md`
+- `docs/tmux-orch-state-contract.md`
 
 ## Standard Manual Flow (Recommended)
 
@@ -188,24 +188,10 @@ tmux/bin/orch init --root "$state_root"
 tmux/bin/orch status --root "$state_root"
 ```
 
-If a new task window is needed, continue by invoking
-`task-worktree-bootstrap-skill` with the chosen task kind and slug. Once the
-target task window exists, register or refresh that task window and decide
-whether it needs pane realization through `$task-pane-orchestrator-skill`.
-
-If you intentionally override `TMUX_ORCH_ROOT`, export that same value before
-calling bootstrap or forking Codex so the child window does not drift onto a
-different state root.
-
-Direct-pane continuation is valid when all of the following are already true:
-- the target task window is unambiguous
-- no additional project-level scheduling decision is pending
-- the next concrete action is pane or lane realization inside that same window
-
-In that case, the forked session does not need to re-advertise itself as the
-public project entry. It may act as the target-window local orchestrator,
-enter `$task-pane-orchestrator-skill`, and keep upstream visibility through
-`tmux-orch` state and explicit handoff updates.
+If a new task window is needed, follow
+`references/worktree-bootstrap.md`. Once the target task window exists, enter
+`task-window-orchestrator-skill` inside that window and let it own the task's
+local lifecycle.
 
 ## Output Format
 
@@ -219,13 +205,14 @@ enter `$task-pane-orchestrator-skill`, and keep upstream visibility through
 - active_windows:
 - blocked_windows:
 - review_ready_windows:
+- merge_ready_windows:
 - dependency_notes:
 
 ## Next Action
 - action_type:
 - target_window:
 - bootstrap_needed:
-- pane_realization_needed:
+- task_local_handoff_needed:
 
 ## Handoff
 - next_skill:
