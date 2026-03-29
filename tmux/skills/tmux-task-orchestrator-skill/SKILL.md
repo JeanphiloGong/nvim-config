@@ -1,9 +1,9 @@
 ---
-name: task-window-orchestrator-skill
-description: v0.1.2 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
+name: tmux-task-orchestrator-skill
+description: v0.1.4 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
 ---
 
-# Task Window Orchestrator Skill
+# Tmux Task Orchestrator Skill
 
 ## Overview
 
@@ -74,7 +74,8 @@ Requires explicit human or project-level approval when:
 - keep one explicit local owner for the task window
 - dispatch only the minimal active roles needed for the next step
 - convert every handoff into a visible `next_action`
-- use references for pane/bootstrap mechanics instead of making them public roles
+- use `$tmux-task-lane-bootstrap-skill` for lane realization instead of
+  carrying all pane mechanics inline
 
 ## Inputs And Outputs
 
@@ -241,7 +242,7 @@ Out of scope:
 - `window_policy=one-task-one-window`
 - `entry_policy=task-local-public`
 - `lane_policy=on-demand`
-- `pane_management_policy=reference-driven`
+- `pane_management_policy=helper-skill`
 - `writer_policy=lanes-only`
 - `review_policy=dedicated-reviewer-when-formal`
 - `commit_policy=explicit-commit-stage`
@@ -290,7 +291,7 @@ When `tmux-orch` exists, this skill should:
 
 Reference:
 
-- `../project-window-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
 
 ## Guardrails
 
@@ -323,7 +324,7 @@ Typical local `next_action` values:
 Typical decision flow:
 
 1. confirm task context and local state
-2. if lanes are missing, use `references/pane-lane-bootstrap.md`
+2. if lanes are missing, dispatch `$tmux-task-lane-bootstrap-skill`
 3. if issue traceability is still unknown, dispatch `issue-gate`
 4. if implementation is needed, dispatch `coder`
 5. when coder reports `review-ready`, either:
@@ -337,16 +338,16 @@ Typical decision flow:
 
 ## References
 
-- `references/pane-lane-bootstrap.md`
-- `../project-window-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-task-lane-bootstrap-skill/SKILL.md`
+- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
 
 ## Recommended Task Sequence
 
-1. enter `task-window-orchestrator-skill`
+1. enter `$tmux-task-orchestrator-skill`
 2. inspect repo state, task context, current phase, and current pane map
 3. register or refresh the task window in `tmux-orch`
 4. decide the local `next_action`
-5. if lanes are needed, follow `references/pane-lane-bootstrap.md`
+5. if lanes are needed, call `$tmux-task-lane-bootstrap-skill`
 6. dispatch only the minimal active roles needed for the next phase
 7. consume each handoff and turn it into an explicit next step
 8. run issue/commit/merge preparation explicitly rather than assuming it
@@ -371,19 +372,23 @@ Typical decision flow:
    - review
    - commit-stage work
    - merge-back preparation
-5. If lane setup is needed, use `references/pane-lane-bootstrap.md`.
+5. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
 6. When `coder`, `issue-gate`, or `reviewer` hands back a result:
    - record the handoff
    - update `status`, `phase`, and `next_action`
    - decide the next local dispatch
-7. For commit-stage work:
-   - use `issue-gate-skill` when traceability still needs confirmation
-   - use `git-commit-skill` when the task is approved and ready to commit
+7. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
+   - dispatch `$tmux-task-lane-bootstrap-skill` to realize the `issue-gate` lane
+   - do not escalate to human confirmation before the `issue-gate` lane has
+     produced an actual lookup result or issue draft
+8. For commit-stage work:
+   - use `$issue-gate-skill` when traceability still needs confirmation
+   - use `$git-commit-skill` when the task is approved and ready to commit
    - keep commit success/failure visible in task state
-8. When the task reaches merge-back:
+9. When the task reaches merge-back:
    - mark the task window `merge-ready`
    - hand this state back to the project-level orchestrator or operator
-9. After merge-back, mark the task complete and retire phase-scoped lanes.
+10. After merge-back, mark the task complete and retire phase-scoped lanes.
 
 ## Standard Manual Flow (Recommended)
 
@@ -411,7 +416,7 @@ tmux/bin/orch status --root "$state_root"
 ```
 
 If lanes are required after local confirmation, follow
-`references/pane-lane-bootstrap.md`. When coder or reviewer hand back a result,
+`$tmux-task-lane-bootstrap-skill`. When coder or reviewer hand back a result,
 record the handoff and update the task window's next decision before dispatching
 more work.
 

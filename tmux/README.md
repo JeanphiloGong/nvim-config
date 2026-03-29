@@ -10,15 +10,24 @@
 
 ## Skill Layers
 
-`tmux/skills/` 现在只保留两个公开角色：
+`tmux/skills/` 现在分成两个公开角色和两个内部 helper：
 
-- `project-window-orchestrator-skill`: 项目级协调入口，管理多个 worktree / task windows、项目状态、依赖关系与推进顺序，本身不写代码
-- `task-window-orchestrator-skill`: 单任务窗口的长期操盘角色，负责本地 phase、lane 分配、handoff、review、commit、merge-back 与收尾
+公开角色：
 
-其中：
+- `$tmux-project-orchestrator-skill`: 项目级协调入口，管理多个 worktree / task windows、项目状态、依赖关系与推进顺序，本身不写代码
+- `$tmux-task-orchestrator-skill`: 单任务窗口的长期操盘角色，负责本地 phase、lane 分配、handoff、review、commit、merge-back 与收尾
 
-- worktree/bootstrap 细节下沉到 `project-window-orchestrator-skill/references/`
-- pane/lane 启动细节下沉到 `task-window-orchestrator-skill/references/`
+内部 helper：
+
+- `$tmux-task-window-bootstrap-skill`: 专门负责新 task 的 worktree + tmux window + fork
+- `$tmux-task-lane-bootstrap-skill`: 专门负责 lane 启动、pane_id 注册与 phase-scoped lane 生命周期
+
+默认使用方式：
+
+- 先进入 public role
+- 由 public role 再调用内部 helper
+- 不要把 internal helper 当成默认的人类入口
+- 只有在 public role 明确决定需要新 worktree 或新 lane 时，才加载对应 helper skill
 
 ## tmux-orch（Phase A 原型）
 仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。

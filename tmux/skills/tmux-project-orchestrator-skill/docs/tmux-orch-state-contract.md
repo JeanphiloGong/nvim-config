@@ -79,7 +79,7 @@ Implications:
 ### Project Layer
 
 Use this layer to record project-wide coordination state when
-`project-window-orchestrator-skill` is active. Phase A `tmux-orch` may not
+`$tmux-project-orchestrator-skill` is active. Phase A `tmux-orch` may not
 persist this layer by default yet, but the contract reserves it for that
 coordinator.
 
@@ -245,9 +245,9 @@ Recommended machine-readable failure ids:
 
 ## Skill Integration Rules
 
-### Bootstrap Reference
+### $tmux-task-window-bootstrap-skill
 
-Bootstrap should not become the durable state owner for downstream
+This internal helper should not become the durable state owner for downstream
 orchestration.
 
 Bootstrap handoff should provide enough context for downstream registration:
@@ -259,9 +259,9 @@ Bootstrap handoff should provide enough context for downstream registration:
 - current `window_id` when available
 - current orchestrator session id
 
-### project-window-orchestrator-skill
+### $tmux-project-orchestrator-skill
 
-When `tmux-orch` exists, the project-window orchestrator skill should:
+When `tmux-orch` exists, `$tmux-project-orchestrator-skill` should:
 
 - own project-wide coordination across task windows and worktrees
 - register or refresh task windows after confirming task context
@@ -269,16 +269,24 @@ When `tmux-orch` exists, the project-window orchestrator skill should:
   shared state root exists
 - decide when a target task window needs to be created, resumed, paused, or
   closed
-- use the worktree bootstrap reference when a new task window must be created
-- hand task-local lifecycle ownership to `task-window-orchestrator-skill`
+- use `$tmux-task-window-bootstrap-skill` when a new task window must be created
+- hand task-local lifecycle ownership to `$tmux-task-orchestrator-skill`
 - emit phase events when lifecycle support exists
 
-### task-window-orchestrator-skill
+### $tmux-task-orchestrator-skill
 
-When `tmux-orch` exists, the task-window orchestrator skill should:
+When `tmux-orch` exists, `$tmux-task-orchestrator-skill` should:
 
 - keep task-window `status`, `phase`, and `next_action` visible
 - keep review/commit/merge state visible when that information is known
+- decide when pane/lane realization is required
+- decide whether issue-gate, reviewer, commit-stage, or merge-back should run
+- turn each handoff into an explicit local `next_action`
+
+### $tmux-task-lane-bootstrap-skill
+
+When `tmux-orch` exists, `$tmux-task-lane-bootstrap-skill` should:
+
 - register each newly created pane immediately after capture of its `pane_id`
 - keep window-scoped tmux options aligned with the active pane map
 - emit structured handoffs with sender and recipient `pane_id`

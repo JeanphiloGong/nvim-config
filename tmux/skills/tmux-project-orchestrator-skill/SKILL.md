@@ -1,9 +1,9 @@
 ---
-name: project-window-orchestrator-skill
-description: v0.2.3 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
+name: tmux-project-orchestrator-skill
+description: v0.2.5 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to tmux-task-orchestrator operators.
 ---
 
-# Project Window Orchestrator Skill
+# Tmux Project Orchestrator Skill
 
 ## Overview
 
@@ -73,8 +73,9 @@ Requires explicit human approval when policy is unclear or impact is broad:
 - start from project state, not from whichever pane is loudest
 - keep one visible owner for every active task window
 - drive decisions through explicit `next_action` and window status
-- hand task-local execution to `task-window-orchestrator-skill`
-- use references for bootstrap mechanics instead of turning helpers into roles
+- hand task-local execution to `$tmux-task-orchestrator-skill`
+- use `$tmux-task-window-bootstrap-skill` for worktree/window creation instead of
+  inlining bootstrap mechanics into this role
 
 ## Inputs And Outputs
 
@@ -120,7 +121,7 @@ One execution cycle is done when the project role has:
 
 - refreshed project/task-window state
 - chosen the next active task window or blocking decision
-- handed ownership to the correct task-window orchestrator or human
+- handed ownership to the correct `$tmux-task-orchestrator-skill` or human
 - recorded the resulting next step clearly
 
 ## Risks And Open Questions
@@ -150,7 +151,7 @@ One execution cycle is done when the project role has:
    Check: A blocked window always has a stated reason or dependency owner.
 5. Hand off local ownership cleanly.
    Why: Project roles should not leak into task-local control flow.
-   How: Pass one selected task window to `task-window-orchestrator-skill`.
+   How: Pass one selected task window to `$tmux-task-orchestrator-skill`.
    Check: The receiving task window has an explicit local owner.
 6. Prefer stable state roots.
    Why: Split state roots make project coordination unverifiable.
@@ -191,8 +192,8 @@ This skill is project-scoped. It owns:
 - deciding which task window should exist
 - deciding which task window should move next
 - keeping project phase, dependencies, blockers, and review/merge order visible
-- creating new task windows through a bootstrap reference flow
-- handing each selected task window to `task-window-orchestrator-skill`
+- creating new task windows through an internal bootstrap helper skill
+- handing each selected task window to `$tmux-task-orchestrator-skill`
 
 This skill does not perform code implementation itself.
 
@@ -204,7 +205,7 @@ In scope:
 - register and refresh project/task-window state in `tmux-orch` when that
   layer exists
 - hand off task-local execution responsibility to
-  `task-window-orchestrator-skill`
+  `$tmux-task-orchestrator-skill`
 
 Out of scope:
 
@@ -244,7 +245,7 @@ Out of scope:
 
 - `project_entry_policy=public-default`
 - `window_policy=one-task-one-window`
-- `bootstrap_policy=reference-driven`
+- `bootstrap_policy=helper-skill`
 - `task_local_policy=delegate-task-window-orchestrator`
 - `execution_mode=coordination-only`
 - `writer_policy=lanes-only`
@@ -262,10 +263,10 @@ Project-scoped ownership:
 
 Task-scoped ownership delegated out:
 
-- `task-window-orchestrator-skill` owns one task window from local confirmation
+- `$tmux-task-orchestrator-skill` owns one task window from local confirmation
   through commit/merge handoff
-- worktree creation and first-window creation use the bootstrap reference in
-  `references/worktree-bootstrap.md`
+- `$tmux-task-window-bootstrap-skill` creates the worktree and first tmux task
+  window when a new task window is required
 
 ## External State Contract
 
@@ -295,7 +296,7 @@ Reference:
 
 - Do not write production code from this skill.
 - Do not let bootstrap become the public entry; bootstrap is an internal
-  capability documented as a reference.
+  helper skill, not a user-facing role.
 - In Codex TUI flows, do not add `--full-auto` to `codex fork`; that flag
   forces the forked session into `workspace-write` plus `on-request`, which can
   unintentionally narrow permissions for downstream work.
@@ -308,10 +309,10 @@ Reference:
 
 ## Recommended Task Sequence
 
-1. enter `project-window-orchestrator-skill`
+1. enter `$tmux-project-orchestrator-skill`
 2. inspect current project windows, blockers, dependencies, and merge order
-3. if a new task window is needed, use `references/worktree-bootstrap.md`
-4. hand the chosen task window to `task-window-orchestrator-skill`
+3. if a new task window is needed, call `$tmux-task-window-bootstrap-skill`
+4. hand the chosen task window to `$tmux-task-orchestrator-skill`
 5. keep coordinating handoffs and status across task windows until the project
    delivery slice is complete
 
@@ -335,18 +336,18 @@ Reference:
    - request a task-local review/commit/merge check
    - mark a task window complete after merge-back
 5. If a new task window is required:
-   - use `references/worktree-bootstrap.md`
+   - call `$tmux-task-window-bootstrap-skill`
    - preserve the current `TMUX_ORCH_ROOT`
    - instruct the forked session to continue as
-     `task-window-orchestrator-skill`
+     `$tmux-task-orchestrator-skill`
    - do not append `--full-auto` to the `codex fork` command in TUI mode
-6. Before handing off to `task-window-orchestrator-skill`, verify:
+6. Before handing off to `$tmux-task-orchestrator-skill`, verify:
    - the target tmux window exists
    - `window_name` and `window_id` are known
    - the fork command has been dispatched into that window
    - `handoff_ready=yes` only after those checks pass
 7. When a task window becomes the active focus, let
-   `task-window-orchestrator-skill` own:
+   `$tmux-task-orchestrator-skill` own:
    - task-local phase
    - lane plan
    - review decision flow
@@ -363,7 +364,7 @@ Reference:
 
 ## References
 
-- `references/worktree-bootstrap.md`
+- `../tmux-task-window-bootstrap-skill/SKILL.md`
 - `docs/tmux-orch-state-contract.md`
 
 ## Standard Manual Flow (Recommended)
@@ -377,8 +378,8 @@ tmux/bin/orch status --root "$state_root"
 ```
 
 If a new task window is needed, follow
-`references/worktree-bootstrap.md`. Once the target task window exists, enter
-`task-window-orchestrator-skill` inside that window and let it own the task's
+`$tmux-task-window-bootstrap-skill`. Once the target task window exists, enter
+`$tmux-task-orchestrator-skill` inside that window and let it own the task's
 local lifecycle.
 
 Never report `bootstrap_needed=no` and `task_local_handoff_needed=yes` while

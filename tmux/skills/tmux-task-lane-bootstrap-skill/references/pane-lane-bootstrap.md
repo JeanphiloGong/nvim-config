@@ -1,9 +1,10 @@
 # Pane And Lane Bootstrap Reference
 
 This reference documents the pane-management capability used by
-`task-window-orchestrator-skill` when a task window needs active lanes.
+`$tmux-task-lane-bootstrap-skill` when `$tmux-task-orchestrator-skill` has
+already chosen the next local action and lane plan.
 
-This is a capability, not a public role.
+This is a helper capability, not a public role.
 
 ## Purpose
 
@@ -100,5 +101,5 @@ tmux/bin/orch handoff \
   --payload-json '{"changed_files":["app/service.py"],"checks_run":["pytest -q"]}'
 ```
 
-The task-window orchestrator should convert each such handoff into an explicit
+`$tmux-task-orchestrator-skill` should convert each such handoff into an explicit
 `next_action`.

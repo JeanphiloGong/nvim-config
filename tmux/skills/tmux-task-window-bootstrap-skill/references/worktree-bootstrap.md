@@ -1,17 +1,17 @@
 # Worktree Bootstrap Reference
 
 This reference documents the boundary-creation capability used by
-`project-window-orchestrator-skill` when a new task needs its own worktree and
-tmux window.
+`$tmux-task-window-bootstrap-skill` when `$tmux-project-orchestrator-skill` has
+already decided that a new task needs its own worktree and tmux window.
 
-This is a capability, not a public role.
+This is a helper capability, not a public role.
 
 ## Purpose
 
 - create a dedicated git worktree for the task
 - create the first tmux window for that task
 - fork the current Codex session into that window
-- hand task-local control to `task-window-orchestrator-skill`
+- hand task-local control to `$tmux-task-orchestrator-skill`
 
 ## Guardrails
 
@@ -42,7 +42,7 @@ state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${
 
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
-prompt='Continue in this new worktree as the task-window orchestrator for this task. Do not start implementation directly. First confirm repo state, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder/reviewer/issue-gate work when needed.'
+prompt='Continue in this new worktree as $tmux-task-orchestrator-skill for this task. Do not start implementation directly. First confirm repo state, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder/reviewer/issue-gate work when needed.'
 printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
   "$state_root" "$session_id" "$prompt" "$worktree_path"
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
@@ -67,8 +67,8 @@ tmux list-windows -t "$session_name" -F '#S:#I:#W:#{pane_current_path}'
 tmux capture-pane -pt "${session_name}:${window_name}" -S -30
 ```
 
-The parent bootstrap flow should report success and stop only after all of the
-following are true:
+The helper should report success and stop only after all of the following are
+true:
 
 - `window_exists=yes`
 - `window_name` is known
