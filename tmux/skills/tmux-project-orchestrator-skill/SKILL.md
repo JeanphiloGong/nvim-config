@@ -1,6 +1,6 @@
 ---
 name: tmux-project-orchestrator-skill
-description: v0.2.6 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to tmux-task-orchestrator operators.
+description: v0.2.7 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to tmux-task-orchestrator operators.
 ---
 
 # Tmux Project Orchestrator Skill
@@ -309,6 +309,8 @@ Reference:
   orchestration has explicitly failed and ownership is reassigned.
 - Do not claim project-wide shared durable state if the current `tmux-orch`
   deployment is still Phase A session-scoped only.
+- Do not leave the canonical project orchestrator pane implicit; register it in
+  tmux session state and `tmux-orch` before dispatching task windows.
 
 ## Recommended Task Sequence
 
@@ -333,12 +335,15 @@ Reference:
    - dependency constraints between windows
 3. If `tmux-orch` exists, initialize or reuse the state root and refresh known
    window records.
-4. Decide whether the next action is:
+4. Register the current project orchestrator target:
+   - set the tmux session option `@project_orchestrator_pane`
+   - run `tmux/bin/orch register-project`
+5. Decide whether the next action is:
    - create a new task worktree/window
    - resume an existing task window
    - request a task-local review/commit/merge check
    - mark a task window complete after merge-back
-5. If a new task window is required:
+6. If a new task window is required:
    - call `$tmux-task-window-bootstrap-skill`
    - preserve the current `TMUX_ORCH_ROOT`
    - instruct the forked session to continue as
@@ -351,25 +356,25 @@ Reference:
      - dispatch `$tmux-task-lane-bootstrap-skill` only when lane realization is
        actually needed
    - do not append `--full-auto` to the `codex fork` command in TUI mode
-6. Before handing off to `$tmux-task-orchestrator-skill`, verify:
+7. Before handing off to `$tmux-task-orchestrator-skill`, verify:
    - the target tmux window exists
    - `window_name` and `window_id` are known
    - the fork command has been dispatched into that window
    - `handoff_ready=yes` only after those checks pass
-7. When a task window becomes the active focus, let
+8. When a task window becomes the active focus, let
    `$tmux-task-orchestrator-skill` own:
    - task-local phase
    - lane plan
    - review decision flow
    - commit-stage dispatch
    - merge-ready handoff
-8. Maintain project/window coordination state:
+9. Maintain project/window coordination state:
    - project phase
    - task status
    - blockers
    - dependency edges
    - next active window
-9. Report the active window map, blockers, merge-ready windows, and next
+10. Report the active window map, blockers, merge-ready windows, and next
    handoff.
 
 ## References
@@ -382,8 +387,18 @@ Reference:
 ```bash
 session_name="$(tmux display-message -p '#S')"
 session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
+window_id="$(tmux display-message -p '#{window_id}')"
+pane_id="$(tmux display-message -p '#{pane_id}')"
 state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
 tmux/bin/orch init --root "$state_root"
+tmux set-option -t "$session_name" @project_orchestrator_pane "$pane_id"
+tmux/bin/orch register-project \
+  --root "$state_root" \
+  --project "$(basename "$(git rev-parse --show-toplevel)")" \
+  --session-name "$session_name" \
+  --project-orchestrator-window "$window_id" \
+  --project-orchestrator-pane-id "$pane_id" \
+  --current-phase phase1
 tmux/bin/orch status --root "$state_root"
 ```
 

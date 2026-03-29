@@ -39,8 +39,12 @@
 - `tmux/bin/tmux-task-lane-bootstrap`
   - 负责单个 lane pane 的创建、pane 注册、role prompt 注入
   - 注入的 child prompt 会明确 handoff envelope 和 pane status 刷新方式
+- `tmux/bin/tmux-task-project-handoff`
+  - 负责 task window 完成后的确定性 upward handoff
+  - 只按 canonical `pane_id` 把 `merge-ready` / `merge-complete` / `blocked` /
+    `needs-policy` 交回项目级 orchestrator
 
-这两条 wrapper 是给编排流程用的。
+这三条 wrapper 是给编排流程用的。
 现有 `<prefix> + f` / `<prefix> + F` 仍然保持通用裸 `codex fork <id>`，不自动注入 orchestrator 语义。
 
 最小示例：
@@ -60,6 +64,14 @@ tmux/bin/tmux-task-lane-bootstrap \
   --phase phase1
 ```
 
+```sh
+tmux/bin/tmux-task-project-handoff \
+  --status merge-ready \
+  --commit "$(git rev-parse --short HEAD)" \
+  --refs-line "ISSUE: #41" \
+  --note "ready for project-level merge scheduling"
+```
+
 ## tmux-orch（Phase A 原型）
 仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。
 
@@ -70,6 +82,7 @@ tmux/bin/tmux-task-lane-bootstrap \
 
 这版命令面刻意只覆盖 Phase A：
 - `init`
+- `register-project`
 - `register-window`
 - `register-pane`
 - `handoff`
@@ -148,6 +161,7 @@ jq --version
 
 ```sh
 tmux/bin/orch init
+tmux/bin/orch register-project --current-phase phase1
 tmux/bin/orch register-window --task "prototype tmux-orch" --phase phase1
 tmux/bin/orch register-pane --role orchestrator --scope window
 tmux/bin/orch status

@@ -166,7 +166,7 @@ else
 fi
 
 window_info="$(
-  tmux list-windows -t "$session_name" -F '#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_current_path}\t#{pane_current_command}' \
+  tmux list-windows -t "$session_name" -F "$(printf '#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_current_path}\t#{pane_current_command}')" \
   | awk -F '\t' -v want_name="$window_name" -v want_path="$worktree_path" '
       $2 == want_name || $4 == want_path { print; exit }
     '
@@ -185,7 +185,7 @@ if [ -n "$window_info" ]; then
   fi
 else
   new_window="$(
-    tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path" -P -F '#{window_id}\t#{window_name}\t#{pane_id}'
+    tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path" -P -F "$(printf '#{window_id}\t#{window_name}\t#{pane_id}')"
   )"
   window_id="$(printf '%s' "$new_window" | cut -f1)"
   window_name="$(printf '%s' "$new_window" | cut -f2)"
@@ -200,11 +200,17 @@ tmux set -pt "$orchestrator_pane_id" @user_pane_title "orchestrator"
   --root "$state_root" \
   --window-id "$window_id" \
   --window-name "$window_name" \
+  --repo-root "$repo_root" \
   --worktree-path "$worktree_path" \
   --branch "$branch" \
   --task "$task_context" \
   --phase "$phase" \
-  --status "$status" >/dev/null
+  --status "$status" \
+  --next-action "confirm-local-plan" \
+  --review-status pending \
+  --commit-status pending \
+  --merge-status not_ready \
+  --owner-orchestrator-pane-id "$orchestrator_pane_id" >/dev/null
 "$orch_bin" register-pane \
   --root "$state_root" \
   --window-id "$window_id" \

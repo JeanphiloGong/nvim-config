@@ -83,6 +83,11 @@ Current Phase A commands write `project-state.json`, `windows.json`,
 `panes.json`, and `handoffs.jsonl`. `phases.jsonl` is reserved for the next
 phase of the prototype.
 
+`project-state.json` now also records the canonical project orchestrator pane:
+
+- `project_orchestrator_window`
+- `project_orchestrator_pane_id`
+
 The handoff model is intentionally pane-first. The required core is:
 
 - `ts`
@@ -101,6 +106,21 @@ Initialize state:
 
 ```sh
 tmux/bin/orch init
+```
+
+Register the current pane as the canonical project orchestrator target:
+
+```sh
+session_name="$(tmux display-message -p '#S')"
+window_id="$(tmux display-message -p '#{window_id}')"
+pane_id="$(tmux display-message -p '#{pane_id}')"
+
+tmux set-option -t "$session_name" @project_orchestrator_pane "$pane_id"
+tmux/bin/orch register-project \
+  --session-name "$session_name" \
+  --project-orchestrator-window "$window_id" \
+  --project-orchestrator-pane-id "$pane_id" \
+  --current-phase phase1
 ```
 
 Register the current tmux window:
@@ -143,6 +163,16 @@ tmux/bin/orch handoff \
   --payload-json '{"changed_files":["tmux/bin/orch"]}'
 ```
 
+Send a deterministic task-to-project handoff:
+
+```sh
+tmux/bin/tmux-task-project-handoff \
+  --status merge-ready \
+  --commit "$(git rev-parse --short HEAD)" \
+  --refs-line "ISSUE: #41" \
+  --note "ready for project-level merge scheduling"
+```
+
 Inspect state:
 
 ```sh
@@ -170,6 +200,7 @@ Inside the popup dashboard:
 Phase A command surface:
 
 - `init`
+- `register-project`
 - `register-window`
 - `register-pane`
 - `handoff`
@@ -192,6 +223,8 @@ Phase A validation stays intentionally small:
 - active non-orchestrator panes must record `forked_from_session_id`
 - panes must point to known windows
 - handoffs must reference known pane ids
+- if a canonical project orchestrator pane is registered, task-to-project
+  handoffs must target that pane id
 
 It does not yet manage phase close / retire or project-level dependency graphs.
 It also does not yet enforce reviewer-specific invariants. Those should become
@@ -204,5 +237,9 @@ active only once formal review flow or reviewer panes are explicitly in use.
 - State files are durable records, not a replacement for tmux runtime state.
 - tmux runtime options and live dispatch remain owned by tmux and the
   orchestrator skill unless thin wrappers are added later.
+- The canonical project target resolves in this order:
+  - session tmux option `@project_orchestrator_pane`
+  - `project-state.json.project_orchestrator_pane_id`
+  - otherwise fail instead of guessing by pane index or active pane
 - If the workflow later needs automation hooks or richer phase transitions, add
   them in a later phase rather than growing this prototype into a daemon.

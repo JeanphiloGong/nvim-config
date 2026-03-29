@@ -39,6 +39,8 @@ There must be one routing truth and one durable audit trail.
 Live routing truth:
 
 - tmux `pane_id`
+- session tmux option `@project_orchestrator_pane` for upward task-to-project
+  routing
 - window-scoped tmux options such as `@pane_orchestrator`, `@pane_coder`, and
   related role mappings
 
@@ -90,6 +92,7 @@ Minimum fields:
   "project": "agents-spec",
   "session_name": "main",
   "project_orchestrator_window": "@0",
+  "project_orchestrator_pane_id": "%71",
   "current_phase": "phase1",
   "updated_at": "2026-03-27T12:00:00Z"
 }
@@ -120,6 +123,40 @@ Minimum fields:
   "updated_at": "2026-03-27T12:00:00Z"
 }
 ```
+
+### Task To Project Handoffs
+
+Upward handoff is always owned by `$tmux-task-orchestrator-skill`, never by an
+individual coder/reviewer/issue-gate lane and never directly by
+`$git-commit-skill`.
+
+Minimum fields:
+
+```json
+{
+  "ts": "2026-03-27T12:30:00Z",
+  "window_id": "@3",
+  "from_pane_id": "%107",
+  "to_pane_id": "%71",
+  "from_role": "orchestrator",
+  "to_role": "project-orchestrator",
+  "type": "merge-ready",
+  "payload": {
+    "task_branch": "task/refactor/20260327-tmux-orch-contract",
+    "commit": "abc1234",
+    "refs_line": "ISSUE: #41",
+    "next_request": "schedule-merge",
+    "note": "local commit is ready for project-level integration"
+  }
+}
+```
+
+Allowed upward handoff `type` values:
+
+- `merge-ready`
+- `merge-complete`
+- `blocked`
+- `needs-policy`
 
 ### Pane Layer
 
@@ -201,8 +238,14 @@ behaviors are the minimal contract:
 - `register-window`
   - records the task window snapshot
   - must capture `window_id`, `worktree_path`, branch, task, and active phase
-  - should capture `next_action` and task-local review/commit/merge state when
-    that information is known
+  - should capture `next_action`, task-local review/commit/merge state, and
+    `owner_orchestrator_pane_id` when that information is known
+- `register-project`
+  - records project-level state for the current tmux session
+  - should capture `project_orchestrator_window` and
+    `project_orchestrator_pane_id`
+  - should align with the live tmux session option
+    `@project_orchestrator_pane`
 - `register-pane`
   - records pane identity, role, scope, status, and fork provenance
 - `handoff`
@@ -231,6 +274,8 @@ At minimum, validation must fail when any of the following is violated:
    in the current or recorded pane map
 8. machine routing attempts to resolve by pane title or pane index instead of
    `pane_id`
+9. a registered project orchestrator pane is stale or task-to-project handoffs
+   target a different pane id
 
 Recommended machine-readable failure ids:
 
@@ -242,6 +287,7 @@ Recommended machine-readable failure ids:
 - `stale-phase-pane-map`
 - `unknown-handoff-pane`
 - `invalid-routing-key`
+- `stale-project-orchestrator-target`
 
 ## Skill Integration Rules
 
@@ -264,6 +310,8 @@ Bootstrap handoff should provide enough context for downstream registration:
 When `tmux-orch` exists, `$tmux-project-orchestrator-skill` should:
 
 - own project-wide coordination across task windows and worktrees
+- register the canonical project orchestrator pane in both tmux session state
+  and `project-state.json`
 - register or refresh task windows after confirming task context
 - keep project phase, window status, dependencies, and blockers visible when a
   shared state root exists
@@ -282,6 +330,9 @@ When `tmux-orch` exists, `$tmux-task-orchestrator-skill` should:
 - decide when pane/lane realization is required
 - decide whether issue-gate, reviewer, commit-stage, or merge-back should run
 - turn each handoff into an explicit local `next_action`
+- treat `$git-commit-skill` as a local capability only
+- use a deterministic task-to-project handoff after commit or after confirmed
+  manual cherry-pick / merge completion
 
 ### $tmux-task-lane-bootstrap-skill
 

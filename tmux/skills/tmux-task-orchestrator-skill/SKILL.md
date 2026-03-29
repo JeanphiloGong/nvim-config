@@ -1,6 +1,6 @@
 ---
 name: tmux-task-orchestrator-skill
-description: v0.1.5 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
+description: v0.1.6 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
 ---
 
 # Tmux Task Orchestrator Skill
@@ -308,6 +308,8 @@ Reference:
 - Do not self-approve formal review from the orchestrator pane.
 - Do not merge back silently; make merge-ready or merge-complete an explicit
   state transition.
+- Do not end after commit; the local orchestrator must perform the
+  task-to-project handoff itself.
 
 ## Lifecycle Decisions
 
@@ -334,8 +336,9 @@ Typical decision flow:
    - dispatch `reviewer`, or
    - move directly to `run-commit-stage` for trivial/no-review paths
 6. when reviewer reports `approved`, dispatch commit-stage work explicitly
-7. after commit succeeds, mark the window `merge-ready` and hand that status
-   back to the project-level orchestrator or operator
+7. after commit succeeds, use `tmux/bin/tmux-task-project-handoff` to mark the
+   window `merge-ready` or `merge-complete` and hand that status back to the
+   project-level orchestrator
 8. after merge-back, mark the task window complete and retire phase-scoped
    lanes
 
@@ -395,9 +398,13 @@ Typical decision flow:
    - use `$issue-gate-skill` when traceability still needs confirmation
    - use `$git-commit-skill` when the task is approved and ready to commit
    - keep commit success/failure visible in task state
+   - return control to `$tmux-task-orchestrator-skill` after commit instead of
+     treating commit completion as the end of the flow
 9. When the task reaches merge-back:
-   - mark the task window `merge-ready`
-   - hand this state back to the project-level orchestrator or operator
+   - use `tmux/bin/tmux-task-project-handoff`
+   - never guess the upstream target by pane index or active pane
+   - let the helper resolve the canonical project orchestrator pane and append
+     the matching durable handoff
 10. After merge-back, mark the task complete and retire phase-scoped lanes.
 
 ## Standard Manual Flow (Recommended)
@@ -420,7 +427,11 @@ tmux/bin/orch register-window \
   --branch "$branch" \
   --task "$task_context" \
   --phase "phase1" \
-  --status "in_progress"
+  --status "in_progress" \
+  --next-action "confirm-task-context" \
+  --review-status "pending" \
+  --commit-status "pending" \
+  --merge-status "not_ready"
 
 tmux/bin/orch status --root "$state_root"
 ```
@@ -428,7 +439,16 @@ tmux/bin/orch status --root "$state_root"
 If lanes are required after local confirmation, follow
 `$tmux-task-lane-bootstrap-skill`. When coder or reviewer hand back a result,
 record the handoff and update the task window's next decision before dispatching
-more work.
+more work. When the task reaches `merge-ready`, hand it upward with:
+
+```bash
+tmux/bin/tmux-task-project-handoff \
+  --root "$state_root" \
+  --status merge-ready \
+  --commit "$(git rev-parse --short HEAD)" \
+  --refs-line "ISSUE: #41" \
+  --note "ready for project-level merge scheduling"
+```
 
 ## Output Format
 

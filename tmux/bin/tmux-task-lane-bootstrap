@@ -266,7 +266,8 @@ tmux set -pt "$new_pane_id" @user_pane_title "$role"
   --scope phase \
   --phase "$phase" \
   --status "$status" \
-  --forked-from-session-id "$session_id" >/dev/null
+  --forked-from-session-id "$session_id" \
+  --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
 
 prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root")"
 printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
