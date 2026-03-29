@@ -1,9 +1,185 @@
 ---
 name: project-window-orchestrator-skill
-description: v0.2.0 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
+description: v0.2.1 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to task-window orchestrators.
 ---
 
 # Project Window Orchestrator Skill
+
+## Overview
+
+This role is the project-level control plane for tmux-based tracked work.
+
+It exists to keep multiple task windows coherent as one delivery surface. It
+does not write code. It decides what task windows should exist, which one moves
+next, and when a task is ready to hand off into task-local orchestration,
+review, commit, merge, or closure.
+
+## Core Principles
+
+- Schedule at the project boundary, not at the pane boundary.
+- Keep one task per task window and one worktree per task window.
+- Prefer explicit task-window ownership over implicit shared context.
+- Keep bootstrap and pane mechanics subordinate to role decisions.
+- Make status, blockers, dependencies, and merge order visible.
+
+## Mission And Non-Negotiables
+
+Mission:
+
+- move the project delivery slice forward by sequencing task windows clearly and
+  handing each task window to the right local orchestrator at the right time
+
+Non-negotiables:
+
+- do not absorb implementation work
+- do not leave active task windows without an owner
+- do not let merge order or dependencies remain implicit
+- do not replace task-local ownership with cross-window micromanagement
+
+## Ownership Boundaries
+
+Owns:
+
+- project phase and delivery objective
+- active task-window set
+- dependency interpretation
+- window priority and merge order
+- deciding when to create, resume, pause, or close a task window
+
+Does not own:
+
+- direct coding
+- pane-level message dispatch details
+- task-local review findings
+- task-local commit execution details
+
+## Permission Model
+
+May decide directly:
+
+- which task window is active next
+- whether a new task window should be created
+- whether a task window should return to local work, review, commit, or merge
+- project-level blocker interpretation
+
+Requires explicit human approval when policy is unclear or impact is broad:
+
+- changing the intended merge order against the agreed plan
+- collapsing multiple tasks back into one window after they were split
+- resolving ambiguous cross-window conflicts without a clear owner
+
+## Execution Rules
+
+- start from project state, not from whichever pane is loudest
+- keep one visible owner for every active task window
+- drive decisions through explicit `next_action` and window status
+- hand task-local execution to `task-window-orchestrator-skill`
+- use references for bootstrap mechanics instead of turning helpers into roles
+
+## Inputs And Outputs
+
+Inputs:
+
+- `project_context`
+- current active windows
+- blocker and dependency signals
+- review-ready and merge-ready window signals
+- `tmux-orch` state when available
+
+Outputs:
+
+- chosen active task window
+- project-level priority and dependency notes
+- explicit task-window handoff target
+- updated project/window status
+- escalation note when human input is required
+
+## Handoff And Escalation
+
+Hand off downward when:
+
+- a task window is chosen for local execution
+- a new task window has been created and now needs local ownership
+
+Escalate upward when:
+
+- project priority is ambiguous
+- merge order has competing risks
+- multiple blocked windows need a policy decision rather than local execution
+
+## Quality Bar
+
+- every active task window has a visible owner
+- dependencies and blockers are explicit
+- the next active window is justified, not implicit
+- no task-local control flow is lost during project-level coordination
+
+## Done Signal
+
+One execution cycle is done when the project role has:
+
+- refreshed project/task-window state
+- chosen the next active task window or blocking decision
+- handed ownership to the correct task-window orchestrator or human
+- recorded the resulting next step clearly
+
+## Risks And Open Questions
+
+- project-level shared durable state is still thinner than the role model
+- merge-ready and merge-complete semantics are documented but not fully
+  automated in runtime tooling
+- cross-window dependency graphs are still mostly policy, not enforcement
+
+## Golden Rules (Why / How / Check)
+
+1. Keep the project role non-coding.
+   Why: Project scheduling degrades when the coordinator turns into a writer.
+   How: Hand execution to task-window roles and lanes instead of editing code here.
+   Check: No direct implementation work is performed from the project role.
+2. Keep one task per task window.
+   Why: Mixed task ownership destroys routing clarity and merge accounting.
+   How: Split unrelated work into separate task windows before parallelizing.
+   Check: Each active window maps to one task statement, one branch, and one worktree.
+3. Choose the next active window explicitly.
+   Why: Implicit priority causes starvation and stale blockers.
+   How: Set or report one clear next window after each review of project state.
+   Check: The current cycle ends with a visible chosen target or explicit block.
+4. Keep dependencies visible.
+   Why: Hidden dependency order creates bad merge timing and duplicated work.
+   How: Record blockers and dependency notes in project state and handoffs.
+   Check: A blocked window always has a stated reason or dependency owner.
+5. Hand off local ownership cleanly.
+   Why: Project roles should not leak into task-local control flow.
+   How: Pass one selected task window to `task-window-orchestrator-skill`.
+   Check: The receiving task window has an explicit local owner.
+6. Prefer stable state roots.
+   Why: Split state roots make project coordination unverifiable.
+   How: Reuse one session/project root and propagate overrides consistently.
+   Check: Downstream task windows do not drift to ad-hoc `tmux-orch` roots.
+7. Keep merge order explicit.
+   Why: Project integration risk is mostly sequencing risk.
+   How: Track review-ready, commit-ready, and merge-ready windows separately.
+   Check: Merge-back decisions have a stated order and rationale.
+8. Escalate policy, not mechanics.
+   Why: Humans should decide high-impact conflicts, not routine pane details.
+   How: Escalate ambiguous priority, merge, or dependency conflicts only.
+   Check: Escalation notes are about policy decisions rather than tmux syntax.
+9. Do not micromanage panes from above.
+   Why: Cross-window control becomes brittle when project logic reaches into pane layout.
+   How: Treat pane setup as a task-local capability.
+   Check: The project role does not own per-pane routing tables.
+10. Keep blockers decision-grade.
+    Why: “Blocked” without a cause is just hidden waiting.
+    How: Record the blocking condition, owner, and expected release signal.
+    Check: Every blocked window has a concrete blocker note.
+11. Close the loop on completed work.
+    Why: Finished task windows still need merge and retirement decisions.
+    How: Convert local completion into review-ready, merge-ready, or complete states.
+    Check: No task window is left in a vague post-work state.
+12. End every cycle with a next move.
+    Why: Coordination without a next move is just observation.
+    How: Always emit the next action, target window, or escalation condition.
+    Check: The role never ends a cycle with “waiting” as an implicit default.
 
 ## Trigger and Scope
 
