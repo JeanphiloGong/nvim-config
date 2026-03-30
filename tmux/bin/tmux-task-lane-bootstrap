@@ -24,7 +24,7 @@ Roles:
 
 Notes:
   - Requires tmux, jq, and a current Codex session id.
-  - Creates one non-orchestrator lane pane and injects a role-specific prompt.
+  - Creates one non-orchestrator lane pane, runs bare `codex fork`, then sends a role-specific prompt after readiness is confirmed.
   - Registers the pane in tmux-orch and updates tmux window role options.
 EOF
 }
@@ -61,6 +61,29 @@ default_layout_for_role() {
     issue-gate | reviewer) printf 'v' ;;
     *) printf 'v' ;;
   esac
+}
+
+wait_for_codex_ready() {
+  local pane_id="$1"
+  local max_attempts="${2:-80}"
+  local attempt=0
+  local current_command=""
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
+    if [ "$current_command" = "codex" ]; then
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+send_startup_prompt() {
+  local pane_id="$1"
+  local message="$2"
+  tmux send-keys -t "$pane_id" -l "$message"
+  tmux send-keys -t "$pane_id" Enter
 }
 
 build_lane_prompt() {
@@ -270,9 +293,16 @@ tmux set -pt "$new_pane_id" @user_pane_title "$role"
   --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
 
 prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root")"
-printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
-  "$state_root" "$session_id" "$prompt" "$worktree_path"
+printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
+  "$state_root" "$session_id" "$worktree_path"
 tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m
+fork_status="fork-dispatched"
+if wait_for_codex_ready "$new_pane_id"; then
+  send_startup_prompt "$new_pane_id" "$prompt"
+  fork_status="ready-and-prompted"
+else
+  fork_status="fork-timeout"
+fi
 
 printf '## Lane Bootstrap\n'
 printf -- '- role: %s\n' "$role"
@@ -281,3 +311,4 @@ printf -- '- pane_id: %s\n' "$new_pane_id"
 printf -- '- orchestrator_pane_id: %s\n' "$orchestrator_pane_id"
 printf -- '- worktree_path: %s\n' "$worktree_path"
 printf -- '- state_root: %s\n' "$state_root"
+printf -- '- fork_status: %s\n' "$fork_status"

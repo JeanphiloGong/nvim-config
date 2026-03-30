@@ -35,10 +35,10 @@
 
 - `tmux/bin/tmux-task-window-bootstrap`
   - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册
-  - 注入的 child prompt 会明确要求使用 `$tmux-task-orchestrator-skill`
+  - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 orchestrator startup prompt
 - `tmux/bin/tmux-task-lane-bootstrap`
   - 负责单个 lane pane 的创建、pane 注册、role prompt 注入
-  - 注入的 child prompt 会明确 handoff envelope 和 pane status 刷新方式
+  - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 lane startup prompt
 - `tmux/bin/tmux-task-project-handoff`
   - 负责 task window 完成后的确定性 upward handoff
   - 只按 canonical `pane_id` 把 `merge-ready` / `merge-complete` / `blocked` /

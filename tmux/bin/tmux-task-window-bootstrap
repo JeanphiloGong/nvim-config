@@ -23,7 +23,7 @@ Usage:
 Notes:
   - Requires tmux, git, jq, and a current Codex session id.
   - Uses $TMUX_ORCH_ROOT or the default tmux-orch session root when --root is omitted.
-  - Injects a prompt that tells the child session to continue as $tmux-task-orchestrator-skill.
+  - Uses a two-step startup: bare `codex fork`, then a startup prompt after the pane is ready.
 EOF
 }
 
@@ -62,6 +62,29 @@ shell_like_command() {
     bash | zsh | sh | fish | nu | dash) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+wait_for_codex_ready() {
+  local pane_id="$1"
+  local max_attempts="${2:-80}"
+  local attempt=0
+  local current_command=""
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
+    if [ "$current_command" = "codex" ]; then
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+send_startup_prompt() {
+  local pane_id="$1"
+  local message="$2"
+  tmux send-keys -t "$pane_id" -l "$message"
+  tmux send-keys -t "$pane_id" Enter
 }
 
 repo_root=""
@@ -172,14 +195,14 @@ window_info="$(
     '
 )"
 
-fork_status="dispatched"
+fork_status="not-started"
 if [ -n "$window_info" ]; then
   window_id="$(printf '%s' "$window_info" | cut -f1)"
   window_name="$(printf '%s' "$window_info" | cut -f2)"
   orchestrator_pane_id="$(printf '%s' "$window_info" | cut -f3)"
   target_command="$(printf '%s' "$window_info" | cut -f5)"
   if shell_like_command "$target_command"; then
-    fork_status="dispatched-existing-window"
+    fork_status="window-ready"
   else
     fork_status="existing-window-busy"
   fi
@@ -233,13 +256,19 @@ EOF
 )"
 
 if [ "$fork_status" != "existing-window-busy" ]; then
-  printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
-    "$state_root" "$session_id" "$prompt" "$worktree_path"
+  printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
+    "$state_root" "$session_id" "$worktree_path"
   tmux send-keys -t "$orchestrator_pane_id" "$fork_cmd" C-m
+  if wait_for_codex_ready "$orchestrator_pane_id"; then
+    send_startup_prompt "$orchestrator_pane_id" "$prompt"
+    fork_status="ready-and-prompted"
+  else
+    fork_status="fork-timeout"
+  fi
 fi
 
 handoff_ready="yes"
-if [ "$fork_status" = "existing-window-busy" ]; then
+if [ "$fork_status" = "existing-window-busy" ] || [ "$fork_status" = "fork-timeout" ]; then
   handoff_ready="no"
 fi
 

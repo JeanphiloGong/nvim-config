@@ -1,6 +1,6 @@
 ---
 name: tmux-task-lane-bootstrap-skill
-description: v0.1.2 - Internal helper that realizes lane layout, lane startup, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
+description: v0.1.3 - Internal helper that realizes lane layout, lane startup, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
 ---
 
 # Tmux Task Lane Bootstrap Skill
@@ -53,7 +53,7 @@ Out of scope:
 
 - `routing_key=pane_id`
 - `phase_scope=non-orchestrator-lanes`
-- `message_mode=literal-double-enter`
+- `message_mode=literal-enter`
 - `execution_mode=lane-bootstrap-only`
 
 ## Guardrails
@@ -61,6 +61,8 @@ Out of scope:
 - Do not use this skill as the public task owner.
 - Do not decide project or task policy here; realize the already chosen lane plan.
 - In Codex TUI flows, do not add `--full-auto` to child `codex fork` commands.
+- Do not embed the lane startup prompt directly in the `codex fork` command;
+  send it only after fork readiness is confirmed.
 - Use tmux `pane_id` as the only machine routing key.
 - Use a dedicated reviewer pane for formal review.
 
@@ -71,14 +73,16 @@ Out of scope:
 3. Create, refresh, or retire panes as instructed by that plan.
 4. Capture each pane's `pane_id` immediately.
 5. Register panes and fork provenance in `tmux-orch` when used.
-6. Fork child lanes from the current orchestrator session.
-7. Send role-first prompts that include:
+6. Fork child lanes from the current orchestrator session without embedding the
+   startup prompt in the `codex fork` command.
+7. Confirm the child pane has entered Codex.
+8. Send role-first prompts that include:
    - current role and task context
    - `window_id`, current `pane_id`, `orchestrator_pane_id`, and `TMUX_ORCH_ROOT`
    - the required handoff message envelope
    - how the lane should refresh its own pane status and append a matching
      handoff in `tmux-orch`
-8. Return the resolved pane map to the task-window orchestrator.
+9. Return the resolved pane map to the task-window orchestrator.
 
 ## References
 

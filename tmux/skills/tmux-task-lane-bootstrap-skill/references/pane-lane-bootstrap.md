@@ -17,7 +17,7 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
 - create the pane layout for one task window
 - capture canonical `pane_id` values immediately
 - fork non-orchestrator panes from the current orchestrator session
-- send role-first startup prompts
+- send role-first startup prompts after fork readiness is confirmed
 - keep tmux window options and `tmux-orch` pane state aligned
 
 ## Required Rules
@@ -28,6 +28,8 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
 - in Codex TUI mode, do not add `--full-auto` to lane `codex fork` commands;
   let the parent session's current permission model carry through unless an
   explicit override is truly intended
+- do not embed startup prompts directly in `codex fork`; fork first, verify the
+  child pane is in Codex, then send the prompt
 - use a dedicated reviewer pane for formal review
 - recreate phase-scoped panes across phase boundaries
 
@@ -56,6 +58,21 @@ tmux set -pt "$issue_pane" @user_pane_title "issue-gate"
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$orch_pane" --role orchestrator --scope window --status active
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$coder_pane" --role coder --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$issue_pane" --role issue-gate --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
+
+printf -v coder_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
+  "$state_root" "$orchestrator_session_id" "$worktree_path"
+printf -v issue_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
+  "$state_root" "$orchestrator_session_id" "$worktree_path"
+tmux send-keys -t "$coder_pane" "$coder_fork" C-m
+tmux send-keys -t "$issue_pane" "$issue_fork" C-m
+for _ in $(seq 1 40); do
+  [ "$(tmux display-message -p -t "$coder_pane" '#{pane_current_command}')" = "codex" ] && break
+  sleep 0.25
+done
+for _ in $(seq 1 40); do
+  [ "$(tmux display-message -p -t "$issue_pane" '#{pane_current_command}')" = "codex" ] && break
+  sleep 0.25
+done
 ```
 
 ## Role-First Startup Messages
@@ -71,8 +88,6 @@ Suggested send pattern:
 ```bash
 message="$(printf 'You are the coder lane for this task window.\nThe task plan is already decided by $tmux-task-orchestrator-skill.\nRole: coder\nWindow id: %s\nYour pane id: %s\nOrchestrator pane id: %s\nState root: %s\nBefore returning control, refresh your pane status if needed, send a structured handoff message to the orchestrator pane, and append the same handoff to tmux-orch.\nReport changed files, checks run, risks, and a clear request for the next action.' \"$window_id\" \"$coder_pane\" \"$orch_pane\" \"$state_root\")"
 tmux send-keys -t "$coder_pane" -l "$message"
-tmux send-keys -t "$coder_pane" Enter
-sleep 0.2
 tmux send-keys -t "$coder_pane" Enter
 ```
 
@@ -126,8 +141,6 @@ tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane
 ```bash
 message="$(printf '[handoff][coder->orchestrator]\nstatus: review-ready\nchanged_files: app/service.py\nchecks_run: pytest -q\nrisks: none\nrequest: dispatch reviewer')"
 tmux send-keys -t "$orch_pane" -l "$message"
-tmux send-keys -t "$orch_pane" Enter
-sleep 0.2
 tmux send-keys -t "$orch_pane" Enter
 
 tmux/bin/orch handoff \
