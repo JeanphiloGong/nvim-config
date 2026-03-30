@@ -363,7 +363,7 @@ if [ "$orch_enabled" = "yes" ]; then
     --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
 fi
 
-fork_profile="gpt-5.4-mini / medium / fast"
+fork_profile="gpt-5.4-mini / xhigh / fast"
 fork_cmd="TMUX_ORCH_ROOT=$(printf '%q' "$state_root") codex fork $(printf '%q' "$session_id") --cd $(printf '%q' "$worktree_path") --no-alt-screen"
 case "$role" in
   coder | reviewer)
@@ -371,8 +371,8 @@ case "$role" in
     fork_cmd="$fork_cmd -m gpt-5.4 -c model_reasoning_effort=xhigh"
     ;;
   issue-gate)
-    fork_profile="gpt-5.4-mini / medium / fast"
-    fork_cmd="$fork_cmd -m gpt-5.4-mini -c model_reasoning_effort=medium -c service_tier=fast"
+    fork_profile="gpt-5.4-mini / xhigh / fast"
+    fork_cmd="$fork_cmd -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast"
     ;;
 esac
 prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$dispatcher_skill" "$fork_profile" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"

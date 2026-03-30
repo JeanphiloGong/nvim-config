@@ -60,7 +60,7 @@ Out of scope:
 - `message_mode=literal-enter`
 - `execution_mode=lane-bootstrap-only`
 - `coder/reviewer fork profile=gpt-5.4/xhigh`
-- `issue-gate fork profile=gpt-5.4-mini/medium/fast`
+- `issue-gate fork profile=gpt-5.4-mini/xhigh/fast`
 
 ## Guardrails
 
@@ -71,7 +71,7 @@ Out of scope:
   `model_reasoning_effort=xhigh` so they do not inherit the lightweight
   orchestrator profile.
 - For issue-gate lanes, explicitly use `gpt-5.4-mini` with
-  `model_reasoning_effort=medium` and `service_tier=fast`.
+  `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not embed the lane startup prompt directly in the `codex fork` command;
   send it only after fork readiness is confirmed.
 - Use tmux `pane_id` as the only machine routing key.

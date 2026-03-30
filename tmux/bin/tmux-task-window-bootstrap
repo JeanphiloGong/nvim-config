@@ -299,7 +299,7 @@ Branch: $branch
 State root: $state_root
 Do not start implementation directly.
 tmux-orch durable state: $orch_status
-Fork profile: gpt-5.4-mini / medium / fast
+Fork profile: gpt-5.4-mini / xhigh / fast
 First confirm repo state and task context, register or refresh the task window in tmux-orch if it is available, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed.
 If tmux-orch is unavailable in this environment, continue in tmux-only degraded mode rather than blocking lane setup.
 When lane setup is needed, use \$tmux-task-lane-bootstrap-skill rather than creating panes ad hoc.
@@ -307,7 +307,7 @@ EOF
 )"
 
 if [ "$fork_status" != "existing-window-busy" ]; then
-  printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=medium -c service_tier=fast' \
+  printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast' \
     "$state_root" "$session_id" "$worktree_path"
   tmux send-keys -t "$orchestrator_pane_id" "$fork_cmd" C-m
   if wait_for_codex_ready "$orchestrator_pane_id"; then

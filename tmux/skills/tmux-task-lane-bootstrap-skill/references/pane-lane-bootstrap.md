@@ -32,7 +32,7 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
   with `model_reasoning_effort=xhigh` so they do not inherit the lightweight
   orchestrator profile
 - for issue-gate lanes, explicitly use `gpt-5.4-mini` with
-  `model_reasoning_effort=medium` and `service_tier=fast`
+  `model_reasoning_effort=xhigh` and `service_tier=fast`
 - do not embed startup prompts directly in `codex fork`; fork first, verify the
   child pane is in Codex, then send the prompt
 - use a dedicated reviewer pane for formal review
@@ -66,7 +66,7 @@ tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane
 
 printf -v coder_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4 -c model_reasoning_effort=xhigh' \
   "$state_root" "$orchestrator_session_id" "$worktree_path"
-printf -v issue_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=medium -c service_tier=fast' \
+printf -v issue_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast' \
   "$state_root" "$orchestrator_session_id" "$worktree_path"
 tmux send-keys -t "$coder_pane" "$coder_fork" C-m
 tmux send-keys -t "$issue_pane" "$issue_fork" C-m

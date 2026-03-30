@@ -60,7 +60,7 @@ Out of scope:
   happened.
 - In Codex TUI flows, do not add `--full-auto` to `codex fork`.
 - For this orchestrator fork, use `gpt-5.4-mini` with
-  `model_reasoning_effort=medium` and `service_tier=fast`.
+  `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not embed the orchestrator startup prompt directly in the `codex fork`
   command; send it only after fork readiness is confirmed.
 - Stop the parent agent after the fork succeeds.
@@ -72,7 +72,7 @@ Out of scope:
 3. Create the worktree if it does not already exist.
 4. Create or verify the tmux task window for that worktree.
 5. Fork the current Codex session into that tmux window using the lightweight
-   orchestrator profile (`gpt-5.4-mini`, `medium`, `fast`).
+   orchestrator profile (`gpt-5.4-mini`, `xhigh`, `fast`).
 6. Verify the pane has entered Codex after the bare fork command.
 7. If `tmux-orch` is available, initialize or refresh durable state.
    If it is unavailable, continue in tmux-only degraded mode rather than
