@@ -23,9 +23,9 @@ Roles:
   coder | issue-gate | reviewer
 
 Notes:
-  - Requires tmux, jq, and a current Codex session id.
+  - Requires tmux and a current Codex session id.
   - Creates one non-orchestrator lane pane, runs bare `codex fork`, then sends a role-specific prompt after readiness is confirmed.
-  - Registers the pane in tmux-orch and updates tmux window role options.
+  - Registers the pane in tmux-orch when jq and tmux-orch are available; otherwise continues in tmux-only fallback mode.
 EOF
 }
 
@@ -36,6 +36,10 @@ fail() {
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
 }
 
 tmux_session_name() {
@@ -94,6 +98,7 @@ build_lane_prompt() {
   local pane_id="$5"
   local orchestrator_pane_id="$6"
   local state_root="$7"
+  local orch_status="$8"
 
   case "$role" in
     coder)
@@ -106,7 +111,9 @@ Window id: $window_id
 Your pane id: $pane_id
 Orchestrator pane id: $orchestrator_pane_id
 State root: $state_root
-Do not redefine scope. Implement only the assigned slice, run the smallest relevant checks, then send a structured handoff back to the orchestrator pane and append the same handoff to tmux-orch.
+tmux-orch durable state: $orch_status
+Do not redefine scope. Implement only the assigned slice, run the smallest relevant checks, then send a structured handoff back to the orchestrator pane.
+If tmux-orch is available, append the same handoff there. If it is unavailable, continue in tmux-only degraded mode and report that state in your handoff.
 
 Required handoff message envelope:
 [handoff][coder->orchestrator]
@@ -116,10 +123,10 @@ checks_run: <list>
 risks: <list>
 request: <next action request>
 
-If your runtime status changes, refresh your pane record:
+If tmux-orch is available and your runtime status changes, refresh your pane record:
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role coder --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 
-Append the matching durable handoff:
+If tmux-orch is available, append the matching durable handoff:
 tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role coder --to-role orchestrator --type <status> --payload-json '{"changed_files":[],"checks_run":[],"risks":[],"request":""}'
 EOF
       ;;
@@ -133,7 +140,9 @@ Window id: $window_id
 Your pane id: $pane_id
 Orchestrator pane id: $orchestrator_pane_id
 State root: $state_root
+tmux-orch durable state: $orch_status
 Confirm issue traceability, draft or refine the issue when needed, and return a structured handoff with the issue outcome, refs line, and whether human confirmation is still needed.
+If tmux-orch is unavailable, continue in tmux-only degraded mode and report that state in your handoff.
 
 Required handoff message envelope:
 [handoff][issue-gate->orchestrator]
@@ -143,10 +152,10 @@ refs_line: <ISSUE: #... or n/a>
 risks: <list>
 request: <next action request>
 
-If your runtime status changes, refresh your pane record:
+If tmux-orch is available and your runtime status changes, refresh your pane record:
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role issue-gate --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 
-Append the matching durable handoff:
+If tmux-orch is available, append the matching durable handoff:
 tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role issue-gate --to-role orchestrator --type <status> --payload-json '{"issue_ref":"","refs_line":"","risks":[],"request":""}'
 EOF
       ;;
@@ -160,7 +169,9 @@ Window id: $window_id
 Your pane id: $pane_id
 Orchestrator pane id: $orchestrator_pane_id
 State root: $state_root
+tmux-orch durable state: $orch_status
 Review findings first. Do not edit implementation unless explicitly reassigned. Return one of approved, fix-now, or follow-up with concrete findings.
+If tmux-orch is unavailable, continue in tmux-only degraded mode and report that state in your handoff.
 
 Required handoff message envelope:
 [handoff][reviewer->orchestrator]
@@ -170,10 +181,10 @@ checks_run: <list>
 risks: <list>
 request: <next action request>
 
-If your runtime status changes, refresh your pane record:
+If tmux-orch is available and your runtime status changes, refresh your pane record:
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role reviewer --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 
-Append the matching durable handoff:
+If tmux-orch is available, append the matching durable handoff:
 tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role reviewer --to-role orchestrator --type <status> --payload-json '{"findings":[],"checks_run":[],"risks":[],"request":""}'
 EOF
       ;;
@@ -259,8 +270,13 @@ done
 [ -n "$session_id" ] || fail "missing CODEX_SESSION_ID/CODEX_THREAD_ID; pass --session-id explicitly"
 
 need_cmd tmux
-need_cmd jq
-[ -x "$orch_bin" ] || fail "missing executable orch at $orch_bin"
+
+orch_enabled="no"
+orch_status="degraded"
+if has_cmd jq && [ -x "$orch_bin" ]; then
+  orch_enabled="yes"
+  orch_status="enabled"
+fi
 
 [ -n "$window_id" ] || window_id="$(tmux display-message -p -t "$orchestrator_pane_id" '#{window_id}')"
 [ -n "$worktree_path" ] || worktree_path="$(tmux display-message -p -t "$target_pane" '#{pane_current_path}')"
@@ -280,19 +296,21 @@ tmux set -wq -t "$window_id" "@pane_$(role_option_key "$role")" "$new_pane_id"
 tmux set -pt "$orchestrator_pane_id" @user_pane_title "orchestrator"
 tmux set -pt "$new_pane_id" @user_pane_title "$role"
 
-"$orch_bin" init --root "$state_root" >/dev/null
-"$orch_bin" register-pane \
-  --root "$state_root" \
-  --window-id "$window_id" \
-  --pane-id "$new_pane_id" \
-  --role "$role" \
-  --scope phase \
-  --phase "$phase" \
-  --status "$status" \
-  --forked-from-session-id "$session_id" \
-  --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
+if [ "$orch_enabled" = "yes" ]; then
+  "$orch_bin" init --root "$state_root" >/dev/null
+  "$orch_bin" register-pane \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --pane-id "$new_pane_id" \
+    --role "$role" \
+    --scope phase \
+    --phase "$phase" \
+    --status "$status" \
+    --forked-from-session-id "$session_id" \
+    --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
+fi
 
-prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root")"
+prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"
 printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
   "$state_root" "$session_id" "$worktree_path"
 tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m
@@ -311,4 +329,5 @@ printf -- '- pane_id: %s\n' "$new_pane_id"
 printf -- '- orchestrator_pane_id: %s\n' "$orchestrator_pane_id"
 printf -- '- worktree_path: %s\n' "$worktree_path"
 printf -- '- state_root: %s\n' "$state_root"
+printf -- '- tmux_orch_status: %s\n' "$orch_status"
 printf -- '- fork_status: %s\n' "$fork_status"

@@ -34,11 +34,12 @@
 现在额外提供两条 orchestration-specific runtime wrapper：
 
 - `tmux/bin/tmux-task-window-bootstrap`
-  - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册
+  - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册（可用时）
   - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 orchestrator startup prompt
 - `tmux/bin/tmux-task-lane-bootstrap`
   - 负责单个 lane pane 的创建、pane 注册、role prompt 注入
   - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 lane startup prompt
+  - 没有 `jq` 或 `tmux/bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
 - `tmux/bin/tmux-task-project-handoff`
   - 负责 task window 完成后的确定性 upward handoff
   - 只按 canonical `pane_id` 把 `merge-ready` / `merge-complete` / `blocked` /
@@ -74,6 +75,10 @@ tmux/bin/tmux-task-project-handoff \
 
 ## tmux-orch（Phase A 原型）
 仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。
+
+注意：
+- `tmux/bin/orch` 本体仍依赖 `jq`
+- `tmux-task-window-bootstrap` / `tmux-task-lane-bootstrap` 在没有 `jq` 时会降级为 tmux-only 模式，不阻塞 pane 创建与 lane dispatch
 
 它的职责很窄：
 - tmux 仍负责 live routing

@@ -351,7 +351,7 @@ Typical decision flow:
 
 1. enter `$tmux-task-orchestrator-skill`
 2. inspect repo state, task context, current phase, and current pane map
-3. register or refresh the task window in `tmux-orch`
+3. register or refresh the task window in `tmux-orch` when available
 4. decide the local `next_action`
 5. if lanes are needed, call `$tmux-task-lane-bootstrap-skill`
 6. dispatch only the minimal active roles needed for the next phase
@@ -372,40 +372,44 @@ Typical decision flow:
    - resolve the current `state_root`
    - register or refresh the current window snapshot
    - set an explicit `next_action`
-4. Decide whether the current task window needs:
+4. If `tmux-orch` is unavailable:
+   - mark durable state as degraded rather than blocked
+   - continue with tmux-only lane realization and handoffs
+5. Decide whether the current task window needs:
    - lane setup
    - coding
    - review
    - commit-stage work
    - merge-back preparation
-5. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
+6. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
    The lane bootstrap prompt must tell each created pane:
    - its role
    - the current task context and phase
    - the orchestrator pane target
    - the required handoff envelope
    - how to refresh its own pane record and append a structured handoff in
-     `tmux-orch`
-6. When `coder`, `issue-gate`, or `reviewer` hands back a result:
+     `tmux-orch` when available
+   - how to continue in tmux-only degraded mode when durable state is unavailable
+7. When `coder`, `issue-gate`, or `reviewer` hands back a result:
    - record the handoff
    - update `status`, `phase`, and `next_action`
    - decide the next local dispatch
-7. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
+8. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
    - dispatch `$tmux-task-lane-bootstrap-skill` to realize the `issue-gate` lane
    - do not escalate to human confirmation before the `issue-gate` lane has
      produced an actual lookup result or issue draft
-8. For commit-stage work:
+9. For commit-stage work:
    - use `$issue-gate-skill` when traceability still needs confirmation
    - use `$git-commit-skill` when the task is approved and ready to commit
    - keep commit success/failure visible in task state
    - return control to `$tmux-task-orchestrator-skill` after commit instead of
      treating commit completion as the end of the flow
-9. When the task reaches merge-back:
+10. When the task reaches merge-back:
    - use `tmux/bin/tmux-task-project-handoff`
    - never guess the upstream target by pane index or active pane
    - let the helper resolve the canonical project orchestrator pane and append
      the matching durable handoff
-10. After merge-back, mark the task complete and retire phase-scoped lanes.
+11. After merge-back, mark the task complete and retire phase-scoped lanes.
 
 ## Standard Manual Flow (Recommended)
 
@@ -418,22 +422,26 @@ worktree_path="$(pwd)"
 branch="$(git -C "$worktree_path" branch --show-current)"
 state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
 
-tmux/bin/orch init --root "$state_root"
-tmux/bin/orch register-window \
-  --root "$state_root" \
-  --window-id "$window_id" \
-  --window-name "$window_name" \
-  --worktree-path "$worktree_path" \
-  --branch "$branch" \
-  --task "$task_context" \
-  --phase "phase1" \
-  --status "in_progress" \
-  --next-action "confirm-task-context" \
-  --review-status "pending" \
-  --commit-status "pending" \
-  --merge-status "not_ready"
+if command -v jq >/dev/null 2>&1 && [ -x tmux/bin/orch ]; then
+  tmux/bin/orch init --root "$state_root"
+  tmux/bin/orch register-window \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --window-name "$window_name" \
+    --worktree-path "$worktree_path" \
+    --branch "$branch" \
+    --task "$task_context" \
+    --phase "phase1" \
+    --status "in_progress" \
+    --next-action "confirm-task-context" \
+    --review-status "pending" \
+    --commit-status "pending" \
+    --merge-status "not_ready"
 
-tmux/bin/orch status --root "$state_root"
+  tmux/bin/orch status --root "$state_root"
+else
+  printf 'tmux-orch unavailable; continuing in tmux-only degraded mode\n'
+fi
 ```
 
 If lanes are required after local confirmation, follow

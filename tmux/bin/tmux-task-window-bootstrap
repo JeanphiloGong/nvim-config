@@ -21,8 +21,9 @@ Usage:
     [--session-id ID]
 
 Notes:
-  - Requires tmux, git, jq, and a current Codex session id.
+  - Requires tmux, git, and a current Codex session id.
   - Uses $TMUX_ORCH_ROOT or the default tmux-orch session root when --root is omitted.
+  - Uses tmux-only fallback mode when jq or tmux-orch is unavailable.
   - Uses a two-step startup: bare `codex fork`, then a startup prompt after the pane is ready.
 EOF
 }
@@ -34,6 +35,10 @@ fail() {
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
 }
 
 tmux_session_name() {
@@ -162,8 +167,13 @@ done
 
 need_cmd tmux
 need_cmd git
-need_cmd jq
-[ -x "$orch_bin" ] || fail "missing executable orch at $orch_bin"
+
+orch_enabled="no"
+orch_status="degraded"
+if has_cmd jq && [ -x "$orch_bin" ]; then
+  orch_enabled="yes"
+  orch_status="enabled"
+fi
 
 repo_root="$(git -C "$repo_root" rev-parse --show-toplevel)"
 [ -n "$base_branch" ] || base_branch="$(git -C "$repo_root" symbolic-ref --quiet --short HEAD)"
@@ -218,29 +228,31 @@ fi
 tmux set -wq -t "$window_id" @pane_orchestrator "$orchestrator_pane_id"
 tmux set -pt "$orchestrator_pane_id" @user_pane_title "orchestrator"
 
-"$orch_bin" init --root "$state_root" --project "$(basename "$repo_root")" >/dev/null
-"$orch_bin" register-window \
-  --root "$state_root" \
-  --window-id "$window_id" \
-  --window-name "$window_name" \
-  --repo-root "$repo_root" \
-  --worktree-path "$worktree_path" \
-  --branch "$branch" \
-  --task "$task_context" \
-  --phase "$phase" \
-  --status "$status" \
-  --next-action "confirm-local-plan" \
-  --review-status pending \
-  --commit-status pending \
-  --merge-status not_ready \
-  --owner-orchestrator-pane-id "$orchestrator_pane_id" >/dev/null
-"$orch_bin" register-pane \
-  --root "$state_root" \
-  --window-id "$window_id" \
-  --pane-id "$orchestrator_pane_id" \
-  --role orchestrator \
-  --scope window \
-  --status active >/dev/null
+if [ "$orch_enabled" = "yes" ]; then
+  "$orch_bin" init --root "$state_root" --project "$(basename "$repo_root")" >/dev/null
+  "$orch_bin" register-window \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --window-name "$window_name" \
+    --repo-root "$repo_root" \
+    --worktree-path "$worktree_path" \
+    --branch "$branch" \
+    --task "$task_context" \
+    --phase "$phase" \
+    --status "$status" \
+    --next-action "confirm-local-plan" \
+    --review-status pending \
+    --commit-status pending \
+    --merge-status not_ready \
+    --owner-orchestrator-pane-id "$orchestrator_pane_id" >/dev/null
+  "$orch_bin" register-pane \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --pane-id "$orchestrator_pane_id" \
+    --role orchestrator \
+    --scope window \
+    --status active >/dev/null
+fi
 
 prompt="$(cat <<EOF
 Continue in this new worktree as \$tmux-task-orchestrator-skill for this task.
@@ -250,7 +262,9 @@ Worktree path: $worktree_path
 Branch: $branch
 State root: $state_root
 Do not start implementation directly.
-First confirm repo state and task context, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed.
+tmux-orch durable state: $orch_status
+First confirm repo state and task context, register or refresh the task window in tmux-orch if it is available, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed.
+If tmux-orch is unavailable in this environment, continue in tmux-only degraded mode rather than blocking lane setup.
 When lane setup is needed, use \$tmux-task-lane-bootstrap-skill rather than creating panes ad hoc.
 EOF
 )"
@@ -282,5 +296,6 @@ printf -- '- orchestrator_pane_id: %s\n' "$orchestrator_pane_id"
 printf -- '- worktree_created: %s\n' "$worktree_created"
 printf '\n## Verification\n'
 printf -- '- window_exists: yes\n'
+printf -- '- tmux_orch_status: %s\n' "$orch_status"
 printf -- '- fork_status: %s\n' "$fork_status"
 printf -- '- handoff_ready: %s\n' "$handoff_ready"

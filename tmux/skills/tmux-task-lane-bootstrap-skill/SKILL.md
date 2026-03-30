@@ -81,7 +81,9 @@ Out of scope:
    - `window_id`, current `pane_id`, `orchestrator_pane_id`, and `TMUX_ORCH_ROOT`
    - the required handoff message envelope
    - how the lane should refresh its own pane status and append a matching
-     handoff in `tmux-orch`
+     handoff in `tmux-orch` when available
+   - how the lane should continue in tmux-only degraded mode when durable state
+     registration is unavailable
 9. Return the resolved pane map to the task-window orchestrator.
 
 ## References

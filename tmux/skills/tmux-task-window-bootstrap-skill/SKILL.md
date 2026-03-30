@@ -71,16 +71,19 @@ Out of scope:
 4. Create or verify the tmux task window for that worktree.
 5. Fork the current Codex session into that tmux window.
 6. Verify the pane has entered Codex after the bare fork command.
-7. Send the orchestrator startup prompt.
+7. If `tmux-orch` is available, initialize or refresh durable state.
+   If it is unavailable, continue in tmux-only degraded mode rather than
+   blocking task ownership.
+8. Send the orchestrator startup prompt.
    The startup prompt must explicitly tell the new window to continue as
    `$tmux-task-orchestrator-skill`.
-8. Verify:
+9. Verify:
    - `window_exists=yes`
    - `window_name` is known
    - `window_id` is known or resolvable
    - `fork_status=ready-and-prompted`
    - `handoff_ready=yes`
-9. Stop after task-local ownership is ready.
+10. Stop after task-local ownership is ready.
 
 ## References
 
