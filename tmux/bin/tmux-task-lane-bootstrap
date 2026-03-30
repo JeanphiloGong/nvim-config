@@ -11,6 +11,7 @@ Usage:
     --role ROLE \
     --task-context TEXT \
     [--phase NAME] \
+    [--dispatcher-skill NAME] \
     [--target-pane PANE_ID] \
     [--orchestrator-pane-id PANE_ID] \
     [--window-id WINDOW_ID] \
@@ -94,17 +95,18 @@ build_lane_prompt() {
   local role="$1"
   local task_context="$2"
   local phase="$3"
-  local window_id="$4"
-  local pane_id="$5"
-  local orchestrator_pane_id="$6"
-  local state_root="$7"
-  local orch_status="$8"
+  local dispatcher_skill="$4"
+  local window_id="$5"
+  local pane_id="$6"
+  local orchestrator_pane_id="$7"
+  local state_root="$8"
+  local orch_status="$9"
 
   case "$role" in
     coder)
       cat <<EOF
 You are the coder lane for this task window.
-This lane was dispatched by \$tmux-task-orchestrator-skill.
+This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
 Phase: $phase
 Window id: $window_id
@@ -133,7 +135,7 @@ EOF
     issue-gate)
       cat <<EOF
 You are the issue-gate lane for this task window.
-This lane was dispatched by \$tmux-task-orchestrator-skill.
+This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
 Phase: $phase
 Window id: $window_id
@@ -162,7 +164,7 @@ EOF
     reviewer)
       cat <<EOF
 You are the reviewer lane for this task window.
-This lane was dispatched by \$tmux-task-orchestrator-skill.
+This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
 Phase: $phase
 Window id: $window_id
@@ -197,6 +199,7 @@ EOF
 role=""
 task_context=""
 phase="phase1"
+dispatcher_skill='$tmux-task-orchestrator-skill'
 target_pane="${TMUX_PANE:-}"
 orchestrator_pane_id="${TMUX_PANE:-}"
 window_id=""
@@ -218,6 +221,10 @@ while [ $# -gt 0 ]; do
       ;;
     --phase)
       phase="$2"
+      shift 2
+      ;;
+    --dispatcher-skill)
+      dispatcher_skill="$2"
       shift 2
       ;;
     --target-pane)
@@ -310,7 +317,7 @@ if [ "$orch_enabled" = "yes" ]; then
     --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
 fi
 
-prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"
+prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$dispatcher_skill" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"
 printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
   "$state_root" "$session_id" "$worktree_path"
 tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m

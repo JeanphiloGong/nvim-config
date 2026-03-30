@@ -10,11 +10,12 @@
 
 ## Skill Layers
 
-`tmux/skills/` 现在分成两个公开角色和两个内部 helper：
+`tmux/skills/` 现在分成三个公开角色和两个内部 helper：
 
 公开角色：
 
 - `$tmux-project-orchestrator-skill`: 项目级协调入口，管理多个 worktree / task windows、项目状态、依赖关系与推进顺序，本身不写代码
+- `$tmux-lane-dispatch-skill`: 快速起一个 lane 的轻量入口，只做 preflight + dispatch，不进入完整 task lifecycle
 - `$tmux-task-orchestrator-skill`: 单任务窗口的长期操盘角色，负责本地 phase、lane 分配、handoff、review、commit、merge-back 与收尾
 
 内部 helper：
@@ -31,8 +32,14 @@
 
 ### Runtime Wrappers
 
-现在额外提供两条 orchestration-specific runtime wrapper：
+现在额外提供三条 orchestration-specific runtime wrapper：
 
+- `tmux/bin/tmux-orch-preflight`
+  - 负责统一的环境/能力检查，不创建 pane、不 fork Codex、不写 tmux-orch 状态
+  - 用来判断当前是否能 `dispatch lane`，以及是否具备完整 lifecycle orchestration 能力
+- `tmux/bin/tmux-dispatch-lane`
+  - 负责公共 fast-path lane dispatch
+  - 只做 preflight 通过后的 lane 启动，不承担 review/commit/merge 生命周期决策
 - `tmux/bin/tmux-task-window-bootstrap`
   - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册（可用时）
   - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 orchestrator startup prompt
@@ -49,6 +56,11 @@
 现有 `<prefix> + f` / `<prefix> + F` 仍然保持通用裸 `codex fork <id>`，不自动注入 orchestrator 语义。
 
 最小示例：
+
+```sh
+tmux/bin/tmux-dispatch-lane \
+  --task-context "finish the current slice and report back review-ready or blocked"
+```
 
 ```sh
 tmux/bin/tmux-task-window-bootstrap \

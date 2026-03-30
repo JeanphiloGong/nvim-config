@@ -76,7 +76,7 @@ Out of scope:
    blocking task ownership.
 8. Send the orchestrator startup prompt.
    The startup prompt must explicitly tell the new window to continue as
-   `$tmux-task-orchestrator-skill`.
+   `$tmux-task-orchestrator-skill`, not as the fast dispatch role.
 9. Verify:
    - `window_exists=yes`
    - `window_name` is known

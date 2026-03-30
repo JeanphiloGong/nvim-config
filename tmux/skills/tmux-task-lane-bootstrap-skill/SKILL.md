@@ -7,9 +7,12 @@ description: v0.1.3 - Internal helper that realizes lane layout, lane startup, p
 
 ## Trigger and Scope
 
-Use this skill only as an internal helper when
-`$tmux-task-orchestrator-skill` has already decided that the current task
-window needs lane realization, lane refresh, or phase-scoped pane retirement.
+Use this skill only as an internal helper when either:
+
+- `$tmux-task-orchestrator-skill` has already decided that the current task
+  window needs lane realization, lane refresh, or phase-scoped pane retirement
+- `$tmux-lane-dispatch-skill` has already decided that one lane should be
+  started through the fast dispatch path
 
 This skill is not a public role.
 
@@ -28,6 +31,7 @@ Out of scope:
 - deciding whether issue-gate/reviewer/commit is needed in the abstract
 - commit-stage or merge-back decisions
 - direct implementation
+- public fast-path intent selection
 
 ## Required Inputs
 
@@ -69,7 +73,7 @@ Out of scope:
 ## Workflow
 
 1. Confirm the current task window and current orchestrator pane.
-2. Read the lane plan already chosen by `$tmux-task-orchestrator-skill`.
+2. Read the lane plan already chosen by the caller.
 3. Create, refresh, or retire panes as instructed by that plan.
 4. Capture each pane's `pane_id` immediately.
 5. Register panes and fork provenance in `tmux-orch` when used.
@@ -84,7 +88,7 @@ Out of scope:
      handoff in `tmux-orch` when available
    - how the lane should continue in tmux-only degraded mode when durable state
      registration is unavailable
-9. Return the resolved pane map to the task-window orchestrator.
+9. Return the resolved pane map to the calling role.
 
 ## References
 
