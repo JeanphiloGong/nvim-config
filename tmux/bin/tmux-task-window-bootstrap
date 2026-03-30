@@ -45,6 +45,14 @@ tmux_session_name() {
   tmux display-message -p '#S'
 }
 
+first_existing_dir() {
+  local path="$1"
+  while [ ! -e "$path" ] && [ "$path" != "/" ]; do
+    path="$(dirname "$path")"
+  done
+  printf '%s\n' "$path"
+}
+
 default_state_root() {
   local base session
   base="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch}"
@@ -69,14 +77,38 @@ shell_like_command() {
   esac
 }
 
+pane_ready_for_prompt() {
+  local pane_id="$1"
+  local current_command=""
+  current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
+  [ -n "$current_command" ] || return 1
+  if [ "$current_command" = "codex" ] || [ "$current_command" = "node" ]; then
+    return 0
+  fi
+  shell_like_command "$current_command" && return 1
+  return 0
+}
+
+pane_looks_like_codex() {
+  local pane_id="$1"
+  local snapshot=""
+  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -80 2>/dev/null || true)"
+  printf '%s' "$snapshot" | rg -q "OpenAI Codex|Model:|Permissions:|Context window:"
+}
+
+state_root_is_writable() {
+  local root="$1"
+  local parent
+  parent="$(first_existing_dir "$root")"
+  [ -w "$parent" ]
+}
+
 wait_for_codex_ready() {
   local pane_id="$1"
   local max_attempts="${2:-80}"
   local attempt=0
-  local current_command=""
   while [ "$attempt" -lt "$max_attempts" ]; do
-    current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
-    if [ "$current_command" = "codex" ]; then
+    if pane_ready_for_prompt "$pane_id" || pane_looks_like_codex "$pane_id"; then
       return 0
     fi
     sleep 0.25
@@ -183,6 +215,10 @@ task_kind="$(slugify "$task_kind")"
 [ -n "$worktree_root" ] || worktree_root="$(dirname "$repo_root")/_worktrees"
 [ -n "$window_name" ] || window_name="wt-${task_slug}"
 [ -n "$state_root" ] || state_root="$(default_state_root)"
+if [ "$orch_enabled" = "yes" ] && ! state_root_is_writable "$state_root"; then
+  orch_enabled="no"
+  orch_status="degraded"
+fi
 
 branch="task/${task_kind}/$(date +%Y%m%d)-${task_slug}"
 worktree_path="${worktree_root}/${task_kind}-${task_slug}"
@@ -277,7 +313,12 @@ if [ "$fork_status" != "existing-window-busy" ]; then
     send_startup_prompt "$orchestrator_pane_id" "$prompt"
     fork_status="ready-and-prompted"
   else
-    fork_status="fork-timeout"
+    if pane_ready_for_prompt "$orchestrator_pane_id" || pane_looks_like_codex "$orchestrator_pane_id"; then
+      send_startup_prompt "$orchestrator_pane_id" "$prompt"
+      fork_status="ready-after-timeout"
+    else
+      fork_status="fork-timeout"
+    fi
   fi
 fi
 
