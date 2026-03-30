@@ -59,7 +59,7 @@ Out of scope:
 - `phase_scope=non-orchestrator-lanes`
 - `message_mode=literal-enter`
 - `execution_mode=lane-bootstrap-only`
-- `coder/reviewer fork profile=gpt-5.4/xhigh/flex`
+- `coder/reviewer fork profile=gpt-5.4/xhigh`
 - `issue-gate fork profile=gpt-5.4-mini/medium/fast`
 
 ## Guardrails
@@ -68,8 +68,8 @@ Out of scope:
 - Do not decide project or task policy here; realize the already chosen lane plan.
 - In Codex TUI flows, do not add `--full-auto` to child `codex fork` commands.
 - For coder and reviewer lanes, override the fork to `gpt-5.4` with
-  `model_reasoning_effort=xhigh` and `service_tier=flex` so they do not inherit
-  the lightweight orchestrator profile.
+  `model_reasoning_effort=xhigh` so they do not inherit the lightweight
+  orchestrator profile.
 - For issue-gate lanes, explicitly use `gpt-5.4-mini` with
   `model_reasoning_effort=medium` and `service_tier=fast`.
 - Do not embed the lane startup prompt directly in the `codex fork` command;

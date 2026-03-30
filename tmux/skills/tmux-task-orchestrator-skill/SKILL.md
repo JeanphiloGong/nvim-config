@@ -35,6 +35,7 @@ Mission:
 Non-negotiables:
 
 - do not stop at pane setup
+- do not implement code, write patches, or edit files from the orchestrator pane
 - do not leave post-review or post-commit behavior implicit
 - do not self-approve formal review from the orchestrator pane
 - do not merge back silently
@@ -76,6 +77,9 @@ Requires explicit human or project-level approval when:
 - begin from current task state, not from raw pane activity
 - keep one explicit local owner for the task window
 - dispatch only the minimal active roles needed for the next step
+- if implementation is needed, stop at `dispatch-coder` and hand off
+  immediately; do not continue into direct implementation from the
+  orchestrator pane
 - convert every handoff into a visible `next_action`
 - do not invoke helper skills unless the current node explicitly requires them
 - use `$tmux-task-lane-bootstrap-skill` for lane realization instead of
@@ -407,7 +411,11 @@ Typical decision flow:
    - review
    - commit-stage work
    - merge-back preparation
-7. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
+7. If coding is needed, do not implement it here:
+   - set `next_action=dispatch-coder`
+   - hand off to `$tmux-task-lane-bootstrap-skill`
+   - wait for a coder handoff before taking another implementation step
+8. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
    The lane bootstrap prompt must tell each created pane:
    - its role
    - the current task context and phase
@@ -416,26 +424,26 @@ Typical decision flow:
    - how to refresh its own pane record and append a structured handoff in
      `tmux-orch` when available
    - how to continue in tmux-only degraded mode when durable state is unavailable
-8. When `coder`, `issue-gate`, or `reviewer` hands back a result:
+9. When `coder`, `issue-gate`, or `reviewer` hands back a result:
    - record the handoff
    - update `status`, `phase`, and `next_action`
    - decide the next local dispatch
-9. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
+10. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
    - dispatch `$tmux-task-lane-bootstrap-skill` to realize the `issue-gate` lane
    - do not escalate to human confirmation before the `issue-gate` lane has
      produced an actual lookup result or issue draft
-10. For commit-stage work:
+11. For commit-stage work:
    - use `$issue-gate-skill` when traceability still needs confirmation
    - use `$git-commit-skill` when the task is approved and ready to commit
    - keep commit success/failure visible in task state
    - return control to `$tmux-task-orchestrator-skill` after commit instead of
      treating commit completion as the end of the flow
-11. When the task reaches merge-back:
+12. When the task reaches merge-back:
    - use `tmux/bin/tmux-task-project-handoff`
    - never guess the upstream target by pane index or active pane
    - let the helper resolve the canonical project orchestrator pane and append
      the matching durable handoff
-12. After merge-back, mark the task complete and retire phase-scoped lanes.
+13. After merge-back, mark the task complete and retire phase-scoped lanes.
 
 ## Standard Manual Flow (Recommended)
 
