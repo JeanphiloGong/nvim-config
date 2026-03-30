@@ -135,11 +135,12 @@ build_lane_prompt() {
   local task_context="$2"
   local phase="$3"
   local dispatcher_skill="$4"
-  local window_id="$5"
-  local pane_id="$6"
-  local orchestrator_pane_id="$7"
-  local state_root="$8"
-  local orch_status="$9"
+  local fork_profile="$5"
+  local window_id="$6"
+  local pane_id="$7"
+  local orchestrator_pane_id="$8"
+  local state_root="$9"
+  local orch_status="${10}"
 
   case "$role" in
     coder)
@@ -148,6 +149,7 @@ You are the coder lane for this task window.
 This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
 Phase: $phase
+Fork profile: $fork_profile
 Window id: $window_id
 Your pane id: $pane_id
 Orchestrator pane id: $orchestrator_pane_id
@@ -177,6 +179,7 @@ You are the issue-gate lane for this task window.
 This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
 Phase: $phase
+Fork profile: $fork_profile
 Window id: $window_id
 Your pane id: $pane_id
 Orchestrator pane id: $orchestrator_pane_id
@@ -360,9 +363,19 @@ if [ "$orch_enabled" = "yes" ]; then
     --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
 fi
 
-prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$dispatcher_skill" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"
-printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
-  "$state_root" "$session_id" "$worktree_path"
+fork_profile="gpt-5.4-mini / medium / fast"
+fork_cmd="TMUX_ORCH_ROOT=$(printf '%q' "$state_root") codex fork $(printf '%q' "$session_id") --cd $(printf '%q' "$worktree_path") --no-alt-screen"
+case "$role" in
+  coder | reviewer)
+    fork_profile="gpt-5.4 / xhigh / flex"
+    fork_cmd="$fork_cmd -m gpt-5.4 -c model_reasoning_effort=xhigh -c service_tier=flex"
+    ;;
+  issue-gate)
+    fork_profile="gpt-5.4-mini / medium / fast"
+    fork_cmd="$fork_cmd -m gpt-5.4-mini -c model_reasoning_effort=medium -c service_tier=fast"
+    ;;
+esac
+prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$dispatcher_skill" "$fork_profile" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"
 tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m
 fork_status="fork-dispatched"
 if wait_for_codex_ready "$new_pane_id"; then

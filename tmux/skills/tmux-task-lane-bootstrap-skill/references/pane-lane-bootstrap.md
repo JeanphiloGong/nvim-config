@@ -28,6 +28,11 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
 - in Codex TUI mode, do not add `--full-auto` to lane `codex fork` commands;
   let the parent session's current permission model carry through unless an
   explicit override is truly intended
+- for coder and reviewer lanes, explicitly override the fork to `gpt-5.4`
+  with `model_reasoning_effort=xhigh` and `service_tier=flex` so they do not
+  inherit the lightweight orchestrator profile
+- for issue-gate lanes, explicitly use `gpt-5.4-mini` with
+  `model_reasoning_effort=medium` and `service_tier=fast`
 - do not embed startup prompts directly in `codex fork`; fork first, verify the
   child pane is in Codex, then send the prompt
 - use a dedicated reviewer pane for formal review
@@ -59,9 +64,9 @@ tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$coder_pane" --role coder --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
 tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$issue_pane" --role issue-gate --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
 
-printf -v coder_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
+printf -v coder_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4 -c model_reasoning_effort=xhigh -c service_tier=flex' \
   "$state_root" "$orchestrator_session_id" "$worktree_path"
-printf -v issue_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen' \
+printf -v issue_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=medium -c service_tier=fast' \
   "$state_root" "$orchestrator_session_id" "$worktree_path"
 tmux send-keys -t "$coder_pane" "$coder_fork" C-m
 tmux send-keys -t "$issue_pane" "$issue_fork" C-m
