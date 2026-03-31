@@ -117,6 +117,8 @@ send_startup_prompt() {
   local message="$2"
   tmux send-keys -t "$pane_id" -l "$message"
   tmux send-keys -t "$pane_id" Enter
+  sleep 0.2
+  tmux send-keys -t "$pane_id" Enter
 }
 
 pane_contains_marker() {

@@ -57,7 +57,7 @@ Out of scope:
 
 - `routing_key=pane_id`
 - `phase_scope=non-orchestrator-lanes`
-- `message_mode=literal-enter`
+- `message_mode=literal-double-enter-confirmed`
 - `execution_mode=lane-bootstrap-only`
 - `coder/reviewer fork profile=gpt-5.4/xhigh`
 - `issue-gate fork profile=gpt-5.4-mini/xhigh/fast`
@@ -74,6 +74,8 @@ Out of scope:
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not embed the lane startup prompt directly in the `codex fork` command;
   send it only after fork readiness is confirmed.
+- Submit the lane startup prompt with literal paste, then two `Enter`
+  keystrokes, then confirm delivery from the child pane transcript.
 - Treat prompt delivery as confirmed only after a visible marker appears in the
   child pane transcript; do not report `ready-and-prompted` on process start
   alone.
@@ -90,7 +92,8 @@ Out of scope:
 6. Fork child lanes from the current orchestrator session without embedding the
    startup prompt in the `codex fork` command.
 7. Confirm the child pane has entered Codex.
-8. Send role-first prompts that include:
+8. Send role-first prompts with literal paste, two `Enter` keystrokes, and
+   transcript confirmation. The prompt must include:
    - current role and task context
    - `window_id`, current `pane_id`, `orchestrator_pane_id`, and `TMUX_ORCH_ROOT`
    - the required handoff message envelope

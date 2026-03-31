@@ -17,7 +17,8 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
 - create the pane layout for one task window
 - capture canonical `pane_id` values immediately
 - fork non-orchestrator panes from the current orchestrator session
-- send role-first startup prompts after fork readiness is confirmed
+- send role-first startup prompts after fork readiness is confirmed, using
+  literal paste plus two `Enter` keystrokes before transcript confirmation
 - keep tmux window options and `tmux-orch` pane state aligned
 
 ## Required Rules
@@ -34,7 +35,7 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
 - for issue-gate lanes, explicitly use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`
 - do not embed startup prompts directly in `codex fork`; fork first, verify the
-  child pane is in Codex, then send the prompt
+  child pane is in Codex, then send the prompt with two `Enter` keystrokes
 - after sending the prompt, confirm delivery by checking for a short marker in
   the pane transcript before reporting `ready-and-prompted`
 - use a dedicated reviewer pane for formal review
@@ -95,6 +96,8 @@ Suggested send pattern:
 ```bash
 message="$(printf 'You are the coder lane for this task window.\nThe task plan is already decided by $tmux-task-orchestrator-skill.\nRole: coder\nWindow id: %s\nYour pane id: %s\nOrchestrator pane id: %s\nState root: %s\nBefore returning control, refresh your pane status if needed, send a structured handoff message to the orchestrator pane, and append the same handoff to tmux-orch.\nReport changed files, checks run, risks, and a clear request for the next action.' \"$window_id\" \"$coder_pane\" \"$orch_pane\" \"$state_root\")"
 tmux send-keys -t "$coder_pane" -l "$message"
+tmux send-keys -t "$coder_pane" Enter
+sleep 0.2
 tmux send-keys -t "$coder_pane" Enter
 ```
 
