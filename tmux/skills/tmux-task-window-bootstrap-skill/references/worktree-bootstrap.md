@@ -30,6 +30,8 @@ tmux/bin/tmux-task-window-bootstrap --repo-root /repo --task-context "..."
   and `service_tier=fast`
 - do not embed the orchestrator startup prompt directly in the `codex fork`
   command; send it only after fork readiness is confirmed
+- after sending the orchestrator prompt, confirm delivery by checking for a
+  short marker in the pane transcript before reporting `ready-and-prompted`
 - do not report downstream handoff as complete until the tmux task window
   exists, the fork command has been injected, and the startup prompt has been
   sent after readiness is confirmed

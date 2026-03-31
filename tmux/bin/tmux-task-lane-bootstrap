@@ -76,23 +76,12 @@ default_layout_for_role() {
   esac
 }
 
-shell_like_command() {
-  case "$1" in
-    bash | zsh | sh | fish | nu | dash) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 pane_ready_for_prompt() {
   local pane_id="$1"
   local current_command=""
   current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
   [ -n "$current_command" ] || return 1
-  if [ "$current_command" = "codex" ] || [ "$current_command" = "node" ]; then
-    return 0
-  fi
-  shell_like_command "$current_command" && return 1
-  return 0
+  [ "$current_command" = "codex" ]
 }
 
 pane_looks_like_codex() {
@@ -130,6 +119,45 @@ send_startup_prompt() {
   tmux send-keys -t "$pane_id" Enter
 }
 
+pane_contains_marker() {
+  local pane_id="$1"
+  local marker="$2"
+  local snapshot=""
+  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -200 2>/dev/null || true)"
+  printf '%s' "$snapshot" | rg -F -q -- "$marker"
+}
+
+wait_for_prompt_marker() {
+  local pane_id="$1"
+  local marker="$2"
+  local max_attempts="${3:-20}"
+  local attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    if pane_contains_marker "$pane_id" "$marker"; then
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+send_startup_prompt_confirmed() {
+  local pane_id="$1"
+  local marker="$2"
+  local message="$3"
+  local attempt=0
+  while [ "$attempt" -lt 2 ]; do
+    send_startup_prompt "$pane_id" "$message"
+    if wait_for_prompt_marker "$pane_id" "$marker"; then
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
 build_lane_prompt() {
   local role="$1"
   local task_context="$2"
@@ -145,6 +173,7 @@ build_lane_prompt() {
   case "$role" in
     coder)
       cat <<EOF
+[tmux-lane-bootstrap coder]
 You are the coder lane for this task window.
 This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
@@ -175,6 +204,7 @@ EOF
       ;;
     issue-gate)
       cat <<EOF
+[tmux-lane-bootstrap issue-gate]
 You are the issue-gate lane for this task window.
 This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
@@ -205,6 +235,7 @@ EOF
       ;;
     reviewer)
       cat <<EOF
+[tmux-lane-bootstrap reviewer]
 You are the reviewer lane for this task window.
 This lane was dispatched by $dispatcher_skill.
 Task context: $task_context
@@ -376,15 +407,22 @@ case "$role" in
     ;;
 esac
 prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$dispatcher_skill" "$fork_profile" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"
+prompt_marker="[tmux-lane-bootstrap $role]"
 tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m
 fork_status="fork-dispatched"
 if wait_for_codex_ready "$new_pane_id"; then
-  send_startup_prompt "$new_pane_id" "$prompt"
-  fork_status="ready-and-prompted"
+  if send_startup_prompt_confirmed "$new_pane_id" "$prompt_marker" "$prompt"; then
+    fork_status="ready-and-prompted"
+  else
+    fork_status="ready-prompt-unconfirmed"
+  fi
 else
   if pane_ready_for_prompt "$new_pane_id" || pane_looks_like_codex "$new_pane_id"; then
-    send_startup_prompt "$new_pane_id" "$prompt"
-    fork_status="ready-after-timeout"
+    if send_startup_prompt_confirmed "$new_pane_id" "$prompt_marker" "$prompt"; then
+      fork_status="ready-after-timeout"
+    else
+      fork_status="ready-after-timeout-unconfirmed"
+    fi
   else
     fork_status="fork-timeout"
   fi

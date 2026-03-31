@@ -35,6 +35,8 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
   `model_reasoning_effort=xhigh` and `service_tier=fast`
 - do not embed startup prompts directly in `codex fork`; fork first, verify the
   child pane is in Codex, then send the prompt
+- after sending the prompt, confirm delivery by checking for a short marker in
+  the pane transcript before reporting `ready-and-prompted`
 - use a dedicated reviewer pane for formal review
 - recreate phase-scoped panes across phase boundaries
 

@@ -70,23 +70,12 @@ slugify() {
   printf '%.48s' "$value"
 }
 
-shell_like_command() {
-  case "$1" in
-    bash | zsh | sh | fish | nu | dash) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 pane_ready_for_prompt() {
   local pane_id="$1"
   local current_command=""
   current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
   [ -n "$current_command" ] || return 1
-  if [ "$current_command" = "codex" ] || [ "$current_command" = "node" ]; then
-    return 0
-  fi
-  shell_like_command "$current_command" && return 1
-  return 0
+  [ "$current_command" = "codex" ]
 }
 
 pane_looks_like_codex() {
@@ -122,6 +111,45 @@ send_startup_prompt() {
   local message="$2"
   tmux send-keys -t "$pane_id" -l "$message"
   tmux send-keys -t "$pane_id" Enter
+}
+
+pane_contains_marker() {
+  local pane_id="$1"
+  local marker="$2"
+  local snapshot=""
+  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -200 2>/dev/null || true)"
+  printf '%s' "$snapshot" | rg -F -q -- "$marker"
+}
+
+wait_for_prompt_marker() {
+  local pane_id="$1"
+  local marker="$2"
+  local max_attempts="${3:-20}"
+  local attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    if pane_contains_marker "$pane_id" "$marker"; then
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+send_startup_prompt_confirmed() {
+  local pane_id="$1"
+  local marker="$2"
+  local message="$3"
+  local attempt=0
+  while [ "$attempt" -lt 2 ]; do
+    send_startup_prompt "$pane_id" "$message"
+    if wait_for_prompt_marker "$pane_id" "$marker"; then
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  return 1
 }
 
 repo_root=""
@@ -291,6 +319,7 @@ if [ "$orch_enabled" = "yes" ]; then
 fi
 
 prompt="$(cat <<EOF
+[tmux-window-bootstrap orchestrator]
 Continue in this new worktree as \$tmux-task-orchestrator-skill for this task.
 Task context: $task_context
 Repo root: $repo_root
@@ -305,18 +334,25 @@ If tmux-orch is unavailable in this environment, continue in tmux-only degraded 
 When lane setup is needed, use \$tmux-task-lane-bootstrap-skill rather than creating panes ad hoc.
 EOF
 )"
+prompt_marker="[tmux-window-bootstrap orchestrator]"
 
 if [ "$fork_status" != "existing-window-busy" ]; then
   printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast' \
     "$state_root" "$session_id" "$worktree_path"
   tmux send-keys -t "$orchestrator_pane_id" "$fork_cmd" C-m
   if wait_for_codex_ready "$orchestrator_pane_id"; then
-    send_startup_prompt "$orchestrator_pane_id" "$prompt"
-    fork_status="ready-and-prompted"
+    if send_startup_prompt_confirmed "$orchestrator_pane_id" "$prompt_marker" "$prompt"; then
+      fork_status="ready-and-prompted"
+    else
+      fork_status="ready-prompt-unconfirmed"
+    fi
   else
     if pane_ready_for_prompt "$orchestrator_pane_id" || pane_looks_like_codex "$orchestrator_pane_id"; then
-      send_startup_prompt "$orchestrator_pane_id" "$prompt"
-      fork_status="ready-after-timeout"
+      if send_startup_prompt_confirmed "$orchestrator_pane_id" "$prompt_marker" "$prompt"; then
+        fork_status="ready-after-timeout"
+      else
+        fork_status="ready-after-timeout-unconfirmed"
+      fi
     else
       fork_status="fork-timeout"
     fi
@@ -324,7 +360,7 @@ if [ "$fork_status" != "existing-window-busy" ]; then
 fi
 
 handoff_ready="yes"
-if [ "$fork_status" = "existing-window-busy" ] || [ "$fork_status" = "fork-timeout" ]; then
+if [ "$fork_status" = "existing-window-busy" ] || [ "$fork_status" = "fork-timeout" ] || [ "$fork_status" = "ready-prompt-unconfirmed" ] || [ "$fork_status" = "ready-after-timeout-unconfirmed" ]; then
   handoff_ready="no"
 fi
 

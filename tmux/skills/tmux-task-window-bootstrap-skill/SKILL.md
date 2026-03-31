@@ -63,6 +63,9 @@ Out of scope:
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not embed the orchestrator startup prompt directly in the `codex fork`
   command; send it only after fork readiness is confirmed.
+- Treat prompt delivery as confirmed only after a visible marker appears in the
+  child pane transcript; do not report `ready-and-prompted` on process start
+  alone.
 - Stop the parent agent after the fork succeeds.
 
 ## Workflow
