@@ -73,6 +73,7 @@ Requires explicit human approval when policy is unclear or impact is broad:
 - start from project state, not from whichever pane is loudest
 - keep one visible owner for every active task window
 - drive decisions through explicit `next_action` and window status
+- do not invoke helper skills unless the current node explicitly requires them
 - hand task-local execution to `$tmux-task-orchestrator-skill`
 - use `$tmux-task-window-bootstrap-skill` for worktree/window creation instead of
   inlining bootstrap mechanics into this role
@@ -217,6 +218,17 @@ Out of scope:
 - coder/reviewer/issue-gate lane work itself
 - replacing tmux runtime routing with JSON state
 
+## Subskill Trigger Nodes
+
+Only trigger another skill when the current node matches one of these cases:
+
+- `next_action=create-task-window`
+  - use `$tmux-task-window-bootstrap-skill`
+- `next_action=handoff-task-window`
+  - use `$tmux-task-orchestrator-skill`
+
+Do not trigger task-local lane or commit skills directly from the project role.
+
 ## Core Purpose
 
 - Treat the project as the durable coordination unit.
@@ -346,9 +358,9 @@ Reference:
 6. If a new task window is required:
    - call `$tmux-task-window-bootstrap-skill`
    - preserve the current `TMUX_ORCH_ROOT`
-   - instruct the forked session to continue as
-     `$tmux-task-orchestrator-skill`
-   - make the downstream prompt explicitly require:
+   - use a bare `codex fork` first, then send the startup prompt only after the
+     child pane is ready
+   - make the downstream startup prompt explicitly require:
      - use `$tmux-task-orchestrator-skill`
      - do not start implementation directly
      - register or refresh the task window in `tmux-orch`
@@ -360,6 +372,7 @@ Reference:
    - the target tmux window exists
    - `window_name` and `window_id` are known
    - the fork command has been dispatched into that window
+   - the startup prompt has been sent only after the child pane is ready
    - `handoff_ready=yes` only after those checks pass
 8. When a task window becomes the active focus, let
    `$tmux-task-orchestrator-skill` own:

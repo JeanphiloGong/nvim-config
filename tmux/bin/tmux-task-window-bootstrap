@@ -21,9 +21,10 @@ Usage:
     [--session-id ID]
 
 Notes:
-  - Requires tmux, git, jq, and a current Codex session id.
+  - Requires tmux, git, and a current Codex session id.
   - Uses $TMUX_ORCH_ROOT or the default tmux-orch session root when --root is omitted.
-  - Injects a prompt that tells the child session to continue as $tmux-task-orchestrator-skill.
+  - Uses tmux-only fallback mode when jq or tmux-orch is unavailable.
+  - Uses a two-step startup: bare `codex fork`, then a startup prompt after the pane is ready.
 EOF
 }
 
@@ -36,8 +37,20 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
 }
 
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
 tmux_session_name() {
   tmux display-message -p '#S'
+}
+
+first_existing_dir() {
+  local path="$1"
+  while [ ! -e "$path" ] && [ "$path" != "/" ]; do
+    path="$(dirname "$path")"
+  done
+  printf '%s\n' "$path"
 }
 
 default_state_root() {
@@ -57,11 +70,88 @@ slugify() {
   printf '%.48s' "$value"
 }
 
-shell_like_command() {
-  case "$1" in
-    bash | zsh | sh | fish | nu | dash) return 0 ;;
-    *) return 1 ;;
-  esac
+pane_ready_for_prompt() {
+  local pane_id="$1"
+  local current_command=""
+  current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
+  [ -n "$current_command" ] || return 1
+  [ "$current_command" = "codex" ]
+}
+
+pane_looks_like_codex() {
+  local pane_id="$1"
+  local snapshot=""
+  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -80 2>/dev/null || true)"
+  printf '%s' "$snapshot" | rg -q "OpenAI Codex|Model:|Permissions:|Context window:"
+}
+
+state_root_is_writable() {
+  local root="$1"
+  local parent
+  parent="$(first_existing_dir "$root")"
+  [ -w "$parent" ]
+}
+
+wait_for_codex_ready() {
+  local pane_id="$1"
+  local max_attempts="${2:-80}"
+  local attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    if pane_ready_for_prompt "$pane_id" || pane_looks_like_codex "$pane_id"; then
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+send_startup_prompt() {
+  local pane_id="$1"
+  local message="$2"
+  tmux send-keys -t "$pane_id" -l "$message"
+  tmux send-keys -t "$pane_id" Enter
+  sleep 0.2
+  tmux send-keys -t "$pane_id" Enter
+}
+
+pane_contains_marker() {
+  local pane_id="$1"
+  local marker="$2"
+  local snapshot=""
+  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -200 2>/dev/null || true)"
+  printf '%s' "$snapshot" | rg -F -q -- "$marker"
+}
+
+wait_for_prompt_marker() {
+  local pane_id="$1"
+  local marker="$2"
+  local max_attempts="${3:-20}"
+  local attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    if pane_contains_marker "$pane_id" "$marker"; then
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+send_startup_prompt_confirmed() {
+  local pane_id="$1"
+  local marker="$2"
+  local message="$3"
+  local attempt=0
+  while [ "$attempt" -lt 2 ]; do
+    send_startup_prompt "$pane_id" "$message"
+    if wait_for_prompt_marker "$pane_id" "$marker"; then
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  return 1
 }
 
 repo_root=""
@@ -139,8 +229,13 @@ done
 
 need_cmd tmux
 need_cmd git
-need_cmd jq
-[ -x "$orch_bin" ] || fail "missing executable orch at $orch_bin"
+
+orch_enabled="no"
+orch_status="degraded"
+if has_cmd jq && [ -x "$orch_bin" ]; then
+  orch_enabled="yes"
+  orch_status="enabled"
+fi
 
 repo_root="$(git -C "$repo_root" rev-parse --show-toplevel)"
 [ -n "$base_branch" ] || base_branch="$(git -C "$repo_root" symbolic-ref --quiet --short HEAD)"
@@ -150,6 +245,10 @@ task_kind="$(slugify "$task_kind")"
 [ -n "$worktree_root" ] || worktree_root="$(dirname "$repo_root")/_worktrees"
 [ -n "$window_name" ] || window_name="wt-${task_slug}"
 [ -n "$state_root" ] || state_root="$(default_state_root)"
+if [ "$orch_enabled" = "yes" ] && ! state_root_is_writable "$state_root"; then
+  orch_enabled="no"
+  orch_status="degraded"
+fi
 
 branch="task/${task_kind}/$(date +%Y%m%d)-${task_slug}"
 worktree_path="${worktree_root}/${task_kind}-${task_slug}"
@@ -172,14 +271,14 @@ window_info="$(
     '
 )"
 
-fork_status="dispatched"
+fork_status="not-started"
 if [ -n "$window_info" ]; then
   window_id="$(printf '%s' "$window_info" | cut -f1)"
   window_name="$(printf '%s' "$window_info" | cut -f2)"
   orchestrator_pane_id="$(printf '%s' "$window_info" | cut -f3)"
   target_command="$(printf '%s' "$window_info" | cut -f5)"
   if shell_like_command "$target_command"; then
-    fork_status="dispatched-existing-window"
+    fork_status="window-ready"
   else
     fork_status="existing-window-busy"
   fi
@@ -195,31 +294,34 @@ fi
 tmux set -wq -t "$window_id" @pane_orchestrator "$orchestrator_pane_id"
 tmux set -pt "$orchestrator_pane_id" @user_pane_title "orchestrator"
 
-"$orch_bin" init --root "$state_root" --project "$(basename "$repo_root")" >/dev/null
-"$orch_bin" register-window \
-  --root "$state_root" \
-  --window-id "$window_id" \
-  --window-name "$window_name" \
-  --repo-root "$repo_root" \
-  --worktree-path "$worktree_path" \
-  --branch "$branch" \
-  --task "$task_context" \
-  --phase "$phase" \
-  --status "$status" \
-  --next-action "confirm-local-plan" \
-  --review-status pending \
-  --commit-status pending \
-  --merge-status not_ready \
-  --owner-orchestrator-pane-id "$orchestrator_pane_id" >/dev/null
-"$orch_bin" register-pane \
-  --root "$state_root" \
-  --window-id "$window_id" \
-  --pane-id "$orchestrator_pane_id" \
-  --role orchestrator \
-  --scope window \
-  --status active >/dev/null
+if [ "$orch_enabled" = "yes" ]; then
+  "$orch_bin" init --root "$state_root" --project "$(basename "$repo_root")" >/dev/null
+  "$orch_bin" register-window \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --window-name "$window_name" \
+    --repo-root "$repo_root" \
+    --worktree-path "$worktree_path" \
+    --branch "$branch" \
+    --task "$task_context" \
+    --phase "$phase" \
+    --status "$status" \
+    --next-action "confirm-local-plan" \
+    --review-status pending \
+    --commit-status pending \
+    --merge-status not_ready \
+    --owner-orchestrator-pane-id "$orchestrator_pane_id" >/dev/null
+  "$orch_bin" register-pane \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --pane-id "$orchestrator_pane_id" \
+    --role orchestrator \
+    --scope window \
+    --status active >/dev/null
+fi
 
 prompt="$(cat <<EOF
+[tmux-window-bootstrap orchestrator]
 Continue in this new worktree as \$tmux-task-orchestrator-skill for this task.
 Task context: $task_context
 Repo root: $repo_root
@@ -227,19 +329,40 @@ Worktree path: $worktree_path
 Branch: $branch
 State root: $state_root
 Do not start implementation directly.
-First confirm repo state and task context, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed.
+tmux-orch durable state: $orch_status
+Fork profile: gpt-5.4-mini / xhigh / fast
+First confirm repo state and task context, register or refresh the task window in tmux-orch if it is available, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed.
+If tmux-orch is unavailable in this environment, continue in tmux-only degraded mode rather than blocking lane setup.
 When lane setup is needed, use \$tmux-task-lane-bootstrap-skill rather than creating panes ad hoc.
 EOF
 )"
+prompt_marker="[tmux-window-bootstrap orchestrator]"
 
 if [ "$fork_status" != "existing-window-busy" ]; then
-  printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
-    "$state_root" "$session_id" "$prompt" "$worktree_path"
+  printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast' \
+    "$state_root" "$session_id" "$worktree_path"
   tmux send-keys -t "$orchestrator_pane_id" "$fork_cmd" C-m
+  if wait_for_codex_ready "$orchestrator_pane_id"; then
+    if send_startup_prompt_confirmed "$orchestrator_pane_id" "$prompt_marker" "$prompt"; then
+      fork_status="ready-and-prompted"
+    else
+      fork_status="ready-prompt-unconfirmed"
+    fi
+  else
+    if pane_ready_for_prompt "$orchestrator_pane_id" || pane_looks_like_codex "$orchestrator_pane_id"; then
+      if send_startup_prompt_confirmed "$orchestrator_pane_id" "$prompt_marker" "$prompt"; then
+        fork_status="ready-after-timeout"
+      else
+        fork_status="ready-after-timeout-unconfirmed"
+      fi
+    else
+      fork_status="fork-timeout"
+    fi
+  fi
 fi
 
 handoff_ready="yes"
-if [ "$fork_status" = "existing-window-busy" ]; then
+if [ "$fork_status" = "existing-window-busy" ] || [ "$fork_status" = "fork-timeout" ] || [ "$fork_status" = "ready-prompt-unconfirmed" ] || [ "$fork_status" = "ready-after-timeout-unconfirmed" ]; then
   handoff_ready="no"
 fi
 
@@ -253,5 +376,6 @@ printf -- '- orchestrator_pane_id: %s\n' "$orchestrator_pane_id"
 printf -- '- worktree_created: %s\n' "$worktree_created"
 printf '\n## Verification\n'
 printf -- '- window_exists: yes\n'
+printf -- '- tmux_orch_status: %s\n' "$orch_status"
 printf -- '- fork_status: %s\n' "$fork_status"
 printf -- '- handoff_ready: %s\n' "$handoff_ready"

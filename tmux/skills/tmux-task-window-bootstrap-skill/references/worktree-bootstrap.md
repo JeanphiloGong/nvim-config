@@ -26,8 +26,16 @@ tmux/bin/tmux-task-window-bootstrap --repo-root /repo --task-context "..."
 - keep one task per worktree and one task per task window
 - in Codex TUI mode, do not add `--full-auto` to `codex fork`; it forces the
   forked session into `workspace-write` and `on-request`
+- for the orchestrator fork, use `gpt-5.4-mini` with `model_reasoning_effort=xhigh`
+  and `service_tier=fast`
+- do not embed the orchestrator startup prompt directly in the `codex fork`
+  command; send it only after fork readiness is confirmed
+- after sending the orchestrator prompt with two `Enter` keystrokes, confirm
+  delivery by checking for a short marker in the pane transcript before
+  reporting `ready-and-prompted`
 - do not report downstream handoff as complete until the tmux task window
-  exists and the fork command has actually been injected into it
+  exists, the fork command has been injected, and the startup prompt has been
+  sent after readiness is confirmed
 - stop the parent agent after the fork succeeds
 
 ## Manual Flow
@@ -49,14 +57,22 @@ state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
 tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path"
 prompt='Continue in this new worktree as $tmux-task-orchestrator-skill for this task. Do not start implementation directly. First confirm repo state and task context, register or refresh the task window in tmux-orch, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed. When lane setup is needed, use $tmux-task-lane-bootstrap-skill rather than creating panes ad hoc.'
-printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q %q --cd %q --no-alt-screen' \
-  "$state_root" "$session_id" "$prompt" "$worktree_path"
+printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast' \
+  "$state_root" "$session_id" "$worktree_path"
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
+for _ in $(seq 1 40); do
+  [ "$(tmux display-message -p -t "${session_name}:${window_name}" '#{pane_current_command}')" = "codex" ] && break
+  sleep 0.25
+done
+tmux send-keys -t "${session_name}:${window_name}" -l "$prompt"
+tmux send-keys -t "${session_name}:${window_name}" Enter
+sleep 0.2
+tmux send-keys -t "${session_name}:${window_name}" Enter
 ```
 
 ## Prompt Contract
 
-The bootstrap prompt injected into the new task window should always include:
+The bootstrap prompt sent after fork readiness should always include:
 
 - the fact that the child session is now acting as `$tmux-task-orchestrator-skill`
 - the task context and current repo/worktree target
@@ -90,7 +106,7 @@ true:
 - `window_exists=yes`
 - `window_name` is known
 - `window_id` is known or can be resolved immediately
-- `fork_status=dispatched`
+- `fork_status=ready-and-prompted`
 - `handoff_ready=yes`
 
 If the worktree exists but the tmux task window does not, bootstrap is still
