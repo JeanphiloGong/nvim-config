@@ -19,7 +19,7 @@ Use this skill when the goal is:
 
 - create one lane quickly
 - keep the current pane as the local control point
-- stop after the lane is ready and prompted
+- stop after the lane pane exists and bare `codex fork` has been dispatched
 
 Do not use this skill when the goal is to manage review, commit, merge-back, or
 task lifecycle state over time. In those cases, use
@@ -31,6 +31,7 @@ In scope:
 - resolve the current tmux pane/window context
 - dispatch one lane through `tmux-dispatch-lane`
 - return the resolved pane map and fork status
+- leave prompt injection to an explicit `tmux send-keys` step
 
 Out of scope:
 
@@ -56,7 +57,7 @@ Out of scope:
 - `entry_mode=dispatch-fast-path`
 - `preflight_mode=dispatch`
 - `lane_role_default=coder`
-- `post_dispatch_policy=stop-after-pane-ready`
+- `post_dispatch_policy=stop-after-fork-dispatched`
 
 ## Workflow
 
@@ -65,7 +66,10 @@ Out of scope:
 3. If required checks fail, stop and report the blockers.
 4. If required checks pass, call `tmux/bin/tmux-dispatch-lane`.
 5. Return the created pane id, fork status, and durable-state mode.
-6. Stop. Do not continue into review, commit, or merge logic.
+6. If the caller wants the lane to start working immediately, inject the prompt
+   explicitly with:
+   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`
+7. Stop. Do not continue into review, commit, or merge logic.
 
 ## Guardrails
 

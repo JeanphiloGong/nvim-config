@@ -42,10 +42,11 @@
   - 只做 preflight 通过后的 lane 启动，不承担 review/commit/merge 生命周期决策
 - `tmux/bin/tmux-task-window-bootstrap`
   - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册（可用时）
-  - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 orchestrator startup prompt
+  - 只负责创建 task window 并分发裸 `codex fork`
+  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`
 - `tmux/bin/tmux-task-lane-bootstrap`
-  - 负责单个 lane pane 的创建、pane 注册、role prompt 注入
-  - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 lane startup prompt
+  - 负责单个 lane pane 的创建、pane 注册、裸 `codex fork`
+  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`
   - 没有 `jq` 或 `tmux/bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
 - `tmux/bin/tmux-task-project-handoff`
   - 负责 task window 完成后的确定性 upward handoff

@@ -17,8 +17,6 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
 - create the pane layout for one task window
 - capture canonical `pane_id` values immediately
 - fork non-orchestrator panes from the current orchestrator session
-- send role-first startup prompts after fork readiness is confirmed, using
-  literal paste plus two `Enter` keystrokes before transcript confirmation
 - keep tmux window options and `tmux-orch` pane state aligned
 
 ## Required Rules
@@ -34,10 +32,10 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
   orchestrator profile
 - for issue-gate lanes, explicitly use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`
-- do not embed startup prompts directly in `codex fork`; fork first, verify the
-  child pane is in Codex, then send the prompt with two `Enter` keystrokes
-- after sending the prompt, confirm delivery by checking for a short marker in
-  the pane transcript before reporting `ready-and-prompted`
+- do not embed startup prompts directly in `codex fork`
+- do not send startup prompts from the bootstrap helper
+- inject the prompt explicitly with the raw `tmux send-keys` sequence after the
+  fork command has been dispatched
 - use a dedicated reviewer pane for formal review
 - recreate phase-scoped panes across phase boundaries
 
@@ -73,25 +71,12 @@ printf -v issue_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m
   "$state_root" "$orchestrator_session_id" "$worktree_path"
 tmux send-keys -t "$coder_pane" "$coder_fork" C-m
 tmux send-keys -t "$issue_pane" "$issue_fork" C-m
-for _ in $(seq 1 40); do
-  [ "$(tmux display-message -p -t "$coder_pane" '#{pane_current_command}')" = "codex" ] && break
-  sleep 0.25
-done
-for _ in $(seq 1 40); do
-  [ "$(tmux display-message -p -t "$issue_pane" '#{pane_current_command}')" = "codex" ] && break
-  sleep 0.25
-done
 ```
 
-## Role-First Startup Messages
+## Prompt Injection
 
-Every non-orchestrator pane should begin with:
-
-```text
-You are the <role> lane for this task window.
-```
-
-Suggested send pattern:
+After the pane exists and the bare fork command has been sent, inject the lane
+prompt explicitly:
 
 ```bash
 message="$(printf 'You are the coder lane for this task window.\nThe task plan is already decided by $tmux-task-orchestrator-skill.\nRole: coder\nWindow id: %s\nYour pane id: %s\nOrchestrator pane id: %s\nState root: %s\nBefore returning control, refresh your pane status if needed, send a structured handoff message to the orchestrator pane, and append the same handoff to tmux-orch.\nReport changed files, checks run, risks, and a clear request for the next action.' \"$window_id\" \"$coder_pane\" \"$orch_pane\" \"$state_root\")"

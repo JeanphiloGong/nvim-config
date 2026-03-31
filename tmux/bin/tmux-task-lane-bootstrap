@@ -25,7 +25,8 @@ Roles:
 
 Notes:
   - Requires tmux and a current Codex session id.
-  - Creates one non-orchestrator lane pane, runs bare `codex fork`, then sends a role-specific prompt after readiness is confirmed.
+  - Creates one non-orchestrator lane pane and dispatches bare `codex fork`.
+  - Prompt injection is not handled here; the caller must send it manually with `tmux send-keys`.
   - Registers the pane in tmux-orch when jq and tmux-orch are available; otherwise continues in tmux-only fallback mode.
 EOF
 }
@@ -76,199 +77,11 @@ default_layout_for_role() {
   esac
 }
 
-pane_ready_for_prompt() {
-  local pane_id="$1"
-  local current_command=""
-  current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
-  [ -n "$current_command" ] || return 1
-  [ "$current_command" = "codex" ]
-}
-
-pane_looks_like_codex() {
-  local pane_id="$1"
-  local snapshot=""
-  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -80 2>/dev/null || true)"
-  printf '%s' "$snapshot" | rg -q "OpenAI Codex|Model:|Permissions:|Context window:"
-}
-
 state_root_is_writable() {
   local root="$1"
   local parent
   parent="$(first_existing_dir "$root")"
   [ -w "$parent" ]
-}
-
-wait_for_codex_ready() {
-  local pane_id="$1"
-  local max_attempts="${2:-80}"
-  local attempt=0
-  while [ "$attempt" -lt "$max_attempts" ]; do
-    if pane_ready_for_prompt "$pane_id" || pane_looks_like_codex "$pane_id"; then
-      return 0
-    fi
-    sleep 0.25
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-send_startup_prompt() {
-  local pane_id="$1"
-  local message="$2"
-  tmux send-keys -t "$pane_id" -l "$message"
-  tmux send-keys -t "$pane_id" Enter
-  sleep 0.2
-  tmux send-keys -t "$pane_id" Enter
-}
-
-pane_contains_marker() {
-  local pane_id="$1"
-  local marker="$2"
-  local snapshot=""
-  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -200 2>/dev/null || true)"
-  printf '%s' "$snapshot" | rg -F -q -- "$marker"
-}
-
-wait_for_prompt_marker() {
-  local pane_id="$1"
-  local marker="$2"
-  local max_attempts="${3:-20}"
-  local attempt=0
-  while [ "$attempt" -lt "$max_attempts" ]; do
-    if pane_contains_marker "$pane_id" "$marker"; then
-      return 0
-    fi
-    sleep 0.25
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-send_startup_prompt_confirmed() {
-  local pane_id="$1"
-  local marker="$2"
-  local message="$3"
-  local attempt=0
-  while [ "$attempt" -lt 2 ]; do
-    send_startup_prompt "$pane_id" "$message"
-    if wait_for_prompt_marker "$pane_id" "$marker"; then
-      return 0
-    fi
-    sleep 1
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-build_lane_prompt() {
-  local role="$1"
-  local task_context="$2"
-  local phase="$3"
-  local dispatcher_skill="$4"
-  local fork_profile="$5"
-  local window_id="$6"
-  local pane_id="$7"
-  local orchestrator_pane_id="$8"
-  local state_root="$9"
-  local orch_status="${10}"
-
-  case "$role" in
-    coder)
-      cat <<EOF
-[tmux-lane-bootstrap coder]
-You are the coder lane for this task window.
-This lane was dispatched by $dispatcher_skill.
-Task context: $task_context
-Phase: $phase
-Fork profile: $fork_profile
-Window id: $window_id
-Your pane id: $pane_id
-Orchestrator pane id: $orchestrator_pane_id
-State root: $state_root
-tmux-orch durable state: $orch_status
-Do not redefine scope. Implement only the assigned slice, run the smallest relevant checks, then send a structured handoff back to the orchestrator pane.
-If tmux-orch is available, append the same handoff there. If it is unavailable, continue in tmux-only degraded mode and report that state in your handoff.
-
-Required handoff message envelope:
-[handoff][coder->orchestrator]
-status: <review-ready|blocked|needs-clarification>
-changed_files: <list>
-checks_run: <list>
-risks: <list>
-request: <next action request>
-
-If tmux-orch is available and your runtime status changes, refresh your pane record:
-tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role coder --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
-
-If tmux-orch is available, append the matching durable handoff:
-tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role coder --to-role orchestrator --type <status> --payload-json '{"changed_files":[],"checks_run":[],"risks":[],"request":""}'
-EOF
-      ;;
-    issue-gate)
-      cat <<EOF
-[tmux-lane-bootstrap issue-gate]
-You are the issue-gate lane for this task window.
-This lane was dispatched by $dispatcher_skill.
-Task context: $task_context
-Phase: $phase
-Fork profile: $fork_profile
-Window id: $window_id
-Your pane id: $pane_id
-Orchestrator pane id: $orchestrator_pane_id
-State root: $state_root
-tmux-orch durable state: $orch_status
-Confirm issue traceability, draft or refine the issue when needed, and return a structured handoff with the issue outcome, refs line, and whether human confirmation is still needed.
-If tmux-orch is unavailable, continue in tmux-only degraded mode and report that state in your handoff.
-
-Required handoff message envelope:
-[handoff][issue-gate->orchestrator]
-status: <issue-ready|needs-confirmation|blocked>
-issue_ref: <issue or n/a>
-refs_line: <ISSUE: #... or n/a>
-risks: <list>
-request: <next action request>
-
-If tmux-orch is available and your runtime status changes, refresh your pane record:
-tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role issue-gate --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
-
-If tmux-orch is available, append the matching durable handoff:
-tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role issue-gate --to-role orchestrator --type <status> --payload-json '{"issue_ref":"","refs_line":"","risks":[],"request":""}'
-EOF
-      ;;
-    reviewer)
-      cat <<EOF
-[tmux-lane-bootstrap reviewer]
-You are the reviewer lane for this task window.
-This lane was dispatched by $dispatcher_skill.
-Task context: $task_context
-Phase: $phase
-Window id: $window_id
-Your pane id: $pane_id
-Orchestrator pane id: $orchestrator_pane_id
-State root: $state_root
-tmux-orch durable state: $orch_status
-Review findings first. Do not edit implementation unless explicitly reassigned. Return one of approved, fix-now, or follow-up with concrete findings.
-If tmux-orch is unavailable, continue in tmux-only degraded mode and report that state in your handoff.
-
-Required handoff message envelope:
-[handoff][reviewer->orchestrator]
-status: <approved|fix-now|follow-up>
-findings: <list>
-checks_run: <list>
-risks: <list>
-request: <next action request>
-
-If tmux-orch is available and your runtime status changes, refresh your pane record:
-tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$pane_id" --role reviewer --scope phase --phase "$phase" --status <active|blocked|idle> --forked-from-session-id "${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
-
-If tmux-orch is available, append the matching durable handoff:
-tmux/bin/orch handoff --root "$state_root" --window-id "$window_id" --phase "$phase" --from-pane-id "$pane_id" --to-pane-id "$orchestrator_pane_id" --from-role reviewer --to-role orchestrator --type <status> --payload-json '{"findings":[],"checks_run":[],"risks":[],"request":""}'
-EOF
-      ;;
-    *)
-      fail "unsupported role: $role"
-      ;;
-  esac
 }
 
 role=""
@@ -347,9 +160,9 @@ done
 [ -n "${TMUX:-}" ] || fail "tmux-task-lane-bootstrap must run inside tmux"
 [ -n "$role" ] || fail "--role is required"
 [ -n "$task_context" ] || fail "--task-context is required"
-[ -n "$target_pane" ] || fail "could not resolve target pane"
 [ -n "$orchestrator_pane_id" ] || fail "could not resolve orchestrator pane id"
 [ -n "$session_id" ] || fail "missing CODEX_SESSION_ID/CODEX_THREAD_ID; pass --session-id explicitly"
+[ -n "$target_pane" ] || fail "could not resolve target pane"
 
 need_cmd tmux
 
@@ -396,39 +209,17 @@ if [ "$orch_enabled" = "yes" ]; then
     --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
 fi
 
-fork_profile="gpt-5.4-mini / xhigh / fast"
 fork_cmd="TMUX_ORCH_ROOT=$(printf '%q' "$state_root") codex fork $(printf '%q' "$session_id") --cd $(printf '%q' "$worktree_path") --no-alt-screen"
 case "$role" in
   coder | reviewer)
-    fork_profile="gpt-5.4 / xhigh"
     fork_cmd="$fork_cmd -m gpt-5.4 -c model_reasoning_effort=xhigh"
     ;;
   issue-gate)
-    fork_profile="gpt-5.4-mini / xhigh / fast"
     fork_cmd="$fork_cmd -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast"
     ;;
 esac
-prompt="$(build_lane_prompt "$role" "$task_context" "$phase" "$dispatcher_skill" "$fork_profile" "$window_id" "$new_pane_id" "$orchestrator_pane_id" "$state_root" "$orch_status")"
-prompt_marker="[tmux-lane-bootstrap $role]"
 tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m
 fork_status="fork-dispatched"
-if wait_for_codex_ready "$new_pane_id"; then
-  if send_startup_prompt_confirmed "$new_pane_id" "$prompt_marker" "$prompt"; then
-    fork_status="ready-and-prompted"
-  else
-    fork_status="ready-prompt-unconfirmed"
-  fi
-else
-  if pane_ready_for_prompt "$new_pane_id" || pane_looks_like_codex "$new_pane_id"; then
-    if send_startup_prompt_confirmed "$new_pane_id" "$prompt_marker" "$prompt"; then
-      fork_status="ready-after-timeout"
-    else
-      fork_status="ready-after-timeout-unconfirmed"
-    fi
-  else
-    fork_status="fork-timeout"
-  fi
-fi
 
 printf '## Lane Bootstrap\n'
 printf -- '- role: %s\n' "$role"
