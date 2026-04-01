@@ -360,7 +360,7 @@ Reference:
    - preserve the current `TMUX_ORCH_ROOT`
    - use a bare `codex fork` first
    - send the downstream startup prompt explicitly with:
-     `tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`
+     `tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
    - make the downstream startup prompt explicitly require:
      - use `$tmux-task-orchestrator-skill`
      - do not start implementation directly

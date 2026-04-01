@@ -68,7 +68,7 @@ Out of scope:
 5. Return the created pane id, fork status, and durable-state mode.
 6. If the caller wants the lane to start working immediately, inject the prompt
    explicitly with:
-   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`
+   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
 7. Stop. Do not continue into review, commit, or merge logic.
 
 ## Guardrails

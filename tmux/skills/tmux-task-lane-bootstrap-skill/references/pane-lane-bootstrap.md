@@ -82,7 +82,7 @@ prompt explicitly:
 message="$(printf 'You are the coder lane for this task window.\nThe task plan is already decided by $tmux-task-orchestrator-skill.\nRole: coder\nWindow id: %s\nYour pane id: %s\nOrchestrator pane id: %s\nState root: %s\nBefore returning control, refresh your pane status if needed, send a structured handoff message to the orchestrator pane, and append the same handoff to tmux-orch.\nReport changed files, checks run, risks, and a clear request for the next action.' \"$window_id\" \"$coder_pane\" \"$orch_pane\" \"$state_root\")"
 tmux send-keys -t "$coder_pane" -l "$message"
 tmux send-keys -t "$coder_pane" Enter
-sleep 0.2
+sleep 0.5
 tmux send-keys -t "$coder_pane" Enter
 ```
 

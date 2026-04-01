@@ -72,7 +72,7 @@ Out of scope:
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not send the lane startup prompt from this helper.
 - The caller must inject the prompt explicitly with:
-  `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`.
+  `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
 - Use tmux `pane_id` as the only machine routing key.
 - Use a dedicated reviewer pane for formal review.
 

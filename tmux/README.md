@@ -43,10 +43,10 @@
 - `tmux/bin/tmux-task-window-bootstrap`
   - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册（可用时）
   - 只负责创建 task window 并分发裸 `codex fork`
-  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`
+  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
 - `tmux/bin/tmux-task-lane-bootstrap`
   - 负责单个 lane pane 的创建、pane 注册、裸 `codex fork`
-  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`
+  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
   - 没有 `jq` 或 `tmux/bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
 - `tmux/bin/tmux-task-project-handoff`
   - 负责 task window 完成后的确定性 upward handoff

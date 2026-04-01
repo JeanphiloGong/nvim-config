@@ -63,7 +63,7 @@ Out of scope:
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not send the orchestrator startup prompt from this helper.
 - The caller must inject the prompt explicitly with:
-  `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.2` -> `Enter`.
+  `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
 - Stop the parent agent after the fork succeeds.
 
 ## Workflow

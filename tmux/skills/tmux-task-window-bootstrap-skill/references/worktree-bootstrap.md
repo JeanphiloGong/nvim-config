@@ -61,7 +61,7 @@ printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m g
 tmux send-keys -t "${session_name}:${window_name}" "$fork_cmd" C-m
 tmux send-keys -t "${session_name}:${window_name}" -l "$prompt"
 tmux send-keys -t "${session_name}:${window_name}" Enter
-sleep 0.2
+sleep 0.5
 tmux send-keys -t "${session_name}:${window_name}" Enter
 ```
 
