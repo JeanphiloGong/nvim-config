@@ -69,6 +69,9 @@ Out of scope:
 6. If the caller wants the lane to start working immediately, inject the prompt
    explicitly with:
    `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
+   Then publish only a short status such as `reviewer prompt sent: %257` via
+   `tmux/bin/tmux-shared-status`; do not echo the full prompt body in user-facing
+   commentary.
 7. Stop. Do not continue into review, commit, or merge logic.
 
 ## Guardrails
@@ -79,6 +82,10 @@ Out of scope:
 - Do not recreate pane mechanics inline; use `tmux/bin/tmux-dispatch-lane`.
 - Treat degraded mode as usable for dispatch only when preflight says
   `can_dispatch_lane=yes`.
+- Do not repeat full prompt bodies in commentary or summaries after sending
+  them to a pane.
+- Do not inline full prompt bodies inside user-visible shell commands such as
+  heredocs, `prompt=...`, or long `printf` command strings.
 
 ## References
 

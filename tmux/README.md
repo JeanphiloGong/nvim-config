@@ -52,6 +52,9 @@
   - 负责 task window 完成后的确定性 upward handoff
   - 只按 canonical `pane_id` 把 `merge-ready` / `merge-complete` / `blocked` /
     `needs-policy` 交回项目级 orchestrator
+- `tmux/bin/tmux-shared-status`
+  - 负责把短状态写到 tmux 第二行共享状态栏
+  - 用于“prompt 已发送”“lane 已派发”这类提示，避免回显完整 prompt 正文
 
 这三条 wrapper 是给编排流程用的。
 现有 `<prefix> + f` / `<prefix> + F` 仍然保持通用裸 `codex fork <id>`，不自动注入 orchestrator 语义。

@@ -87,6 +87,10 @@ Requires explicit human or project-level approval when:
 - when lanes are needed, pass a lane prompt contract so each child pane knows
   how to report back, how to refresh its pane status, and how to append a
   matching handoff to `tmux-orch`
+- do not repeat full prompt bodies in commentary or summaries after sending
+  them to panes
+- do not inline full prompt bodies inside user-visible shell commands when
+  preparing prompts
 
 ## Inputs And Outputs
 

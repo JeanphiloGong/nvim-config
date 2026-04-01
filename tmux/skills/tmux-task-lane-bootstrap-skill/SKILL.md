@@ -73,6 +73,10 @@ Out of scope:
 - Do not send the lane startup prompt from this helper.
 - The caller must inject the prompt explicitly with:
   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
+- After prompt injection, prefer a short `tmux/bin/tmux-shared-status`
+  confirmation instead of repeating the full prompt body in commentary.
+- Do not inline full prompt bodies inside user-visible shell commands when
+  preparing lane prompts.
 - Use tmux `pane_id` as the only machine routing key.
 - Use a dedicated reviewer pane for formal review.
 

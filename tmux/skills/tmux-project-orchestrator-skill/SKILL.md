@@ -323,6 +323,10 @@ Reference:
   deployment is still Phase A session-scoped only.
 - Do not leave the canonical project orchestrator pane implicit; register it in
   tmux session state and `tmux-orch` before dispatching task windows.
+- Do not repeat full prompt bodies in commentary after sending them to task
+  windows or lanes.
+- Do not inline full prompt bodies inside user-visible shell commands when
+  preparing downstream prompts.
 
 ## Recommended Task Sequence
 
@@ -361,6 +365,8 @@ Reference:
    - use a bare `codex fork` first
    - send the downstream startup prompt explicitly with:
      `tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
+   - after sending, use `tmux/bin/tmux-shared-status` for a short confirmation
+     rather than echoing the full prompt body
    - make the downstream startup prompt explicitly require:
      - use `$tmux-task-orchestrator-skill`
      - do not start implementation directly
