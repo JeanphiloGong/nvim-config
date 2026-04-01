@@ -26,6 +26,8 @@ Roles:
 Notes:
   - Public fast path for lane dispatch.
   - Runs tmux-orch-preflight first, then delegates pane mechanics to tmux-task-lane-bootstrap.
+  - Stops after the lane pane exists and bare `codex fork` has been dispatched.
+  - Prompt injection is not handled here; the caller must send it explicitly with `tmux send-keys`.
   - Does not run lifecycle orchestration, review, commit, or merge decisions.
 EOF
 }

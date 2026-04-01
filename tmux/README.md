@@ -42,15 +42,19 @@
   - 只做 preflight 通过后的 lane 启动，不承担 review/commit/merge 生命周期决策
 - `tmux/bin/tmux-task-window-bootstrap`
   - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册（可用时）
-  - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 orchestrator startup prompt
+  - 只负责创建 task window 并分发裸 `codex fork`
+  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
 - `tmux/bin/tmux-task-lane-bootstrap`
-  - 负责单个 lane pane 的创建、pane 注册、role prompt 注入
-  - 先执行裸 `codex fork`，确认子 pane 进入 Codex 后再发送 lane startup prompt
+  - 负责单个 lane pane 的创建、pane 注册、裸 `codex fork`
+  - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
   - 没有 `jq` 或 `tmux/bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
 - `tmux/bin/tmux-task-project-handoff`
   - 负责 task window 完成后的确定性 upward handoff
   - 只按 canonical `pane_id` 把 `merge-ready` / `merge-complete` / `blocked` /
     `needs-policy` 交回项目级 orchestrator
+- `tmux/bin/tmux-shared-status`
+  - 负责把短状态写到 tmux 第二行共享状态栏
+  - 用于“prompt 已发送”“lane 已派发”这类提示，避免回显完整 prompt 正文
 
 这三条 wrapper 是给编排流程用的。
 现有 `<prefix> + f` / `<prefix> + F` 仍然保持通用裸 `codex fork <id>`，不自动注入 orchestrator 语义。

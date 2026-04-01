@@ -24,7 +24,8 @@ Notes:
   - Requires tmux, git, and a current Codex session id.
   - Uses $TMUX_ORCH_ROOT or the default tmux-orch session root when --root is omitted.
   - Uses tmux-only fallback mode when jq or tmux-orch is unavailable.
-  - Uses a two-step startup: bare `codex fork`, then a startup prompt after the pane is ready.
+  - Uses a two-step startup: create the task window, then dispatch bare `codex fork`.
+  - Prompt injection is not handled here; the caller must send it manually with `tmux send-keys`.
 EOF
 }
 
@@ -70,19 +71,15 @@ slugify() {
   printf '%.48s' "$value"
 }
 
-pane_ready_for_prompt() {
-  local pane_id="$1"
-  local current_command=""
-  current_command="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)"
-  [ -n "$current_command" ] || return 1
-  [ "$current_command" = "codex" ]
-}
-
-pane_looks_like_codex() {
-  local pane_id="$1"
-  local snapshot=""
-  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -80 2>/dev/null || true)"
-  printf '%s' "$snapshot" | rg -q "OpenAI Codex|Model:|Permissions:|Context window:"
+shell_like_command() {
+  case "$1" in
+    "" | bash | sh | zsh | fish | nu)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 state_root_is_writable() {
@@ -90,68 +87,6 @@ state_root_is_writable() {
   local parent
   parent="$(first_existing_dir "$root")"
   [ -w "$parent" ]
-}
-
-wait_for_codex_ready() {
-  local pane_id="$1"
-  local max_attempts="${2:-80}"
-  local attempt=0
-  while [ "$attempt" -lt "$max_attempts" ]; do
-    if pane_ready_for_prompt "$pane_id" || pane_looks_like_codex "$pane_id"; then
-      return 0
-    fi
-    sleep 0.25
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-send_startup_prompt() {
-  local pane_id="$1"
-  local message="$2"
-  tmux send-keys -t "$pane_id" -l "$message"
-  tmux send-keys -t "$pane_id" Enter
-  sleep 0.2
-  tmux send-keys -t "$pane_id" Enter
-}
-
-pane_contains_marker() {
-  local pane_id="$1"
-  local marker="$2"
-  local snapshot=""
-  snapshot="$(tmux capture-pane -p -t "$pane_id" -S -200 2>/dev/null || true)"
-  printf '%s' "$snapshot" | rg -F -q -- "$marker"
-}
-
-wait_for_prompt_marker() {
-  local pane_id="$1"
-  local marker="$2"
-  local max_attempts="${3:-20}"
-  local attempt=0
-  while [ "$attempt" -lt "$max_attempts" ]; do
-    if pane_contains_marker "$pane_id" "$marker"; then
-      return 0
-    fi
-    sleep 0.25
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-send_startup_prompt_confirmed() {
-  local pane_id="$1"
-  local marker="$2"
-  local message="$3"
-  local attempt=0
-  while [ "$attempt" -lt 2 ]; do
-    send_startup_prompt "$pane_id" "$message"
-    if wait_for_prompt_marker "$pane_id" "$marker"; then
-      return 0
-    fi
-    sleep 1
-    attempt=$((attempt + 1))
-  done
-  return 1
 }
 
 repo_root=""
@@ -320,51 +255,14 @@ if [ "$orch_enabled" = "yes" ]; then
     --status active >/dev/null
 fi
 
-prompt="$(cat <<EOF
-[tmux-window-bootstrap orchestrator]
-Continue in this new worktree as \$tmux-task-orchestrator-skill for this task.
-Task context: $task_context
-Repo root: $repo_root
-Worktree path: $worktree_path
-Branch: $branch
-State root: $state_root
-Do not start implementation directly.
-tmux-orch durable state: $orch_status
-Fork profile: gpt-5.4-mini / xhigh / fast
-First confirm repo state and task context, register or refresh the task window in tmux-orch if it is available, decide the local phase and next action, and only then dispatch coder, reviewer, or issue work if needed.
-If tmux-orch is unavailable in this environment, continue in tmux-only degraded mode rather than blocking lane setup.
-When lane setup is needed, use \$tmux-task-lane-bootstrap-skill rather than creating panes ad hoc.
-EOF
-)"
-prompt_marker="[tmux-window-bootstrap orchestrator]"
-
 if [ "$fork_status" != "existing-window-busy" ]; then
   printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast' \
     "$state_root" "$session_id" "$worktree_path"
   tmux send-keys -t "$orchestrator_pane_id" "$fork_cmd" C-m
-  if wait_for_codex_ready "$orchestrator_pane_id"; then
-    if send_startup_prompt_confirmed "$orchestrator_pane_id" "$prompt_marker" "$prompt"; then
-      fork_status="ready-and-prompted"
-    else
-      fork_status="ready-prompt-unconfirmed"
-    fi
-  else
-    if pane_ready_for_prompt "$orchestrator_pane_id" || pane_looks_like_codex "$orchestrator_pane_id"; then
-      if send_startup_prompt_confirmed "$orchestrator_pane_id" "$prompt_marker" "$prompt"; then
-        fork_status="ready-after-timeout"
-      else
-        fork_status="ready-after-timeout-unconfirmed"
-      fi
-    else
-      fork_status="fork-timeout"
-    fi
-  fi
+  fork_status="fork-dispatched"
 fi
 
-handoff_ready="yes"
-if [ "$fork_status" = "existing-window-busy" ] || [ "$fork_status" = "fork-timeout" ] || [ "$fork_status" = "ready-prompt-unconfirmed" ] || [ "$fork_status" = "ready-after-timeout-unconfirmed" ]; then
-  handoff_ready="no"
-fi
+handoff_ready="no"
 
 printf '## Bootstrap State\n'
 printf -- '- repo_root: %s\n' "$repo_root"

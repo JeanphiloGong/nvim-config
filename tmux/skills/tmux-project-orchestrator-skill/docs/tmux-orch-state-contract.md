@@ -347,7 +347,8 @@ When `tmux-orch` exists, `$tmux-task-lane-bootstrap-skill` should:
 ### Lane Prompt Contract
 
 When a lane pane is created, the startup prompt should give the lane enough
-context to report back without guessing.
+context to report back without guessing. The prompt is sent explicitly by the
+caller with raw `tmux send-keys`; it is not part of lane bootstrap itself.
 
 Minimum prompt fields:
 

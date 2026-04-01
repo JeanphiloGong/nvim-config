@@ -71,7 +71,7 @@ send_multiline_message() {
   local message="$2"
   tmux send-keys -t "$target" -l "$message"
   tmux send-keys -t "$target" Enter
-  sleep 0.2
+  sleep 0.5
   tmux send-keys -t "$target" Enter
 }
 

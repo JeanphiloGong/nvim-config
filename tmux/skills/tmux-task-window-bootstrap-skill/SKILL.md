@@ -1,6 +1,6 @@
 ---
 name: tmux-task-window-bootstrap-skill
-description: v0.1.3 - Internal helper that creates a dedicated task worktree and tmux task window, forks the current session into it, sends the orchestrator startup prompt after readiness is confirmed, and stops only after task-level ownership is ready.
+description: v0.1.3 - Internal helper that creates a dedicated task worktree and tmux task window, dispatches a bare orchestrator fork into it, and stops before prompt injection.
 ---
 
 # Tmux Task Window Bootstrap Skill
@@ -18,7 +18,7 @@ In scope:
 - create a dedicated git worktree for one task
 - create or verify the first tmux task window for that worktree
 - fork the current Codex session into that window
-- verify that task-local handoff is actually ready before stopping
+- stop after the bare fork command has been dispatched
 
 Out of scope:
 
@@ -61,13 +61,13 @@ Out of scope:
 - In Codex TUI flows, do not add `--full-auto` to `codex fork`.
 - For this orchestrator fork, use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
-- Do not embed the orchestrator startup prompt directly in the `codex fork`
-  command; send it only after fork readiness is confirmed.
-- Submit the orchestrator startup prompt with literal paste, then two `Enter`
-  keystrokes, then confirm delivery from the child pane transcript.
-- Treat prompt delivery as confirmed only after a visible marker appears in the
-  child pane transcript; do not report `ready-and-prompted` on process start
-  alone.
+- Do not send the orchestrator startup prompt from this helper.
+- The caller must inject the prompt explicitly with:
+  `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
+- After prompt injection, prefer a short `tmux/bin/tmux-shared-status`
+  confirmation instead of repeating the full prompt body in commentary.
+- Do not inline full prompt bodies inside user-visible shell commands when
+  preparing orchestrator startup prompts.
 - Stop the parent agent after the fork succeeds.
 
 ## Workflow
@@ -78,20 +78,17 @@ Out of scope:
 4. Create or verify the tmux task window for that worktree.
 5. Fork the current Codex session into that tmux window using the lightweight
    orchestrator profile (`gpt-5.4-mini`, `xhigh`, `fast`).
-6. Verify the pane has entered Codex after the bare fork command.
-7. If `tmux-orch` is available, initialize or refresh durable state.
+6. If `tmux-orch` is available, initialize or refresh durable state.
    If it is unavailable, continue in tmux-only degraded mode rather than
    blocking task ownership.
-8. Send the orchestrator startup prompt.
-   The startup prompt must explicitly tell the new window to continue as
-   `$tmux-task-orchestrator-skill`, not as the fast dispatch role.
-9. Verify:
+7. Verify:
    - `window_exists=yes`
    - `window_name` is known
    - `window_id` is known or resolvable
-   - `fork_status=ready-and-prompted`
-   - `handoff_ready=yes`
-10. Stop after task-local ownership is ready.
+   - `fork_status=fork-dispatched`
+   - `handoff_ready=no`
+8. Stop. The caller must send the orchestrator prompt explicitly in a separate
+   step.
 
 ## References
 

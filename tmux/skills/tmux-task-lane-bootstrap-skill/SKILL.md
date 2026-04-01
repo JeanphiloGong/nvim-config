@@ -1,6 +1,6 @@
 ---
 name: tmux-task-lane-bootstrap-skill
-description: v0.1.3 - Internal helper that realizes lane layout, lane startup, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
+description: v0.1.3 - Internal helper that realizes lane layout, bare fork dispatch, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
 ---
 
 # Tmux Task Lane Bootstrap Skill
@@ -22,7 +22,6 @@ In scope:
 - capture canonical `pane_id` values
 - register panes and pane roles in `tmux-orch` when used
 - fork child lanes from the current orchestrator session
-- send role-first startup prompts
 - retire or recreate phase-scoped panes when task-window policy has authorized it
 
 Out of scope:
@@ -57,7 +56,6 @@ Out of scope:
 
 - `routing_key=pane_id`
 - `phase_scope=non-orchestrator-lanes`
-- `message_mode=literal-double-enter-confirmed`
 - `execution_mode=lane-bootstrap-only`
 - `coder/reviewer fork profile=gpt-5.4/xhigh`
 - `issue-gate fork profile=gpt-5.4-mini/xhigh/fast`
@@ -72,13 +70,13 @@ Out of scope:
   orchestrator profile.
 - For issue-gate lanes, explicitly use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
-- Do not embed the lane startup prompt directly in the `codex fork` command;
-  send it only after fork readiness is confirmed.
-- Submit the lane startup prompt with literal paste, then two `Enter`
-  keystrokes, then confirm delivery from the child pane transcript.
-- Treat prompt delivery as confirmed only after a visible marker appears in the
-  child pane transcript; do not report `ready-and-prompted` on process start
-  alone.
+- Do not send the lane startup prompt from this helper.
+- The caller must inject the prompt explicitly with:
+  `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
+- After prompt injection, prefer a short `tmux/bin/tmux-shared-status`
+  confirmation instead of repeating the full prompt body in commentary.
+- Do not inline full prompt bodies inside user-visible shell commands when
+  preparing lane prompts.
 - Use tmux `pane_id` as the only machine routing key.
 - Use a dedicated reviewer pane for formal review.
 
@@ -91,17 +89,8 @@ Out of scope:
 5. Register panes and fork provenance in `tmux-orch` when used.
 6. Fork child lanes from the current orchestrator session without embedding the
    startup prompt in the `codex fork` command.
-7. Confirm the child pane has entered Codex.
-8. Send role-first prompts with literal paste, two `Enter` keystrokes, and
-   transcript confirmation. The prompt must include:
-   - current role and task context
-   - `window_id`, current `pane_id`, `orchestrator_pane_id`, and `TMUX_ORCH_ROOT`
-   - the required handoff message envelope
-   - how the lane should refresh its own pane status and append a matching
-     handoff in `tmux-orch` when available
-   - how the lane should continue in tmux-only degraded mode when durable state
-     registration is unavailable
-9. Return the resolved pane map to the calling role.
+7. Stop after the fork command has been dispatched.
+8. Return the resolved pane map and fork status to the calling role.
 
 ## References
 
