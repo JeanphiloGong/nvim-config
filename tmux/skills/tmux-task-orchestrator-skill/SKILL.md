@@ -1,6 +1,6 @@
 ---
 name: tmux-task-orchestrator-skill
-description: v0.1.6 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
+description: v0.1.7 - Public task-local tmux orchestration role that owns one task window from local plan confirmation through lane dispatch, review, commit, merge-back handoff, and closure.
 ---
 
 # Tmux Task Orchestrator Skill
@@ -307,7 +307,7 @@ When `tmux-orch` exists, this skill should:
 
 Reference:
 
-- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-project-orchestrator-skill/references/tmux-orch-state-contract.md`
 
 ## Guardrails
 
@@ -377,7 +377,8 @@ Typical decision flow:
 ## References
 
 - `../tmux-task-lane-bootstrap-skill/SKILL.md`
-- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-project-orchestrator-skill/references/tmux-orch-state-contract.md`
+- `references/task-orchestrator-manual-flow.md`
 
 ## Recommended Task Sequence
 
@@ -451,50 +452,9 @@ Typical decision flow:
 
 ## Standard Manual Flow (Recommended)
 
-```bash
-session_name="$(tmux display-message -p '#S')"
-session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
-window_name="$(tmux display-message -p '#W')"
-window_id="$(tmux display-message -p '#{window_id}')"
-worktree_path="$(pwd)"
-branch="$(git -C "$worktree_path" branch --show-current)"
-state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
-
-if command -v jq >/dev/null 2>&1 && [ -x tmux/bin/orch ]; then
-  tmux/bin/orch init --root "$state_root"
-  tmux/bin/orch register-window \
-    --root "$state_root" \
-    --window-id "$window_id" \
-    --window-name "$window_name" \
-    --worktree-path "$worktree_path" \
-    --branch "$branch" \
-    --task "$task_context" \
-    --phase "phase1" \
-    --status "in_progress" \
-    --next-action "confirm-task-context" \
-    --review-status "pending" \
-    --commit-status "pending" \
-    --merge-status "not_ready"
-
-  tmux/bin/orch status --root "$state_root"
-else
-  printf 'tmux-orch unavailable; continuing in tmux-only degraded mode\n'
-fi
-```
-
-If lanes are required after local confirmation, follow
-`$tmux-task-lane-bootstrap-skill`. When coder or reviewer hand back a result,
-record the handoff and update the task window's next decision before dispatching
-more work. When the task reaches `merge-ready`, hand it upward with:
-
-```bash
-tmux/bin/tmux-task-project-handoff \
-  --root "$state_root" \
-  --status merge-ready \
-  --commit "$(git rev-parse --short HEAD)" \
-  --refs-line "ISSUE: #41" \
-  --note "ready for project-level merge scheduling"
-```
+See `references/task-orchestrator-manual-flow.md` for the shell bootstrap and
+merge-ready handoff examples. Keep the skill body focused on lifecycle policy
+and load the command reference only when needed.
 
 ## Output Format
 

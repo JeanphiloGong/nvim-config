@@ -1,6 +1,6 @@
 ---
 name: tmux-project-orchestrator-skill
-description: v0.2.7 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to tmux-task-orchestrator operators.
+description: v0.2.8 - Public project-level tmux orchestration entry that coordinates multiple task windows and worktrees, decides sequencing across tasks, and hands task-local lifecycle ownership to tmux-task-orchestrator operators.
 ---
 
 # Tmux Project Orchestrator Skill
@@ -305,7 +305,7 @@ State-root discipline:
 
 Reference:
 
-- `docs/tmux-orch-state-contract.md`
+- `references/tmux-orch-state-contract.md`
 
 ## Guardrails
 
@@ -402,7 +402,7 @@ Reference:
 ## References
 
 - `../tmux-task-window-bootstrap-skill/SKILL.md`
-- `docs/tmux-orch-state-contract.md`
+- `references/tmux-orch-state-contract.md`
 
 ## Standard Manual Flow (Recommended)
 

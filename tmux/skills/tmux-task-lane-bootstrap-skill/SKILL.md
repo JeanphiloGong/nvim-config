@@ -1,6 +1,6 @@
 ---
 name: tmux-task-lane-bootstrap-skill
-description: v0.1.3 - Internal helper that realizes lane layout, bare fork dispatch, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
+description: v0.1.4 - Internal helper that realizes lane layout, bare fork dispatch, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
 ---
 
 # Tmux Task Lane Bootstrap Skill
@@ -98,7 +98,7 @@ Out of scope:
 ## References
 
 - `references/pane-lane-bootstrap.md`
-- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-project-orchestrator-skill/references/tmux-orch-state-contract.md`
 
 ## Output Format
 

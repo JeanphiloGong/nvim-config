@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tmux Project Orchestrator"
+  short_description: "v0.2.8 - Coordinate tmux task windows"
+  default_prompt: "Use $tmux-project-orchestrator-skill to coordinate multiple tmux task windows, dependencies, and handoffs for this project."

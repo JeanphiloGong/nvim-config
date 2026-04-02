@@ -1,6 +1,6 @@
 ---
 name: tmux-task-window-bootstrap-skill
-description: v0.1.3 - Internal helper that creates a dedicated task worktree and tmux task window, dispatches a bare orchestrator fork into it, and stops before prompt injection.
+description: v0.1.4 - Internal helper that creates a dedicated task worktree and tmux task window, dispatches a bare orchestrator fork into it, and stops before prompt injection.
 ---
 
 # Tmux Task Window Bootstrap Skill
@@ -96,7 +96,7 @@ Out of scope:
 ## References
 
 - `references/worktree-bootstrap.md`
-- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-project-orchestrator-skill/references/tmux-orch-state-contract.md`
 
 ## Output Format
 

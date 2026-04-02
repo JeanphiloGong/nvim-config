@@ -1,6 +1,6 @@
 ---
 name: tmux-lane-dispatch-skill
-description: v0.1.0 - Public fast path for dispatching one task-local lane with minimal preflight, without entering full task lifecycle orchestration.
+description: v0.1.1 - Public fast path for dispatching one task-local lane with minimal preflight, without entering full task lifecycle orchestration.
 ---
 
 # Tmux Lane Dispatch Skill
