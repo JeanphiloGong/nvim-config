@@ -266,7 +266,7 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + >`：当前 window 右移一位，并切换到交换后的目标位置
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 - `<prefix> + b`：复制当前 pane 路径对应仓库的 Git 分支名到剪贴板（至少会写入 tmux buffer）
-- `<prefix> + g`：在底部输入一句中文/英文，后台生成地道英文并复制到剪贴板（可用时），完成后更新第 2 行左侧常驻消息槽
+- `<prefix> + g`：在底部输入一句中文/英文，后台生成英文翻译与更自然的英文表达，并把推荐英文复制到剪贴板（可用时），完成后更新第 2 行左侧常驻消息槽
 - `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
 - `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
 - `<prefix> + F`：下方分屏，在新 pane 执行 `codex fork <session_id>`
@@ -276,9 +276,21 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
 
 Language Coach 依赖（可选）：
-- 推荐安装 `translate-shell`（命令 `trans`），否则脚本会退化为原文输出。
+- 优先使用 `codex exec` 做结构化语言教练输出；推荐已经登录可用的 Codex CLI。
+- 默认会返回：原句、英文翻译、推荐使用的更自然英文、简短中文点评、简短中文语法提示。
+- 剪贴板 / tmux buffer 中只放“推荐使用的更自然英文”，保持原来的粘贴习惯。
+- `translate-shell`（命令 `trans`）作为兜底后端；Codex 不可用或失败时会自动回退。
+- 可用环境变量：
+  - `TMUX_LANG_BACKEND=auto|codex|trans`
+  - `TMUX_LANG_CODEX_MODEL`（默认 `gpt-5.4-mini`）
+  - `TMUX_LANG_CODEX_EFFORT`（默认 `low`）
+  - `TMUX_LANG_CODEX_SERVICE_TIER` 暂未开放；默认固定走 `fast`
+  - `TMUX_LANG_CODEX_CWD`（默认 `$HOME`）
+  - `TMUX_LANG_CODEX_BIN`（可选；显式指定可用的 `codex` 可执行文件）
 - 脚本优先使用 `@clipboard`，其次尝试 `pbcopy/wl-copy/xclip/xsel/win32yank.exe/clip.exe`。
 - 历史文件默认保存在 `~/.tmux-language-history`（本地文件，不入库）。
+- Codex 失败时会把原因写到 `~/.tmux-language.log`；fallback 记录的 `NOTE` 也会带失败原因。
+- `<prefix> + H` 会显示历史中的 `IN / EN / BEST / NOTE / TIP`；旧记录仍可读取。
 - 输入提示固定在状态栏第 2 行（`message-line=1`）。
 
 ## Codex（可选）：turn 完成提示 + 快速跳回

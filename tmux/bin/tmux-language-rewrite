@@ -5,6 +5,12 @@ input="${1-}"
 auto_paste="${TMUX_LANG_AUTOPASTE-0}"
 target_pane="${TMUX_LANG_TARGET-}"
 history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
+log_file="${TMUX_LANG_LOG_FILE:-$HOME/.tmux-language.log}"
+backend="${TMUX_LANG_BACKEND:-auto}"
+codex_model="${TMUX_LANG_CODEX_MODEL:-gpt-5.4-mini}"
+codex_effort="${TMUX_LANG_CODEX_EFFORT:-low}"
+codex_cwd="${TMUX_LANG_CODEX_CWD:-$HOME}"
+codex_bin="${TMUX_LANG_CODEX_BIN:-}"
 if [ -z "$input" ]; then
   printf "Input (zh/en): "
   IFS= read -r input || exit 0
@@ -16,33 +22,174 @@ if [ -z "$input" ]; then
   exit 0
 fi
 
-rewrite_to_english() {
-  if command -v trans >/dev/null 2>&1; then
-    # Chinese input -> English translation.
-    if printf '%s' "$input" | grep -q '[一-龥]'; then
-      trans -b zh:en "$input" 2>/dev/null && return 0
-    fi
+record_backend="trans"
+english_translation=""
+polished_english=""
+teacher_note=""
+grammar_tip=""
+fallback_reason=""
 
-    # Non-Chinese input: try EN -> ZH -> EN for a more natural paraphrase.
-    zh_text="$(trans -b :zh "$input" 2>/dev/null || true)"
-    if [ -n "$zh_text" ]; then
-      trans -b zh:en "$zh_text" 2>/dev/null && return 0
-    fi
-
-    trans -b :en "$input" 2>/dev/null && return 0
-  fi
-
-  printf '%s' "$input"
+normalize_line() {
+  printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
 }
 
-result="$(rewrite_to_english | tr '\r' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+append_log() {
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  reason="$(normalize_line "$1")"
+  detail="$(normalize_line "${2-}")"
+  printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$ts" \
+    "$reason" \
+    "$(normalize_line "$input")" \
+    "$(normalize_line "${codex_bin:-missing}")" \
+    "$detail" >> "$log_file" 2>/dev/null || true
+}
+
+resolve_codex_bin() {
+  if [ -n "$codex_bin" ]; then
+    return 0
+  fi
+  codex_bin="$(command -v codex 2>/dev/null || true)"
+  [ -n "$codex_bin" ]
+}
+
+rewrite_with_codex() {
+  if ! resolve_codex_bin; then
+    fallback_reason="codex_missing"
+    append_log "codex_missing" "PATH=$PATH"
+    return 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    fallback_reason="jq_missing"
+    append_log "jq_missing" "PATH=$PATH"
+    return 1
+  fi
+
+  tmp_dir="$(mktemp -d 2>/dev/null)" || {
+    fallback_reason="mktemp_failed"
+    append_log "mktemp_failed" ""
+    return 1
+  }
+  schema_file="$tmp_dir/schema.json"
+  output_file="$tmp_dir/output.json"
+  exec_log="$tmp_dir/codex-exec.log"
+  trap 'rm -rf "$tmp_dir"' RETURN
+
+  cat >"$schema_file" <<'EOF'
+{
+  "type": "object",
+  "properties": {
+    "original_text": { "type": "string" },
+    "english_translation": { "type": "string" },
+    "polished_english": { "type": "string" },
+    "teacher_note_zh": { "type": "string" },
+    "grammar_tip_zh": { "type": "string" }
+  },
+  "required": [
+    "original_text",
+    "english_translation",
+    "polished_english",
+    "teacher_note_zh",
+    "grammar_tip_zh"
+  ],
+  "additionalProperties": false
+}
+EOF
+
+  if ! cat <<EOF | "$codex_bin" exec \
+    --skip-git-repo-check \
+    --ephemeral \
+    -C "$codex_cwd" \
+    -m "$codex_model" \
+    -c "model_reasoning_effort=\"$codex_effort\"" \
+    -c 'service_tier="fast"' \
+    --output-schema "$schema_file" \
+    -o "$output_file" \
+    - >"$exec_log" 2>&1; then
+You are an English teacher and translator.
+Return JSON only and follow the provided schema exactly.
+
+Rules:
+- Keep original_text exactly the same as the user input.
+- english_translation must be a faithful English translation of the input.
+- polished_english must be the most natural English sentence you would actually recommend the learner use.
+- teacher_note_zh must be a short Chinese explanation of what was improved or corrected.
+- grammar_tip_zh must be a short Chinese usage or grammar tip.
+- Keep each field concise and practical.
+
+User input:
+$input
+EOF
+    fallback_reason="codex_exec_failed"
+    append_log "codex_exec_failed" "$(sed -n '1,20p' "$exec_log" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    return 1
+  fi
+
+  english_translation="$(jq -r '.english_translation // empty' "$output_file" 2>/dev/null || true)"
+  polished_english="$(jq -r '.polished_english // empty' "$output_file" 2>/dev/null || true)"
+  teacher_note="$(jq -r '.teacher_note_zh // empty' "$output_file" 2>/dev/null || true)"
+  grammar_tip="$(jq -r '.grammar_tip_zh // empty' "$output_file" 2>/dev/null || true)"
+
+  english_translation="$(normalize_line "$english_translation")"
+  polished_english="$(normalize_line "$polished_english")"
+  teacher_note="$(normalize_line "$teacher_note")"
+  grammar_tip="$(normalize_line "$grammar_tip")"
+
+  if [ -z "$english_translation" ]; then
+    fallback_reason="codex_output_invalid"
+    append_log "codex_output_invalid" "$(cat "$output_file" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    return 1
+  fi
+  [ -n "$polished_english" ] || polished_english="$english_translation"
+  record_backend="codex"
+  return 0
+}
+
+rewrite_with_trans() {
+  if command -v trans >/dev/null 2>&1; then
+    if printf '%s' "$input" | grep -q '[一-龥]'; then
+      english_translation="$(trans -b zh:en "$input" 2>/dev/null || true)"
+    else
+      english_translation="$(trans -b :en "$input" 2>/dev/null || true)"
+    fi
+  fi
+
+  english_translation="$(normalize_line "$english_translation")"
+  [ -n "$english_translation" ] || english_translation="$input"
+  polished_english="$english_translation"
+  if [ -n "$fallback_reason" ]; then
+    teacher_note="Fallback backend used (${fallback_reason}). See ${log_file}."
+  else
+    teacher_note="Fallback backend used. No coaching note available."
+  fi
+  grammar_tip=""
+  record_backend="trans"
+}
+
+case "$backend" in
+  codex)
+    rewrite_with_codex || rewrite_with_trans
+    ;;
+  trans)
+    rewrite_with_trans
+    ;;
+  *)
+    rewrite_with_codex || rewrite_with_trans
+    ;;
+esac
+
+result="$polished_english"
 [ -n "$result" ] || result="$input"
 
 record_history() {
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
-  in_text="$(printf '%s' "$input" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-  out_text="$(printf '%s' "$result" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-  printf '%s\t%s\t%s\n' "$ts" "$in_text" "$out_text" >> "$history_file" 2>/dev/null || true
+  in_text="$(normalize_line "$input")"
+  en_text="$(normalize_line "$english_translation")"
+  best_text="$(normalize_line "$polished_english")"
+  note_text="$(normalize_line "$teacher_note")"
+  tip_text="$(normalize_line "$grammar_tip")"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$ts" "$record_backend" "$in_text" "$en_text" "$best_text" "$note_text" "$tip_text" >> "$history_file" 2>/dev/null || true
 }
 record_history
 
@@ -106,9 +253,9 @@ short="$(printf '%s' "$result" | cut -c1-80)"
 short="${short//#/##}"
 
 if [ "$copy_ok" -eq 1 ]; then
-  shared_msg="Lang: $short"
+  shared_msg="Lang(${record_backend}): $short"
 else
-  shared_msg="Lang(buffer): $short"
+  shared_msg="Lang(${record_backend},buffer): $short"
 fi
 tmux set -gq @shared_status_msg "$shared_msg" >/dev/null 2>&1 || true
 
@@ -125,7 +272,15 @@ paste_back() {
 }
 
 if [ -t 1 ]; then
-  printf "\nOutput:\n%s\n\n" "$result"
+  printf "\nOriginal:\n%s\n\n" "$input"
+  printf "English:\n%s\n\n" "$english_translation"
+  printf "Better:\n%s\n\n" "$polished_english"
+  if [ -n "$teacher_note" ]; then
+    printf "Note:\n%s\n\n" "$teacher_note"
+  fi
+  if [ -n "$grammar_tip" ]; then
+    printf "Tip:\n%s\n\n" "$grammar_tip"
+  fi
   if [ "$auto_paste" = "1" ] && [ "$copy_ok" -eq 1 ]; then
     printf "Copied via %s. Press Enter to paste..." "$copy_via"
   elif [ "$auto_paste" = "1" ]; then
