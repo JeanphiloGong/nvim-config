@@ -115,6 +115,9 @@ tmux_bin="$config_home/tmux/bin"
 - tmux 仍负责 live routing
 - `pane_id` 仍是机器路由键
 - `orch` 只负责持久状态、handoff 日志和廉价 invariant 校验
+- `orch handoff` 只会写 durable state，不会主动把 follow-up 指令广播给其他 pane
+- 如果另一个 active lane 需要继续工作，orchestrator 必须显式再次发送 prompt
+  或 follow-up 消息；不能指望其他 pane 自己读取 `tmux-orch`
 
 这版命令面刻意只覆盖 Phase A：
 - `init`

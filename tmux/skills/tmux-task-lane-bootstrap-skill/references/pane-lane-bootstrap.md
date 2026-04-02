@@ -103,6 +103,8 @@ Recommended lane prompt contract for every created pane:
 - require a matching `"$orch_bin" handoff` append when `tmux-orch` is in use
 - require the lane to refresh its own pane record via `"$orch_bin" register-pane`
   when status changes to values such as `active`, `blocked`, or `idle`
+- make it explicit that sibling lanes do not watch `tmux-orch`; if another lane
+  must react, the orchestrator must send that lane a live follow-up prompt
 
 Suggested lane-specific prompts:
 
@@ -157,6 +159,10 @@ tmux send-keys -t "$orch_pane" Enter
 
 `$tmux-task-orchestrator-skill` should convert each such handoff into an explicit
 `next_action`.
+
+That durable handoff does not notify any other active lane by itself. If the
+next step belongs to an already-running pane, the orchestrator must send a
+follow-up prompt to that pane in addition to recording the handoff.
 
 If the lane updates its own runtime state, use the same identifiers when
 refreshing pane status:

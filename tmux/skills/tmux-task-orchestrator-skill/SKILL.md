@@ -334,6 +334,9 @@ Typical local `next_action` values:
 - `run-issue-gate`
 - `dispatch-coder`
 - `dispatch-reviewer`
+- `notify-coder`
+- `notify-reviewer`
+- `notify-issue-gate`
 - `return-to-coder`
 - `run-commit-stage`
 - `prepare-merge-back`
@@ -356,6 +359,12 @@ Only trigger another skill when the current node matches one of these cases:
   - use `"$tmux_bin/tmux-task-project-handoff"`
 
 Do not trigger helper skills outside these explicit nodes.
+
+`notify-<role>` is not a new pane-dispatch action. It means:
+
+- the target lane already exists
+- the orchestrator must send a live follow-up prompt to that pane
+- recording `tmux-orch handoff` alone is not sufficient
 
 Typical decision flow:
 
@@ -437,6 +446,8 @@ Typical decision flow:
    - record the handoff
    - update `status`, `phase`, and `next_action`
    - decide the next local dispatch
+   - if another active lane must react, send a live follow-up prompt to that
+     pane; do not assume it will read `tmux-orch` state on its own
 11. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
    - dispatch `$tmux-task-lane-bootstrap-skill` to realize the `issue-gate` lane
    - do not escalate to human confirmation before the `issue-gate` lane has
@@ -453,6 +464,13 @@ Typical decision flow:
    - let the helper resolve the canonical project orchestrator pane and append
      the matching durable handoff
 14. After merge-back, mark the task complete and retire phase-scoped lanes.
+
+Live follow-up rule:
+
+- `tmux-orch handoff` writes durable state for audit and recovery
+- it does not notify sibling lanes or wake an existing pane
+- when `next_action` points at an already-active lane, the orchestrator must do
+  a second live action by sending a prompt/message to that pane
 
 ## Standard Manual Flow (Recommended)
 

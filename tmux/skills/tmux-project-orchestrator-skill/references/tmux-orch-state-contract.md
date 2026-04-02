@@ -58,6 +58,9 @@ Rules:
    identity.
 5. When durable state conflicts with live tmux state, reconcile durable state to
    the live pane map before sending more machine-targeted messages.
+6. Recording a durable `handoff` event does not itself notify another pane or
+   wake an active lane; any required follow-up must still be sent through live
+   tmux routing.
 
 ## State Root Rule
 
