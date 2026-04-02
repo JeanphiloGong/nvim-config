@@ -327,6 +327,9 @@ Reference:
   windows or lanes.
 - Do not inline full prompt bodies inside user-visible shell commands when
   preparing downstream prompts.
+- When preparing downstream `codex fork` commands, use only `CODEX_SESSION_ID`
+  or `CODEX_THREAD_ID` as the fork id. Never use the tmux session name in
+  place of the Codex session id.
 
 ## Recommended Task Sequence
 

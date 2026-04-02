@@ -61,6 +61,9 @@ Out of scope:
 - In Codex TUI flows, do not add `--full-auto` to `codex fork`.
 - For this orchestrator fork, use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
+- The `codex fork` argument must be a real Codex session/thread id from
+  `CODEX_SESSION_ID` or `CODEX_THREAD_ID`; never substitute a tmux session
+  name such as `tender_back/dev-14`.
 - Do not send the orchestrator startup prompt from this helper.
 - The caller must inject the prompt explicitly with:
   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.

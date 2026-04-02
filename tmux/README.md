@@ -59,6 +59,14 @@
 这三条 wrapper 是给编排流程用的。
 现有 `<prefix> + f` / `<prefix> + F` 仍然保持通用裸 `codex fork <id>`，不自动注入 orchestrator 语义。
 
+重要约束：
+
+- `codex fork` 的第一个参数必须是 Codex 会话/线程 id
+  (`CODEX_SESSION_ID` 或 `CODEX_THREAD_ID`，通常表现为 UUID 样式字符串)。
+- 不要把 tmux session 名、window 名、pane id 或 worktree 名误当成
+  `codex fork` 的 `[SESSION_ID]`。
+- 例如 `tender_back/dev-14` 是 tmux session 名，不是可 fork 的 Codex id。
+
 最小示例：
 
 ```sh

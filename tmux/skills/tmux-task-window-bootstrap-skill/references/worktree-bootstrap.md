@@ -28,6 +28,8 @@ tmux/bin/tmux-task-window-bootstrap --repo-root /repo --task-context "..."
   forked session into `workspace-write` and `on-request`
 - for the orchestrator fork, use `gpt-5.4-mini` with `model_reasoning_effort=xhigh`
   and `service_tier=fast`
+- the value passed to `codex fork` must come from `CODEX_SESSION_ID` or
+  `CODEX_THREAD_ID`; it is not the tmux session name
 - do not embed the orchestrator startup prompt directly in the `codex fork`
   command
 - do not send the orchestrator startup prompt from the bootstrap helper
@@ -51,6 +53,7 @@ session_name="$(tmux display-message -p '#S')"
 session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
 window_name="wt-${task_slug}"
 session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID}}"
+# session_id must be the real Codex UUID-like session/thread id, not `#S`.
 state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
 
 git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"

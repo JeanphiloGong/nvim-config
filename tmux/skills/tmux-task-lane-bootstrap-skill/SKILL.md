@@ -71,6 +71,9 @@ Out of scope:
 - For issue-gate lanes, explicitly use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not send the lane startup prompt from this helper.
+- The `codex fork` argument must be a real Codex session/thread id from
+  `CODEX_SESSION_ID` or `CODEX_THREAD_ID`; never substitute a tmux session
+  name, window name, or pane id.
 - The caller must inject the prompt explicitly with:
   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
 - After prompt injection, prefer a short `tmux/bin/tmux-shared-status`

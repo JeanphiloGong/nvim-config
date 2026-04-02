@@ -86,6 +86,9 @@ Out of scope:
   them to a pane.
 - Do not inline full prompt bodies inside user-visible shell commands such as
   heredocs, `prompt=...`, or long `printf` command strings.
+- When a wrapper or manual command calls `codex fork`, the `[SESSION_ID]`
+  argument must be `CODEX_SESSION_ID` or `CODEX_THREAD_ID`, not a tmux session
+  name such as `tender_back/dev-14`.
 
 ## References
 

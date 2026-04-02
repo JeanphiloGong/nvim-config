@@ -32,6 +32,8 @@ tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phas
   orchestrator profile
 - for issue-gate lanes, explicitly use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`
+- the value passed to `codex fork` must come from `CODEX_SESSION_ID` or
+  `CODEX_THREAD_ID`; it is not the tmux session name
 - do not embed startup prompts directly in `codex fork`
 - do not send startup prompts from the bootstrap helper
 - inject the prompt explicitly with the raw `tmux send-keys` sequence after the
@@ -48,6 +50,7 @@ window_id="$(tmux display-message -p '#{window_id}')"
 worktree_path="$(pwd)"
 orch_pane="$(tmux display-message -p '#{pane_id}')"
 orchestrator_session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID}}"
+# orchestrator_session_id must be the real Codex UUID-like session/thread id, not `#S`.
 state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/$(printf '%s' "$session_name" | tr '/: ' '___')}"
 
 coder_pane="$(tmux split-window -P -F '#{pane_id}' -h -c "$worktree_path")"
