@@ -62,26 +62,32 @@ Out of scope:
 ## Workflow
 
 1. Resolve current `window_id`, `pane_id`, and `worktree_path`.
-2. Run `tmux/bin/tmux-orch-preflight --mode dispatch`.
-3. If required checks fail, stop and report the blockers.
-4. If required checks pass, call `tmux/bin/tmux-dispatch-lane`.
-5. Return the created pane id, fork status, and durable-state mode.
-6. If the caller wants the lane to start working immediately, inject the prompt
+2. Resolve helper paths first:
+   - `config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"`
+   - `tmux_bin="$config_home/tmux/bin"`
+   - never search the current project repository for `tmux/bin/*`
+3. Run `"$tmux_bin/tmux-orch-preflight" --mode dispatch`.
+4. If required checks fail, stop and report the blockers.
+5. If required checks pass, call `"$tmux_bin/tmux-dispatch-lane"`.
+6. Return the created pane id, fork status, and durable-state mode.
+7. If the caller wants the lane to start working immediately, inject the prompt
    explicitly with:
    `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
    Then publish only a short status such as `reviewer prompt sent: %257` via
-   `tmux/bin/tmux-shared-status`; do not echo the full prompt body in user-facing
+   `"$tmux_bin/tmux-shared-status"`; do not echo the full prompt body in user-facing
    commentary.
-7. Stop. Do not continue into review, commit, or merge logic.
+8. Stop. Do not continue into review, commit, or merge logic.
 
 ## Guardrails
 
 - Do not expand into full lifecycle orchestration from this role.
 - Do not run reviewer or commit logic unless the user explicitly switches to
   `$tmux-task-orchestrator-skill`.
-- Do not recreate pane mechanics inline; use `tmux/bin/tmux-dispatch-lane`.
+- Do not recreate pane mechanics inline; use `"$tmux_bin/tmux-dispatch-lane"`.
 - Treat degraded mode as usable for dispatch only when preflight says
   `can_dispatch_lane=yes`.
+- Do not search the current project repository for `tmux/bin/*`; resolve helper
+  binaries from `${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin`.
 - Do not repeat full prompt bodies in commentary or summaries after sending
   them to a pane.
 - Do not inline full prompt bodies inside user-visible shell commands such as

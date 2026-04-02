@@ -6,6 +6,9 @@ shell sequence for window registration or merge-ready handoff.
 ## Bootstrap The Current Task Window
 
 ```bash
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+tmux_bin="$config_home/tmux/bin"
+orch_bin="$tmux_bin/orch"
 session_name="$(tmux display-message -p '#S')"
 session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
 window_name="$(tmux display-message -p '#W')"
@@ -14,9 +17,9 @@ worktree_path="$(pwd)"
 branch="$(git -C "$worktree_path" branch --show-current)"
 state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
 
-if command -v jq >/dev/null 2>&1 && [ -x tmux/bin/orch ]; then
-  tmux/bin/orch init --root "$state_root"
-  tmux/bin/orch register-window \
+if command -v jq >/dev/null 2>&1 && [ -x "$orch_bin" ]; then
+  "$orch_bin" init --root "$state_root"
+  "$orch_bin" register-window \
     --root "$state_root" \
     --window-id "$window_id" \
     --window-name "$window_name" \
@@ -30,7 +33,7 @@ if command -v jq >/dev/null 2>&1 && [ -x tmux/bin/orch ]; then
     --commit-status "pending" \
     --merge-status "not_ready"
 
-  tmux/bin/orch status --root "$state_root"
+  "$orch_bin" status --root "$state_root"
 else
   printf 'tmux-orch unavailable; continuing in tmux-only degraded mode\n'
 fi
@@ -45,7 +48,7 @@ dispatching more work. When the task reaches `merge-ready`, hand it upward
 with:
 
 ```bash
-tmux/bin/tmux-task-project-handoff \
+"$tmux_bin/tmux-task-project-handoff" \
   --root "$state_root" \
   --status merge-ready \
   --commit "$(git rev-parse --short HEAD)" \

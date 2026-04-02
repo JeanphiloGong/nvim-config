@@ -345,7 +345,7 @@ Typical local `next_action` values:
 Only trigger another skill when the current node matches one of these cases:
 
 - `next_action=run-preflight`
-  - run `tmux/bin/tmux-orch-preflight`
+  - run `"$tmux_bin/tmux-orch-preflight"`
 - `next_action=setup-lanes`
   - use `$tmux-task-lane-bootstrap-skill`
 - `next_action=run-issue-gate`
@@ -353,7 +353,7 @@ Only trigger another skill when the current node matches one of these cases:
 - `next_action=run-commit-stage`
   - use `$git-commit-skill`
 - `next_action=prepare-merge-back`
-  - use `tmux/bin/tmux-task-project-handoff`
+  - use `"$tmux_bin/tmux-task-project-handoff"`
 
 Do not trigger helper skills outside these explicit nodes.
 
@@ -368,7 +368,7 @@ Typical decision flow:
    - dispatch `reviewer`, or
    - move directly to `run-commit-stage` for trivial/no-review paths
 7. when reviewer reports `approved`, dispatch commit-stage work explicitly
-8. after commit succeeds, use `tmux/bin/tmux-task-project-handoff` to mark the
+8. after commit succeeds, use `"$tmux_bin/tmux-task-project-handoff"` to mark the
    window `merge-ready` or `merge-complete` and hand that status back to the
    project-level orchestrator
 9. after merge-back, mark the task window complete and retire phase-scoped
@@ -402,25 +402,29 @@ Typical decision flow:
    - current branch
    - current phase
    - current blockers
-3. Run `tmux/bin/tmux-orch-preflight`.
-4. If `tmux-orch` exists:
+3. Resolve helper paths first:
+   - `config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"`
+   - `tmux_bin="$config_home/tmux/bin"`
+   - never search the current project repository for `tmux/bin/*`
+4. Run `"$tmux_bin/tmux-orch-preflight"`.
+5. If `tmux-orch` exists:
    - resolve the current `state_root`
    - register or refresh the current window snapshot
    - set an explicit `next_action`
-5. If `tmux-orch` is unavailable:
+6. If `tmux-orch` is unavailable:
    - mark durable state as degraded rather than blocked
    - continue with tmux-only lane realization and handoffs
-6. Decide whether the current task window needs:
+7. Decide whether the current task window needs:
    - lane setup
    - coding
    - review
    - commit-stage work
    - merge-back preparation
-7. If coding is needed, do not implement it here:
+8. If coding is needed, do not implement it here:
    - set `next_action=dispatch-coder`
    - hand off to `$tmux-task-lane-bootstrap-skill`
    - wait for a coder handoff before taking another implementation step
-8. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
+9. If lane setup is needed, use `$tmux-task-lane-bootstrap-skill`.
    The lane bootstrap prompt must tell each created pane:
    - its role
    - the current task context and phase
@@ -429,26 +433,26 @@ Typical decision flow:
    - how to refresh its own pane record and append a structured handoff in
      `tmux-orch` when available
    - how to continue in tmux-only degraded mode when durable state is unavailable
-9. When `coder`, `issue-gate`, or `reviewer` hands back a result:
+10. When `coder`, `issue-gate`, or `reviewer` hands back a result:
    - record the handoff
    - update `status`, `phase`, and `next_action`
    - decide the next local dispatch
-10. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
+11. If `next_action=run-issue-gate` and no active `issue-gate` pane exists yet:
    - dispatch `$tmux-task-lane-bootstrap-skill` to realize the `issue-gate` lane
    - do not escalate to human confirmation before the `issue-gate` lane has
      produced an actual lookup result or issue draft
-11. For commit-stage work:
+12. For commit-stage work:
    - use `$issue-gate-skill` when traceability still needs confirmation
    - use `$git-commit-skill` when the task is approved and ready to commit
    - keep commit success/failure visible in task state
    - return control to `$tmux-task-orchestrator-skill` after commit instead of
      treating commit completion as the end of the flow
-12. When the task reaches merge-back:
-   - use `tmux/bin/tmux-task-project-handoff`
+13. When the task reaches merge-back:
+   - use `"$tmux_bin/tmux-task-project-handoff"`
    - never guess the upstream target by pane index or active pane
    - let the helper resolve the canonical project orchestrator pane and append
      the matching durable handoff
-13. After merge-back, mark the task complete and retire phase-scoped lanes.
+14. After merge-back, mark the task complete and retire phase-scoped lanes.
 
 ## Standard Manual Flow (Recommended)
 

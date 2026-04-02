@@ -32,27 +32,34 @@
 
 ### Runtime Wrappers
 
+先统一解析 helper 根路径，不要在当前项目仓库里搜索 `tmux/bin/*`：
+
+```sh
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+tmux_bin="$config_home/tmux/bin"
+```
+
 现在额外提供三条 orchestration-specific runtime wrapper：
 
-- `tmux/bin/tmux-orch-preflight`
+- `$tmux_bin/tmux-orch-preflight`
   - 负责统一的环境/能力检查，不创建 pane、不 fork Codex、不写 tmux-orch 状态
   - 用来判断当前是否能 `dispatch lane`，以及是否具备完整 lifecycle orchestration 能力
-- `tmux/bin/tmux-dispatch-lane`
+- `$tmux_bin/tmux-dispatch-lane`
   - 负责公共 fast-path lane dispatch
   - 只做 preflight 通过后的 lane 启动，不承担 review/commit/merge 生命周期决策
-- `tmux/bin/tmux-task-window-bootstrap`
+- `$tmux_bin/tmux-task-window-bootstrap`
   - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册（可用时）
   - 只负责创建 task window 并分发裸 `codex fork`
   - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
-- `tmux/bin/tmux-task-lane-bootstrap`
+- `$tmux_bin/tmux-task-lane-bootstrap`
   - 负责单个 lane pane 的创建、pane 注册、裸 `codex fork`
   - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
-  - 没有 `jq` 或 `tmux/bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
-- `tmux/bin/tmux-task-project-handoff`
+  - 没有 `jq` 或 `$tmux_bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
+- `$tmux_bin/tmux-task-project-handoff`
   - 负责 task window 完成后的确定性 upward handoff
   - 只按 canonical `pane_id` 把 `merge-ready` / `merge-complete` / `blocked` /
     `needs-policy` 交回项目级 orchestrator
-- `tmux/bin/tmux-shared-status`
+- `$tmux_bin/tmux-shared-status`
   - 负责把短状态写到 tmux 第二行共享状态栏
   - 用于“prompt 已发送”“lane 已派发”这类提示，避免回显完整 prompt 正文
 
@@ -70,12 +77,12 @@
 最小示例：
 
 ```sh
-tmux/bin/tmux-dispatch-lane \
+"$tmux_bin/tmux-dispatch-lane" \
   --task-context "finish the current slice and report back review-ready or blocked"
 ```
 
 ```sh
-tmux/bin/tmux-task-window-bootstrap \
+"$tmux_bin/tmux-task-window-bootstrap" \
   --repo-root "$(git rev-parse --show-toplevel)" \
   --task-kind bugfix \
   --task-context "make the Steps and SOP purpose difference obvious" \
@@ -83,14 +90,14 @@ tmux/bin/tmux-task-window-bootstrap \
 ```
 
 ```sh
-tmux/bin/tmux-task-lane-bootstrap \
+"$tmux_bin/tmux-task-lane-bootstrap" \
   --role coder \
   --task-context "make the Steps and SOP purpose difference obvious" \
   --phase phase1
 ```
 
 ```sh
-tmux/bin/tmux-task-project-handoff \
+"$tmux_bin/tmux-task-project-handoff" \
   --status merge-ready \
   --commit "$(git rev-parse --short HEAD)" \
   --refs-line "ISSUE: #41" \
@@ -98,10 +105,10 @@ tmux/bin/tmux-task-project-handoff \
 ```
 
 ## tmux-orch（Phase A 原型）
-仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。
+仓库现在包含一个最小 `tmux-orch` 原型：`$tmux_bin/orch`。
 
 注意：
-- `tmux/bin/orch` 本体仍依赖 `jq`
+- `$tmux_bin/orch` 本体仍依赖 `jq`
 - `tmux-task-window-bootstrap` / `tmux-task-lane-bootstrap` 在没有 `jq` 时会降级为 tmux-only 模式，不阻塞 pane 创建与 lane dispatch
 
 它的职责很窄：
@@ -189,12 +196,12 @@ jq --version
 快速入口：
 
 ```sh
-tmux/bin/orch init
-tmux/bin/orch register-project --current-phase phase1
-tmux/bin/orch register-window --task "prototype tmux-orch" --phase phase1
-tmux/bin/orch register-pane --role orchestrator --scope window
-tmux/bin/orch status
-tmux/bin/orch validate
+"$tmux_bin/orch" init
+"$tmux_bin/orch" register-project --current-phase phase1
+"$tmux_bin/orch" register-window --task "prototype tmux-orch" --phase phase1
+"$tmux_bin/orch" register-pane --role orchestrator --scope window
+"$tmux_bin/orch" status
+"$tmux_bin/orch" validate
 ```
 
 更完整的用法与边界说明见：

@@ -67,10 +67,12 @@ Out of scope:
 - Do not send the orchestrator startup prompt from this helper.
 - The caller must inject the prompt explicitly with:
   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
-- After prompt injection, prefer a short `tmux/bin/tmux-shared-status`
+- After prompt injection, prefer a short `"$tmux_bin/tmux-shared-status"`
   confirmation instead of repeating the full prompt body in commentary.
 - Do not inline full prompt bodies inside user-visible shell commands when
   preparing orchestrator startup prompts.
+- Do not search the current project repository for `tmux/bin/*`; resolve helper
+  binaries from `${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin`.
 - Stop the parent agent after the fork succeeds.
 
 ## Workflow

@@ -9,7 +9,10 @@ This is a helper capability, not a public role.
 Preferred runtime wrapper:
 
 ```bash
-tmux/bin/tmux-task-lane-bootstrap --role coder --task-context "..." --phase phase1
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+tmux_bin="$config_home/tmux/bin"
+orch_bin="$tmux_bin/orch"
+"$tmux_bin/tmux-task-lane-bootstrap" --role coder --task-context "..." --phase phase1
 ```
 
 ## Purpose
@@ -64,9 +67,9 @@ tmux set -pt "$orch_pane" @user_pane_title "orchestrator"
 tmux set -pt "$coder_pane" @user_pane_title "coder"
 tmux set -pt "$issue_pane" @user_pane_title "issue-gate"
 
-tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$orch_pane" --role orchestrator --scope window --status active
-tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$coder_pane" --role coder --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
-tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$issue_pane" --role issue-gate --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
+"$orch_bin" register-pane --root "$state_root" --window-id "$window_id" --pane-id "$orch_pane" --role orchestrator --scope window --status active
+"$orch_bin" register-pane --root "$state_root" --window-id "$window_id" --pane-id "$coder_pane" --role coder --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
+"$orch_bin" register-pane --root "$state_root" --window-id "$window_id" --pane-id "$issue_pane" --role issue-gate --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
 
 printf -v coder_fork 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4 -c model_reasoning_effort=xhigh' \
   "$state_root" "$orchestrator_session_id" "$worktree_path"
@@ -97,8 +100,8 @@ Recommended lane prompt contract for every created pane:
   `TMUX_ORCH_ROOT`
 - include the current phase and task context
 - require a final structured handoff back to the orchestrator pane
-- require a matching `tmux/bin/orch handoff` append when `tmux-orch` is in use
-- require the lane to refresh its own pane record via `tmux/bin/orch register-pane`
+- require a matching `"$orch_bin" handoff` append when `tmux-orch` is in use
+- require the lane to refresh its own pane record via `"$orch_bin" register-pane`
   when status changes to values such as `active`, `blocked`, or `idle`
 
 Suggested lane-specific prompts:
@@ -131,7 +134,7 @@ Create a fresh reviewer pane when formal review is needed:
 reviewer_pane="$(tmux split-window -P -F '#{pane_id}' -v -t "$coder_pane" -c "$worktree_path")"
 tmux set -wq @pane_reviewer "$reviewer_pane"
 tmux set -pt "$reviewer_pane" @user_pane_title "reviewer"
-tmux/bin/orch register-pane --root "$state_root" --window-id "$window_id" --pane-id "$reviewer_pane" --role reviewer --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
+"$orch_bin" register-pane --root "$state_root" --window-id "$window_id" --pane-id "$reviewer_pane" --role reviewer --scope phase --phase phase1 --status active --forked-from-session-id "$orchestrator_session_id"
 ```
 
 ## Handoff Pattern
@@ -141,7 +144,7 @@ message="$(printf '[handoff][coder->orchestrator]\nstatus: review-ready\nchanged
 tmux send-keys -t "$orch_pane" -l "$message"
 tmux send-keys -t "$orch_pane" Enter
 
-tmux/bin/orch handoff \
+"$orch_bin" handoff \
   --root "$state_root" \
   --window-id "$window_id" \
   --from-pane-id "$coder_pane" \
@@ -159,7 +162,7 @@ If the lane updates its own runtime state, use the same identifiers when
 refreshing pane status:
 
 ```bash
-tmux/bin/orch register-pane \
+"$orch_bin" register-pane \
   --root "$state_root" \
   --window-id "$window_id" \
   --pane-id "$coder_pane" \

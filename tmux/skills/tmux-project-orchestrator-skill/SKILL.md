@@ -356,7 +356,7 @@ Reference:
    window records.
 4. Register the current project orchestrator target:
    - set the tmux session option `@project_orchestrator_pane`
-   - run `tmux/bin/orch register-project`
+   - run `"$tmux_bin/orch" register-project`
 5. Decide whether the next action is:
    - create a new task worktree/window
    - resume an existing task window
@@ -368,7 +368,7 @@ Reference:
    - use a bare `codex fork` first
    - send the downstream startup prompt explicitly with:
      `tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
-   - after sending, use `tmux/bin/tmux-shared-status` for a short confirmation
+   - after sending, use `"$tmux_bin/tmux-shared-status"` for a short confirmation
      rather than echoing the full prompt body
    - make the downstream startup prompt explicitly require:
      - use `$tmux-task-orchestrator-skill`
@@ -407,21 +407,23 @@ Reference:
 ## Standard Manual Flow (Recommended)
 
 ```bash
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+tmux_bin="$config_home/tmux/bin"
 session_name="$(tmux display-message -p '#S')"
 session_slug="$(printf '%s' "$session_name" | tr '/: ' '___')"
 window_id="$(tmux display-message -p '#{window_id}')"
 pane_id="$(tmux display-message -p '#{pane_id}')"
 state_root="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch/${session_slug}}"
-tmux/bin/orch init --root "$state_root"
+"$tmux_bin/orch" init --root "$state_root"
 tmux set-option -t "$session_name" @project_orchestrator_pane "$pane_id"
-tmux/bin/orch register-project \
+"$tmux_bin/orch" register-project \
   --root "$state_root" \
   --project "$(basename "$(git rev-parse --show-toplevel)")" \
   --session-name "$session_name" \
   --project-orchestrator-window "$window_id" \
   --project-orchestrator-pane-id "$pane_id" \
   --current-phase phase1
-tmux/bin/orch status --root "$state_root"
+"$tmux_bin/orch" status --root "$state_root"
 ```
 
 If a new task window is needed, follow

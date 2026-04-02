@@ -9,7 +9,9 @@ This is a helper capability, not a public role.
 Preferred runtime wrapper:
 
 ```bash
-tmux/bin/tmux-task-window-bootstrap --repo-root /repo --task-context "..."
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+tmux_bin="$config_home/tmux/bin"
+"$tmux_bin/tmux-task-window-bootstrap" --repo-root /repo --task-context "..."
 ```
 
 ## Purpose
