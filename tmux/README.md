@@ -286,13 +286,15 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
 
 Language Coach 依赖（可选）：
-- tmux 内默认走双阶段：先用 `trans` 给出快速结果，再异步尝试 `codex exec` 做结构化润色。
+- tmux 内默认走双阶段：先同步运行 `trans`，立即写入 `EN` 到状态栏/历史；然后异步启动 `codex exec` 做结构化润色。
 - 优先使用 `codex exec` 做结构化语言教练输出；推荐已经登录可用的 Codex CLI。
-- 历史里会保留：原句、快速 `EN`、Codex 的 `NOTE/TIP`、以及最终推荐的 `BEST`；`NOTE/TIP` 会显示在 `EN` 和 `BEST` 之间。
+- Codex 阶段会把 `trans` 的结果作为 first-pass draft 带进 prompt，再生成 `BEST(codex)`、`NOTE`、`TIP`。
+- 历史里会保留：原句、快速 `EN(trans)`、Codex 的 `NOTE/TIP`、以及最终推荐的 `BEST(codex)`；`NOTE/TIP` 会显示在 `EN` 和 `BEST` 之间。
+- 状态栏会先显示 `EN: ...`，Codex 完成后再更新成 `BEST: ...`。
 - 剪贴板 / tmux buffer 中只放“推荐使用的更自然英文”，保持原来的粘贴习惯。
 - `translate-shell`（命令 `trans`）作为兜底后端；Codex 不可用或失败时会自动回退。
 - 可用环境变量：
-  - `TMUX_LANG_BACKEND=auto|codex|trans`
+  - `TMUX_LANG_BACKEND=codex|trans`：仅在你想强制单后端时使用；留空就是默认的“先 `trans`、后 Codex”流程
   - `TMUX_LANG_CODEX_MODEL`（默认 `gpt-5.4-mini`）
   - `TMUX_LANG_CODEX_EFFORT`（默认 `low`）
   - `TMUX_LANG_CODEX_SERVICE_TIER` 暂未开放；默认固定走 `fast`

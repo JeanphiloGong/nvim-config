@@ -8,17 +8,18 @@ auto_paste="${TMUX_LANG_AUTOPASTE-0}"
 target_pane="${TMUX_LANG_TARGET-}"
 history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
 log_file="${TMUX_LANG_LOG_FILE:-$HOME/.tmux-language.log}"
-backend="${TMUX_LANG_BACKEND:-auto}"
+backend="${TMUX_LANG_BACKEND:-}"
 codex_model="${TMUX_LANG_CODEX_MODEL:-gpt-5.4-mini}"
 codex_effort="${TMUX_LANG_CODEX_EFFORT:-low}"
 codex_cwd="${TMUX_LANG_CODEX_CWD:-$HOME}"
 codex_bin="${TMUX_LANG_CODEX_BIN:-}"
-workflow_mode="${TMUX_LANG_WORKFLOW_MODE:-single}"
+workflow_mode="${TMUX_LANG_WORKFLOW_MODE:-foreground}"
 request_id="${TMUX_LANG_REQUEST_ID:-}"
 only_if_active="${TMUX_LANG_ONLY_IF_ACTIVE:-0}"
 allow_paste="${TMUX_LANG_ALLOW_PASTE:-$auto_paste}"
 history_backend_override="${TMUX_LANG_HISTORY_BACKEND:-}"
 status_backend_override="${TMUX_LANG_STATUS_BACKEND:-}"
+trans_draft="${TMUX_LANG_TRANS_DRAFT:-}"
 
 if [ -z "$input" ]; then
   printf "Input (zh/en): "
@@ -59,6 +60,10 @@ existing_tip=""
 
 normalize_line() {
   printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
+}
+
+is_default_backend() {
+  [ -z "$backend" ] || [ "$backend" = "auto" ] || [ "$backend" = "default" ]
 }
 
 append_log() {
@@ -166,11 +171,11 @@ history_merge_auto_impl() {
       if (merged_best == "" && merged_note == "" && merged_tip == "") {
         merged_note = "Waiting for Codex refinement."
       }
-      print ts, req, "auto", in_text, en_text, merged_best, merged_note, merged_tip
+      print ts, req, "default", in_text, en_text, merged_best, merged_note, merged_tip
     }
     function print_codex_record() {
       merged_en = ($5 != "" ? $5 : en_text)
-      print ts, req, "auto", in_text, merged_en, best_text, note_text, tip_text
+      print ts, req, "default", in_text, merged_en, best_text, note_text, tip_text
     }
     BEGIN {
       found = 0
@@ -190,9 +195,9 @@ history_merge_auto_impl() {
     END {
       if (!found) {
         if (stage == "trans") {
-          print ts, req, "auto", in_text, en_text, "", "Waiting for Codex refinement.", ""
+          print ts, req, "default", in_text, en_text, "", "Waiting for Codex refinement.", ""
         } else {
-          print ts, req, "auto", in_text, en_text, best_text, note_text, tip_text
+          print ts, req, "default", in_text, en_text, best_text, note_text, tip_text
         }
       }
     }
@@ -274,6 +279,18 @@ rewrite_with_codex() {
 }
 EOF
 
+  prompt_extra=""
+  if [ -n "$trans_draft" ]; then
+    prompt_extra="$(cat <<EOF
+Fast translation draft from trans:
+$trans_draft
+
+Use this draft as a first pass. Keep it if it is already accurate, but improve wording or correct it when needed.
+
+EOF
+)"
+  fi
+
   if ! cat <<EOF | "$codex_bin" exec \
     --skip-git-repo-check \
     --ephemeral \
@@ -294,6 +311,8 @@ Rules:
 - teacher_note_zh must be a short Chinese explanation of what was improved or corrected.
 - grammar_tip_zh must be a short Chinese usage or grammar tip.
 - Keep each field concise and practical.
+
+$prompt_extra
 
 User input:
 $input
@@ -344,27 +363,26 @@ rewrite_with_trans() {
   record_backend="trans"
 }
 
-spawn_auto_worker() {
-  worker_backend="$1"
-  worker_allow_paste="$2"
-  worker_status_backend="$3"
+spawn_codex_refine_worker() {
+  worker_trans_draft="$1"
   printf -v cmd \
-    'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_TARGET=%q TMUX_LANG_HISTORY_FILE=%q TMUX_LANG_LOG_FILE=%q TMUX_LANG_BACKEND=%q TMUX_LANG_CODEX_MODEL=%q TMUX_LANG_CODEX_EFFORT=%q TMUX_LANG_CODEX_CWD=%q TMUX_LANG_CODEX_BIN=%q TMUX_LANG_WORKFLOW_MODE=%q TMUX_LANG_REQUEST_ID=%q TMUX_LANG_ONLY_IF_ACTIVE=%q TMUX_LANG_ALLOW_PASTE=%q TMUX_LANG_HISTORY_BACKEND=%q TMUX_LANG_STATUS_BACKEND=%q bash %q %q' \
+    'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_TARGET=%q TMUX_LANG_HISTORY_FILE=%q TMUX_LANG_LOG_FILE=%q TMUX_LANG_BACKEND=%q TMUX_LANG_CODEX_MODEL=%q TMUX_LANG_CODEX_EFFORT=%q TMUX_LANG_CODEX_CWD=%q TMUX_LANG_CODEX_BIN=%q TMUX_LANG_WORKFLOW_MODE=%q TMUX_LANG_REQUEST_ID=%q TMUX_LANG_ONLY_IF_ACTIVE=%q TMUX_LANG_ALLOW_PASTE=%q TMUX_LANG_HISTORY_BACKEND=%q TMUX_LANG_STATUS_BACKEND=%q TMUX_LANG_TRANS_DRAFT=%q bash %q %q' \
     "$auto_paste" \
     "$target_pane" \
     "$history_file" \
     "$log_file" \
-    "$worker_backend" \
+    "codex" \
     "$codex_model" \
     "$codex_effort" \
     "$codex_cwd" \
     "$codex_bin" \
-    "auto" \
+    "background" \
     "$request_id" \
     "1" \
-    "$worker_allow_paste" \
-    "auto" \
-    "$worker_status_backend" \
+    "0" \
+    "" \
+    "BEST" \
+    "$worker_trans_draft" \
     "$script_path" \
     "$input"
   tmux run-shell -b "$cmd"
@@ -436,11 +454,12 @@ copy_result() {
   short="${short//#/##}"
 
   if [ "$copy_ok" -eq 1 ]; then
-    shared_msg="Lang(${status_backend_label}): $short"
+    shared_msg="${status_backend_label}: $short"
   else
-    shared_msg="Lang(${status_backend_label},buffer): $short"
+    shared_msg="${status_backend_label}(buffer): $short"
   fi
   tmux set -gq @shared_status_msg "$shared_msg" >/dev/null 2>&1 || true
+  tmux refresh-client -S 2>/dev/null || true
 }
 
 paste_back() {
@@ -462,10 +481,31 @@ history_backend_final="$history_backend_override"
 status_backend_final="$status_backend_override"
 codex_ok=0
 
-if [ "$backend" = "auto" ] && [ "$workflow_mode" = "single" ] && [ ! -t 1 ] && [ -n "${TMUX-}" ]; then
+if is_default_backend && [ "$workflow_mode" = "foreground" ] && [ ! -t 1 ] && [ -n "${TMUX-}" ]; then
   tmux set -gq @tmux_lang_active_request_id "$request_id" >/dev/null 2>&1 || true
-  spawn_auto_worker trans "$auto_paste" trans
-  spawn_auto_worker codex 0 codex
+  rewrite_with_trans
+
+  history_en="$(normalize_line "$english_translation")"
+  history_best=""
+  history_note=""
+  history_tip=""
+  result="$history_en"
+  status_backend_final="EN"
+
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  in_text="$(normalize_line "$input")"
+  history_merge_auto \
+    "trans" \
+    "$request_id" \
+    "$ts" \
+    "$in_text" \
+    "$history_en" \
+    "$history_best" \
+    "$history_note" \
+    "$history_tip"
+  copy_result "$result" "$status_backend_final"
+  paste_back
+  spawn_codex_refine_worker "$history_en"
   exit 0
 fi
 
@@ -473,8 +513,11 @@ case "$backend" in
   codex)
     if rewrite_with_codex; then
       codex_ok=1
-    elif [ "$workflow_mode" = "auto" ]; then
-      exit 0
+    elif [ "$workflow_mode" = "background" ]; then
+      teacher_note="Codex refinement failed (${fallback_reason:-unknown}). See ${log_file}."
+      grammar_tip=""
+      polished_english=""
+      record_backend="codex"
     else
       rewrite_with_trans
     fi
@@ -488,7 +531,13 @@ case "$backend" in
 esac
 
 [ -n "$history_backend_final" ] || history_backend_final="$record_backend"
-[ -n "$status_backend_final" ] || status_backend_final="$record_backend"
+if [ -z "$status_backend_final" ]; then
+  if [ "$record_backend" = "codex" ]; then
+    status_backend_final="BEST"
+  else
+    status_backend_final="EN"
+  fi
+fi
 
 history_en="$(normalize_line "$english_translation")"
 history_best="$(normalize_line "$polished_english")"
@@ -501,7 +550,7 @@ result="$polished_english"
 ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
 in_text="$(normalize_line "$input")"
 
-if [ "$workflow_mode" = "auto" ]; then
+if [ "$workflow_mode" = "background" ]; then
   history_merge_auto \
     "$backend" \
     "$request_id" \
@@ -518,10 +567,10 @@ if [ "$workflow_mode" = "auto" ]; then
   history_note="$existing_note"
   history_tip="$existing_tip"
 
-  if [ "$backend" = "trans" ] && [ -n "$history_best" ]; then
-    result=""
-  elif [ "$backend" = "codex" ] && [ "$codex_ok" -eq 1 ]; then
+  if [ "$backend" = "codex" ] && [ "$codex_ok" -eq 1 ]; then
     result="$history_best"
+  else
+    result=""
   fi
 else
   history_upsert \
