@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tmux Task Orchestrator"
+  short_description: "v0.1.7 - Own one tmux task window lifecycle"
+  default_prompt: "Use $tmux-task-orchestrator-skill to manage one tmux task window through dispatch, review, commit, merge-back handoff, and closure."

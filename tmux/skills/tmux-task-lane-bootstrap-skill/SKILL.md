@@ -1,6 +1,6 @@
 ---
 name: tmux-task-lane-bootstrap-skill
-description: v0.1.3 - Internal helper that realizes lane layout, bare fork dispatch, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
+description: v0.1.4 - Internal helper that realizes lane layout, bare fork dispatch, pane_id registration, and phase-scoped lane retirement inside one task window after task-level orchestration has already chosen the next local action.
 ---
 
 # Tmux Task Lane Bootstrap Skill
@@ -71,12 +71,17 @@ Out of scope:
 - For issue-gate lanes, explicitly use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
 - Do not send the lane startup prompt from this helper.
+- The `codex fork` argument must be a real Codex session/thread id from
+  `CODEX_SESSION_ID` or `CODEX_THREAD_ID`; never substitute a tmux session
+  name, window name, or pane id.
 - The caller must inject the prompt explicitly with:
   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
-- After prompt injection, prefer a short `tmux/bin/tmux-shared-status`
+- After prompt injection, prefer a short `"$tmux_bin/tmux-shared-status"`
   confirmation instead of repeating the full prompt body in commentary.
 - Do not inline full prompt bodies inside user-visible shell commands when
   preparing lane prompts.
+- Do not search the current project repository for `tmux/bin/*`; resolve helper
+  binaries from `${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin`.
 - Use tmux `pane_id` as the only machine routing key.
 - Use a dedicated reviewer pane for formal review.
 
@@ -95,7 +100,7 @@ Out of scope:
 ## References
 
 - `references/pane-lane-bootstrap.md`
-- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-project-orchestrator-skill/references/tmux-orch-state-contract.md`
 
 ## Output Format
 

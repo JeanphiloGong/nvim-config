@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tmux Task Window Bootstrap"
+  short_description: "v0.1.4 - Create one tmux task window and worktree"
+  default_prompt: "Use $tmux-task-window-bootstrap-skill to create a dedicated task worktree and tmux window, then dispatch a bare orchestrator fork into it."

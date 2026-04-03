@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
 set -u
 
+script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "${BASH_SOURCE[0]}")"
+
 input="${1-}"
 auto_paste="${TMUX_LANG_AUTOPASTE-0}"
 target_pane="${TMUX_LANG_TARGET-}"
 history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
+log_file="${TMUX_LANG_LOG_FILE:-$HOME/.tmux-language.log}"
+backend="${TMUX_LANG_BACKEND:-}"
+codex_model="${TMUX_LANG_CODEX_MODEL:-gpt-5.4-mini}"
+codex_effort="${TMUX_LANG_CODEX_EFFORT:-low}"
+codex_cwd="${TMUX_LANG_CODEX_CWD:-$HOME}"
+codex_bin="${TMUX_LANG_CODEX_BIN:-}"
+workflow_mode="${TMUX_LANG_WORKFLOW_MODE:-foreground}"
+request_id="${TMUX_LANG_REQUEST_ID:-}"
+only_if_active="${TMUX_LANG_ONLY_IF_ACTIVE:-0}"
+allow_paste="${TMUX_LANG_ALLOW_PASTE:-$auto_paste}"
+history_backend_override="${TMUX_LANG_HISTORY_BACKEND:-}"
+status_backend_override="${TMUX_LANG_STATUS_BACKEND:-}"
+trans_draft="${TMUX_LANG_TRANS_DRAFT:-}"
+
 if [ -z "$input" ]; then
   printf "Input (zh/en): "
   IFS= read -r input || exit 0
@@ -16,104 +32,441 @@ if [ -z "$input" ]; then
   exit 0
 fi
 
-rewrite_to_english() {
-  if command -v trans >/dev/null 2>&1; then
-    # Chinese input -> English translation.
-    if printf '%s' "$input" | grep -q '[一-龥]'; then
-      trans -b zh:en "$input" 2>/dev/null && return 0
-    fi
+if [ -z "$request_id" ]; then
+  request_id="lang-$(date +%s)-$$-$RANDOM"
+fi
 
-    # Non-Chinese input: try EN -> ZH -> EN for a more natural paraphrase.
-    zh_text="$(trans -b :zh "$input" 2>/dev/null || true)"
-    if [ -n "$zh_text" ]; then
-      trans -b zh:en "$zh_text" 2>/dev/null && return 0
-    fi
-
-    trans -b :en "$input" 2>/dev/null && return 0
-  fi
-
-  printf '%s' "$input"
-}
-
-result="$(rewrite_to_english | tr '\r' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-[ -n "$result" ] || result="$input"
-
-record_history() {
-  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
-  in_text="$(printf '%s' "$input" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-  out_text="$(printf '%s' "$result" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-  printf '%s\t%s\t%s\n' "$ts" "$in_text" "$out_text" >> "$history_file" 2>/dev/null || true
-}
-record_history
-
+record_backend="trans"
+english_translation=""
+polished_english=""
+teacher_note=""
+grammar_tip=""
+fallback_reason=""
+history_en=""
+history_best=""
+history_note=""
+history_tip=""
+result=""
 copy_ok=0
 copy_via="tmux-buffer"
+existing_ts=""
+existing_request_id=""
+existing_backend=""
+existing_input=""
+existing_en=""
+existing_best=""
+existing_note=""
+existing_tip=""
 
-# Always keep one copy in tmux buffer.
-tmux set-buffer -- "$result" >/dev/null 2>&1 || true
+normalize_line() {
+  printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
+}
 
-clip_cmd="$(tmux show -gv @clipboard 2>/dev/null || true)"
-if [ -n "$clip_cmd" ] && printf '%s' "$result" | sh -c "$clip_cmd" >/dev/null 2>&1; then
-  copy_ok=1
-  copy_via="@clipboard"
-fi
+is_default_backend() {
+  [ -z "$backend" ] || [ "$backend" = "auto" ] || [ "$backend" = "default" ]
+}
 
-if [ "$copy_ok" -eq 0 ] && command -v pbcopy >/dev/null 2>&1; then
-  if printf '%s' "$result" | pbcopy >/dev/null 2>&1; then
-    copy_ok=1
-    copy_via="pbcopy"
+append_log() {
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  reason="$(normalize_line "$1")"
+  detail="$(normalize_line "${2-}")"
+  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+  printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$ts" \
+    "$reason" \
+    "$(normalize_line "$input")" \
+    "$(normalize_line "${codex_bin:-missing}")" \
+    "$detail" >> "$log_file" 2>/dev/null || true
+}
+
+resolve_codex_bin() {
+  if [ -n "$codex_bin" ]; then
+    return 0
   fi
-fi
+  codex_bin="$(command -v codex 2>/dev/null || true)"
+  [ -n "$codex_bin" ]
+}
 
-if [ "$copy_ok" -eq 0 ] && command -v wl-copy >/dev/null 2>&1; then
-  if printf '%s' "$result" | wl-copy >/dev/null 2>&1; then
-    copy_ok=1
-    copy_via="wl-copy"
+ensure_history_file() {
+  mkdir -p "$(dirname "$history_file")" 2>/dev/null || true
+  touch "$history_file" 2>/dev/null || true
+}
+
+history_with_lock() (
+  ensure_history_file
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"${history_file}.lock" || exit 0
+    flock -w 2 9 || exit 0
   fi
-fi
+  "$@"
+)
 
-if [ "$copy_ok" -eq 0 ] && command -v xclip >/dev/null 2>&1; then
-  if printf '%s' "$result" | xclip -selection clipboard >/dev/null 2>&1; then
-    copy_ok=1
-    copy_via="xclip"
+history_upsert_impl() {
+  req="$1"
+  ts="$2"
+  backend_label="$3"
+  in_text="$4"
+  en_text="$5"
+  best_text="$6"
+  note_text="$7"
+  tip_text="$8"
+  tmp="${history_file}.tmp.$$"
+
+  awk -F '\t' -v OFS='\t' \
+    -v req="$req" \
+    -v ts="$ts" \
+    -v backend_label="$backend_label" \
+    -v in_text="$in_text" \
+    -v en_text="$en_text" \
+    -v best_text="$best_text" \
+    -v note_text="$note_text" \
+    -v tip_text="$tip_text" '
+    BEGIN {
+      found = 0
+    }
+    NF >= 8 && $2 == req {
+      print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text
+      found = 1
+      next
+    }
+    {
+      print $0
+    }
+    END {
+      if (!found) {
+        print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text
+      }
+    }
+  ' "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
+}
+
+history_upsert() {
+  history_with_lock history_upsert_impl "$@"
+}
+
+history_merge_auto_impl() {
+  stage="$1"
+  req="$2"
+  ts="$3"
+  in_text="$4"
+  en_text="$5"
+  best_text="$6"
+  note_text="$7"
+  tip_text="$8"
+  tmp="${history_file}.tmp.$$"
+
+  awk -F '\t' -v OFS='\t' \
+    -v stage="$stage" \
+    -v req="$req" \
+    -v ts="$ts" \
+    -v in_text="$in_text" \
+    -v en_text="$en_text" \
+    -v best_text="$best_text" \
+    -v note_text="$note_text" \
+    -v tip_text="$tip_text" '
+    function print_trans_record() {
+      merged_best = $6
+      merged_note = $7
+      merged_tip = $8
+      if (merged_best == "" && merged_note == "" && merged_tip == "") {
+        merged_note = "Waiting for Codex refinement."
+      }
+      print ts, req, "default", in_text, en_text, merged_best, merged_note, merged_tip
+    }
+    function print_codex_record() {
+      merged_en = ($5 != "" ? $5 : en_text)
+      print ts, req, "default", in_text, merged_en, best_text, note_text, tip_text
+    }
+    BEGIN {
+      found = 0
+    }
+    NF >= 8 && $2 == req {
+      if (stage == "trans") {
+        print_trans_record()
+      } else {
+        print_codex_record()
+      }
+      found = 1
+      next
+    }
+    {
+      print $0
+    }
+    END {
+      if (!found) {
+        if (stage == "trans") {
+          print ts, req, "default", in_text, en_text, "", "Waiting for Codex refinement.", ""
+        } else {
+          print ts, req, "default", in_text, en_text, best_text, note_text, tip_text
+        }
+      }
+    }
+  ' "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
+}
+
+history_merge_auto() {
+  history_with_lock history_merge_auto_impl "$@"
+}
+
+history_load() {
+  existing_ts=""
+  existing_request_id=""
+  existing_backend=""
+  existing_input=""
+  existing_en=""
+  existing_best=""
+  existing_note=""
+  existing_tip=""
+
+  ensure_history_file
+  line="$(awk -F '\t' -v req="$1" 'NF >= 8 && $2 == req { line = $0 } END { print line }' "$history_file" 2>/dev/null || true)"
+  [ -n "$line" ] || return 1
+
+  IFS=$'\t' read -r existing_ts existing_request_id existing_backend existing_input existing_en existing_best existing_note existing_tip <<EOF
+$line
+EOF
+  return 0
+}
+
+is_active_request() {
+  if [ "$only_if_active" != "1" ]; then
+    return 0
   fi
-fi
+  active_request_id="$(tmux show -gv @tmux_lang_active_request_id 2>/dev/null || true)"
+  [ -n "$active_request_id" ] && [ "$active_request_id" = "$request_id" ]
+}
 
-if [ "$copy_ok" -eq 0 ] && command -v xsel >/dev/null 2>&1; then
-  if printf '%s' "$result" | xsel --clipboard --input >/dev/null 2>&1; then
-    copy_ok=1
-    copy_via="xsel"
+rewrite_with_codex() {
+  if ! resolve_codex_bin; then
+    fallback_reason="codex_missing"
+    append_log "codex_missing" "PATH=$PATH"
+    return 1
   fi
-fi
-
-if [ "$copy_ok" -eq 0 ] && command -v win32yank.exe >/dev/null 2>&1; then
-  if printf '%s' "$result" | win32yank.exe -i --crlf >/dev/null 2>&1; then
-    copy_ok=1
-    copy_via="win32yank.exe"
+  if ! command -v jq >/dev/null 2>&1; then
+    fallback_reason="jq_missing"
+    append_log "jq_missing" "PATH=$PATH"
+    return 1
   fi
-fi
 
-if [ "$copy_ok" -eq 0 ] && command -v clip.exe >/dev/null 2>&1; then
-  if printf '%s' "$result" | clip.exe >/dev/null 2>&1; then
-    copy_ok=1
-    copy_via="clip.exe"
+  tmp_dir="$(mktemp -d 2>/dev/null)" || {
+    fallback_reason="mktemp_failed"
+    append_log "mktemp_failed" ""
+    return 1
+  }
+  schema_file="$tmp_dir/schema.json"
+  output_file="$tmp_dir/output.json"
+  exec_log="$tmp_dir/codex-exec.log"
+  trap 'rm -rf "$tmp_dir"' RETURN
+
+  cat >"$schema_file" <<'EOF'
+{
+  "type": "object",
+  "properties": {
+    "original_text": { "type": "string" },
+    "english_translation": { "type": "string" },
+    "polished_english": { "type": "string" },
+    "teacher_note_zh": { "type": "string" },
+    "grammar_tip_zh": { "type": "string" }
+  },
+  "required": [
+    "original_text",
+    "english_translation",
+    "polished_english",
+    "teacher_note_zh",
+    "grammar_tip_zh"
+  ],
+  "additionalProperties": false
+}
+EOF
+
+  prompt_extra=""
+  if [ -n "$trans_draft" ]; then
+    prompt_extra="$(cat <<EOF
+Fast translation draft from trans:
+$trans_draft
+
+Use this draft as a first pass. Keep it if it is already accurate, but improve wording or correct it when needed.
+
+EOF
+)"
   fi
-fi
 
-short="$(printf '%s' "$result" | cut -c1-80)"
-[ "${#result}" -gt 80 ] && short="${short}..."
-# Prevent tmux format interpolation for user content.
-short="${short//#/##}"
+  if ! cat <<EOF | "$codex_bin" exec \
+    --skip-git-repo-check \
+    --ephemeral \
+    -C "$codex_cwd" \
+    -m "$codex_model" \
+    -c "model_reasoning_effort=\"$codex_effort\"" \
+    -c 'service_tier="fast"' \
+    --output-schema "$schema_file" \
+    -o "$output_file" \
+    - >"$exec_log" 2>&1; then
+You are an English teacher and translator.
+Return JSON only and follow the provided schema exactly.
 
-if [ "$copy_ok" -eq 1 ]; then
-  shared_msg="Lang: $short"
-else
-  shared_msg="Lang(buffer): $short"
-fi
-tmux set -gq @shared_status_msg "$shared_msg" >/dev/null 2>&1 || true
+Rules:
+- Keep original_text exactly the same as the user input.
+- english_translation must be a faithful English translation of the input.
+- polished_english must be the most natural English sentence you would actually recommend the learner use.
+- teacher_note_zh must be a short Chinese explanation of what was improved or corrected.
+- grammar_tip_zh must be a short Chinese usage or grammar tip.
+- Keep each field concise and practical.
+
+$prompt_extra
+
+User input:
+$input
+EOF
+    fallback_reason="codex_exec_failed"
+    append_log "codex_exec_failed" "$(sed -n '1,20p' "$exec_log" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    return 1
+  fi
+
+  english_translation="$(jq -r '.english_translation // empty' "$output_file" 2>/dev/null || true)"
+  polished_english="$(jq -r '.polished_english // empty' "$output_file" 2>/dev/null || true)"
+  teacher_note="$(jq -r '.teacher_note_zh // empty' "$output_file" 2>/dev/null || true)"
+  grammar_tip="$(jq -r '.grammar_tip_zh // empty' "$output_file" 2>/dev/null || true)"
+
+  english_translation="$(normalize_line "$english_translation")"
+  polished_english="$(normalize_line "$polished_english")"
+  teacher_note="$(normalize_line "$teacher_note")"
+  grammar_tip="$(normalize_line "$grammar_tip")"
+
+  if [ -z "$english_translation" ]; then
+    fallback_reason="codex_output_invalid"
+    append_log "codex_output_invalid" "$(cat "$output_file" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    return 1
+  fi
+  [ -n "$polished_english" ] || polished_english="$english_translation"
+  record_backend="codex"
+  return 0
+}
+
+rewrite_with_trans() {
+  if command -v trans >/dev/null 2>&1; then
+    if printf '%s' "$input" | LC_ALL=C grep -q '[^ -~]'; then
+      english_translation="$(trans -b zh:en "$input" 2>/dev/null || true)"
+    else
+      english_translation="$(trans -b :en "$input" 2>/dev/null || true)"
+    fi
+  fi
+
+  english_translation="$(normalize_line "$english_translation")"
+  [ -n "$english_translation" ] || english_translation="$input"
+  polished_english="$english_translation"
+  if [ -n "$fallback_reason" ]; then
+    teacher_note="Fallback backend used (${fallback_reason}). See ${log_file}."
+  else
+    teacher_note="Fallback backend used. No coaching note available."
+  fi
+  grammar_tip=""
+  record_backend="trans"
+}
+
+spawn_codex_refine_worker() {
+  worker_trans_draft="$1"
+  printf -v cmd \
+    'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_TARGET=%q TMUX_LANG_HISTORY_FILE=%q TMUX_LANG_LOG_FILE=%q TMUX_LANG_BACKEND=%q TMUX_LANG_CODEX_MODEL=%q TMUX_LANG_CODEX_EFFORT=%q TMUX_LANG_CODEX_CWD=%q TMUX_LANG_CODEX_BIN=%q TMUX_LANG_WORKFLOW_MODE=%q TMUX_LANG_REQUEST_ID=%q TMUX_LANG_ONLY_IF_ACTIVE=%q TMUX_LANG_ALLOW_PASTE=%q TMUX_LANG_HISTORY_BACKEND=%q TMUX_LANG_STATUS_BACKEND=%q TMUX_LANG_TRANS_DRAFT=%q bash %q %q' \
+    "$auto_paste" \
+    "$target_pane" \
+    "$history_file" \
+    "$log_file" \
+    "codex" \
+    "$codex_model" \
+    "$codex_effort" \
+    "$codex_cwd" \
+    "$codex_bin" \
+    "background" \
+    "$request_id" \
+    "1" \
+    "0" \
+    "" \
+    "BEST" \
+    "$worker_trans_draft" \
+    "$script_path" \
+    "$input"
+  tmux run-shell -b "$cmd"
+}
+
+copy_result() {
+  text="$1"
+  status_backend_label="$2"
+
+  if [ -z "$text" ]; then
+    return 0
+  fi
+  if ! is_active_request; then
+    return 0
+  fi
+
+  tmux set-buffer -- "$text" >/dev/null 2>&1 || true
+
+  clip_cmd="$(tmux show -gv @clipboard 2>/dev/null || true)"
+  if [ -n "$clip_cmd" ] && printf '%s' "$text" | sh -c "$clip_cmd" >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="@clipboard"
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v pbcopy >/dev/null 2>&1; then
+    if printf '%s' "$text" | pbcopy >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="pbcopy"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v wl-copy >/dev/null 2>&1; then
+    if printf '%s' "$text" | wl-copy >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="wl-copy"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v xclip >/dev/null 2>&1; then
+    if printf '%s' "$text" | xclip -selection clipboard >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="xclip"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v xsel >/dev/null 2>&1; then
+    if printf '%s' "$text" | xsel --clipboard --input >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="xsel"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v win32yank.exe >/dev/null 2>&1; then
+    if printf '%s' "$text" | win32yank.exe -i --crlf >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="win32yank.exe"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v clip.exe >/dev/null 2>&1; then
+    if printf '%s' "$text" | clip.exe >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="clip.exe"
+    fi
+  fi
+
+  short="$(printf '%s' "$text" | cut -c1-80)"
+  [ "${#text}" -gt 80 ] && short="${short}..."
+  short="${short//#/##}"
+
+  if [ "$copy_ok" -eq 1 ]; then
+    shared_msg="${status_backend_label}: $short"
+  else
+    shared_msg="${status_backend_label}(buffer): $short"
+  fi
+  tmux set -gq @shared_status_msg "$shared_msg" >/dev/null 2>&1 || true
+  tmux refresh-client -S 2>/dev/null || true
+}
 
 paste_back() {
-  if [ "$auto_paste" != "1" ]; then
+  if [ "$allow_paste" != "1" ]; then
+    return 0
+  fi
+  if ! is_active_request; then
     return 0
   fi
 
@@ -124,11 +477,128 @@ paste_back() {
   tmux paste-buffer >/dev/null 2>&1 || true
 }
 
+history_backend_final="$history_backend_override"
+status_backend_final="$status_backend_override"
+codex_ok=0
+
+if is_default_backend && [ "$workflow_mode" = "foreground" ] && [ ! -t 1 ] && [ -n "${TMUX-}" ]; then
+  tmux set -gq @tmux_lang_active_request_id "$request_id" >/dev/null 2>&1 || true
+  rewrite_with_trans
+
+  history_en="$(normalize_line "$english_translation")"
+  history_best=""
+  history_note=""
+  history_tip=""
+  result="$history_en"
+  status_backend_final="EN"
+
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  in_text="$(normalize_line "$input")"
+  history_merge_auto \
+    "trans" \
+    "$request_id" \
+    "$ts" \
+    "$in_text" \
+    "$history_en" \
+    "$history_best" \
+    "$history_note" \
+    "$history_tip"
+  copy_result "$result" "$status_backend_final"
+  paste_back
+  spawn_codex_refine_worker "$history_en"
+  exit 0
+fi
+
+case "$backend" in
+  codex)
+    if rewrite_with_codex; then
+      codex_ok=1
+    elif [ "$workflow_mode" = "background" ]; then
+      teacher_note="Codex refinement failed (${fallback_reason:-unknown}). See ${log_file}."
+      grammar_tip=""
+      polished_english=""
+      record_backend="codex"
+    else
+      rewrite_with_trans
+    fi
+    ;;
+  trans)
+    rewrite_with_trans
+    ;;
+  *)
+    rewrite_with_codex || rewrite_with_trans
+    ;;
+esac
+
+[ -n "$history_backend_final" ] || history_backend_final="$record_backend"
+if [ -z "$status_backend_final" ]; then
+  if [ "$record_backend" = "codex" ]; then
+    status_backend_final="BEST"
+  else
+    status_backend_final="EN"
+  fi
+fi
+
+history_en="$(normalize_line "$english_translation")"
+history_best="$(normalize_line "$polished_english")"
+history_note="$(normalize_line "$teacher_note")"
+history_tip="$(normalize_line "$grammar_tip")"
+result="$polished_english"
+[ -n "$result" ] || result="$english_translation"
+[ -n "$result" ] || result="$input"
+
+ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+in_text="$(normalize_line "$input")"
+
+if [ "$workflow_mode" = "background" ]; then
+  history_merge_auto \
+    "$backend" \
+    "$request_id" \
+    "$ts" \
+    "$in_text" \
+    "$history_en" \
+    "$history_best" \
+    "$history_note" \
+    "$history_tip"
+
+  history_load "$request_id" || true
+  history_en="$existing_en"
+  history_best="$existing_best"
+  history_note="$existing_note"
+  history_tip="$existing_tip"
+
+  if [ "$backend" = "codex" ] && [ "$codex_ok" -eq 1 ]; then
+    result="$history_best"
+  else
+    result=""
+  fi
+else
+  history_upsert \
+    "$request_id" \
+    "$ts" \
+    "$history_backend_final" \
+    "$in_text" \
+    "$history_en" \
+    "$history_best" \
+    "$history_note" \
+    "$history_tip"
+fi
+
+copy_result "$result" "$status_backend_final"
+
 if [ -t 1 ]; then
-  printf "\nOutput:\n%s\n\n" "$result"
-  if [ "$auto_paste" = "1" ] && [ "$copy_ok" -eq 1 ]; then
+  printf "\nOriginal:\n%s\n\n" "$input"
+  printf "English:\n%s\n\n" "$english_translation"
+  printf "Better:\n%s\n\n" "$polished_english"
+  if [ -n "$teacher_note" ]; then
+    printf "Note:\n%s\n\n" "$teacher_note"
+  fi
+  if [ -n "$grammar_tip" ]; then
+    printf "Tip:\n%s\n\n" "$grammar_tip"
+  fi
+  if [ "$allow_paste" = "1" ] && [ "$copy_ok" -eq 1 ]; then
     printf "Copied via %s. Press Enter to paste..." "$copy_via"
-  elif [ "$auto_paste" = "1" ]; then
+  elif [ "$allow_paste" = "1" ]; then
     printf "Copied to tmux buffer only. Press Enter to paste..."
   elif [ "$copy_ok" -eq 1 ]; then
     printf "Copied via %s. Press Enter to close..." "$copy_via"

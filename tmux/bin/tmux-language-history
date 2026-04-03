@@ -17,15 +17,58 @@ if [ ! -s "$history_file" ]; then
   exit 0
 fi
 
-tail -n "$limit" "$history_file" | nl -ba -w2 -s'. ' | awk -F '\t' '
+tail -n "$limit" "$history_file" | awk -F '\t' '
 {
-  idx=$1
-  ts=$2
-  in_txt=$3
-  out_txt=$4
-  printf "%s [%s]\n", idx, ts
-  printf "  IN : %s\n", in_txt
-  printf "  OUT: %s\n\n", out_txt
+  idx = NR
+  ts = $1
+
+  if (NF >= 8) {
+    in_txt = $4
+    en_txt = $5
+    best_txt = $6
+    note_txt = $7
+    tip_txt = $8
+    printf "%2d. %s\n", idx, ts
+    printf "  IN   : %s\n", in_txt
+    printf "  EN(trans) : %s\n", en_txt
+    if (note_txt != "") {
+      printf "  NOTE      : %s\n", note_txt
+    }
+    if (tip_txt != "") {
+      printf "  TIP       : %s\n", tip_txt
+    }
+    if (best_txt != "") {
+      printf "\n"
+      printf "  BEST(codex): %s\n", best_txt
+    }
+    printf "\n"
+  } else if (NF >= 7) {
+    in_txt = $3
+    en_txt = $4
+    best_txt = $5
+    note_txt = $6
+    tip_txt = $7
+    printf "%2d. %s\n", idx, ts
+    printf "  IN   : %s\n", in_txt
+    printf "  EN(trans) : %s\n", en_txt
+    if (note_txt != "") {
+      printf "  NOTE      : %s\n", note_txt
+    }
+    if (tip_txt != "") {
+      printf "  TIP       : %s\n", tip_txt
+    }
+    if (best_txt != "") {
+      printf "\n"
+      printf "  BEST(codex): %s\n", best_txt
+    }
+    printf "\n"
+  } else {
+    in_txt = $2
+    out_txt = $3
+    printf "%2d. %s\n", idx, ts
+    printf "  IN : %s\n", in_txt
+    printf "  OUT: %s\n\n", out_txt
+  }
 }
 '
 

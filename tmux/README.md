@@ -32,42 +32,57 @@
 
 ### Runtime Wrappers
 
+先统一解析 helper 根路径，不要在当前项目仓库里搜索 `tmux/bin/*`：
+
+```sh
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+tmux_bin="$config_home/tmux/bin"
+```
+
 现在额外提供三条 orchestration-specific runtime wrapper：
 
-- `tmux/bin/tmux-orch-preflight`
+- `$tmux_bin/tmux-orch-preflight`
   - 负责统一的环境/能力检查，不创建 pane、不 fork Codex、不写 tmux-orch 状态
   - 用来判断当前是否能 `dispatch lane`，以及是否具备完整 lifecycle orchestration 能力
-- `tmux/bin/tmux-dispatch-lane`
+- `$tmux_bin/tmux-dispatch-lane`
   - 负责公共 fast-path lane dispatch
   - 只做 preflight 通过后的 lane 启动，不承担 review/commit/merge 生命周期决策
-- `tmux/bin/tmux-task-window-bootstrap`
+- `$tmux_bin/tmux-task-window-bootstrap`
   - 负责新 task 的 worktree + tmux window + `tmux-orch` 初始注册（可用时）
   - 只负责创建 task window 并分发裸 `codex fork`
   - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
-- `tmux/bin/tmux-task-lane-bootstrap`
+- `$tmux_bin/tmux-task-lane-bootstrap`
   - 负责单个 lane pane 的创建、pane 注册、裸 `codex fork`
   - prompt 由调用方显式执行：`tmux send-keys -t <target> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`
-  - 没有 `jq` 或 `tmux/bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
-- `tmux/bin/tmux-task-project-handoff`
+  - 没有 `jq` 或 `$tmux_bin/orch` 时，继续以 tmux-only degraded mode 工作，不阻塞 lane 创建
+- `$tmux_bin/tmux-task-project-handoff`
   - 负责 task window 完成后的确定性 upward handoff
   - 只按 canonical `pane_id` 把 `merge-ready` / `merge-complete` / `blocked` /
     `needs-policy` 交回项目级 orchestrator
-- `tmux/bin/tmux-shared-status`
+- `$tmux_bin/tmux-shared-status`
   - 负责把短状态写到 tmux 第二行共享状态栏
   - 用于“prompt 已发送”“lane 已派发”这类提示，避免回显完整 prompt 正文
 
 这三条 wrapper 是给编排流程用的。
 现有 `<prefix> + f` / `<prefix> + F` 仍然保持通用裸 `codex fork <id>`，不自动注入 orchestrator 语义。
 
+重要约束：
+
+- `codex fork` 的第一个参数必须是 Codex 会话/线程 id
+  (`CODEX_SESSION_ID` 或 `CODEX_THREAD_ID`，通常表现为 UUID 样式字符串)。
+- 不要把 tmux session 名、window 名、pane id 或 worktree 名误当成
+  `codex fork` 的 `[SESSION_ID]`。
+- 例如 `tender_back/dev-14` 是 tmux session 名，不是可 fork 的 Codex id。
+
 最小示例：
 
 ```sh
-tmux/bin/tmux-dispatch-lane \
+"$tmux_bin/tmux-dispatch-lane" \
   --task-context "finish the current slice and report back review-ready or blocked"
 ```
 
 ```sh
-tmux/bin/tmux-task-window-bootstrap \
+"$tmux_bin/tmux-task-window-bootstrap" \
   --repo-root "$(git rev-parse --show-toplevel)" \
   --task-kind bugfix \
   --task-context "make the Steps and SOP purpose difference obvious" \
@@ -75,14 +90,14 @@ tmux/bin/tmux-task-window-bootstrap \
 ```
 
 ```sh
-tmux/bin/tmux-task-lane-bootstrap \
+"$tmux_bin/tmux-task-lane-bootstrap" \
   --role coder \
   --task-context "make the Steps and SOP purpose difference obvious" \
   --phase phase1
 ```
 
 ```sh
-tmux/bin/tmux-task-project-handoff \
+"$tmux_bin/tmux-task-project-handoff" \
   --status merge-ready \
   --commit "$(git rev-parse --short HEAD)" \
   --refs-line "ISSUE: #41" \
@@ -90,16 +105,19 @@ tmux/bin/tmux-task-project-handoff \
 ```
 
 ## tmux-orch（Phase A 原型）
-仓库现在包含一个最小 `tmux-orch` 原型：`tmux/bin/orch`。
+仓库现在包含一个最小 `tmux-orch` 原型：`$tmux_bin/orch`。
 
 注意：
-- `tmux/bin/orch` 本体仍依赖 `jq`
+- `$tmux_bin/orch` 本体仍依赖 `jq`
 - `tmux-task-window-bootstrap` / `tmux-task-lane-bootstrap` 在没有 `jq` 时会降级为 tmux-only 模式，不阻塞 pane 创建与 lane dispatch
 
 它的职责很窄：
 - tmux 仍负责 live routing
 - `pane_id` 仍是机器路由键
 - `orch` 只负责持久状态、handoff 日志和廉价 invariant 校验
+- `orch handoff` 只会写 durable state，不会主动把 follow-up 指令广播给其他 pane
+- 如果另一个 active lane 需要继续工作，orchestrator 必须显式再次发送 prompt
+  或 follow-up 消息；不能指望其他 pane 自己读取 `tmux-orch`
 
 这版命令面刻意只覆盖 Phase A：
 - `init`
@@ -181,12 +199,12 @@ jq --version
 快速入口：
 
 ```sh
-tmux/bin/orch init
-tmux/bin/orch register-project --current-phase phase1
-tmux/bin/orch register-window --task "prototype tmux-orch" --phase phase1
-tmux/bin/orch register-pane --role orchestrator --scope window
-tmux/bin/orch status
-tmux/bin/orch validate
+"$tmux_bin/orch" init
+"$tmux_bin/orch" register-project --current-phase phase1
+"$tmux_bin/orch" register-window --task "prototype tmux-orch" --phase phase1
+"$tmux_bin/orch" register-pane --role orchestrator --scope window
+"$tmux_bin/orch" status
+"$tmux_bin/orch" validate
 ```
 
 更完整的用法与边界说明见：
@@ -258,7 +276,7 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + >`：当前 window 右移一位，并切换到交换后的目标位置
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 - `<prefix> + b`：复制当前 pane 路径对应仓库的 Git 分支名到剪贴板（至少会写入 tmux buffer）
-- `<prefix> + g`：在底部输入一句中文/英文，后台生成地道英文并复制到剪贴板（可用时），完成后更新第 2 行左侧常驻消息槽
+- `<prefix> + g`：在底部输入一句中文/英文，先用 `trans` 快速生成可粘贴英文并立即复制；如果 Codex 可用，再异步补一版更自然的英文并覆盖剪贴板/状态消息
 - `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
 - `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
 - `<prefix> + F`：下方分屏，在新 pane 执行 `codex fork <session_id>`
@@ -268,9 +286,24 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
 
 Language Coach 依赖（可选）：
-- 推荐安装 `translate-shell`（命令 `trans`），否则脚本会退化为原文输出。
+- tmux 内默认走双阶段：先同步运行 `trans`，立即写入 `EN` 到状态栏/历史；然后异步启动 `codex exec` 做结构化润色。
+- 优先使用 `codex exec` 做结构化语言教练输出；推荐已经登录可用的 Codex CLI。
+- Codex 阶段会把 `trans` 的结果作为 first-pass draft 带进 prompt，再生成 `BEST(codex)`、`NOTE`、`TIP`。
+- 历史里会保留：原句、快速 `EN(trans)`、Codex 的 `NOTE/TIP`、以及最终推荐的 `BEST(codex)`；`NOTE/TIP` 会显示在 `EN` 和 `BEST` 之间。
+- 状态栏会先显示 `EN: ...`，Codex 完成后再更新成 `BEST: ...`。
+- 剪贴板 / tmux buffer 中只放“推荐使用的更自然英文”，保持原来的粘贴习惯。
+- `translate-shell`（命令 `trans`）作为兜底后端；Codex 不可用或失败时会自动回退。
+- 可用环境变量：
+  - `TMUX_LANG_BACKEND=codex|trans`：仅在你想强制单后端时使用；留空就是默认的“先 `trans`、后 Codex”流程
+  - `TMUX_LANG_CODEX_MODEL`（默认 `gpt-5.4-mini`）
+  - `TMUX_LANG_CODEX_EFFORT`（默认 `low`）
+  - `TMUX_LANG_CODEX_SERVICE_TIER` 暂未开放；默认固定走 `fast`
+  - `TMUX_LANG_CODEX_CWD`（默认 `$HOME`）
+  - `TMUX_LANG_CODEX_BIN`（可选；显式指定可用的 `codex` 可执行文件）
 - 脚本优先使用 `@clipboard`，其次尝试 `pbcopy/wl-copy/xclip/xsel/win32yank.exe/clip.exe`。
 - 历史文件默认保存在 `~/.tmux-language-history`（本地文件，不入库）。
+- Codex 失败时会把原因写到 `~/.tmux-language.log`；fallback 记录的 `NOTE` 也会带失败原因。
+- `<prefix> + H` 会显示历史中的 `IN / EN / BEST / NOTE / TIP`；旧记录仍可读取。
 - 输入提示固定在状态栏第 2 行（`message-line=1`）。
 
 ## Codex（可选）：turn 完成提示 + 快速跳回

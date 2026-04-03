@@ -1,6 +1,6 @@
 ---
 name: tmux-task-window-bootstrap-skill
-description: v0.1.3 - Internal helper that creates a dedicated task worktree and tmux task window, dispatches a bare orchestrator fork into it, and stops before prompt injection.
+description: v0.1.4 - Internal helper that creates a dedicated task worktree and tmux task window, dispatches a bare orchestrator fork into it, and stops before prompt injection.
 ---
 
 # Tmux Task Window Bootstrap Skill
@@ -61,13 +61,18 @@ Out of scope:
 - In Codex TUI flows, do not add `--full-auto` to `codex fork`.
 - For this orchestrator fork, use `gpt-5.4-mini` with
   `model_reasoning_effort=xhigh` and `service_tier=fast`.
+- The `codex fork` argument must be a real Codex session/thread id from
+  `CODEX_SESSION_ID` or `CODEX_THREAD_ID`; never substitute a tmux session
+  name such as `tender_back/dev-14`.
 - Do not send the orchestrator startup prompt from this helper.
 - The caller must inject the prompt explicitly with:
   `tmux send-keys -t <pane> -l "$prompt"` -> `Enter` -> `sleep 0.5` -> `Enter`.
-- After prompt injection, prefer a short `tmux/bin/tmux-shared-status`
+- After prompt injection, prefer a short `"$tmux_bin/tmux-shared-status"`
   confirmation instead of repeating the full prompt body in commentary.
 - Do not inline full prompt bodies inside user-visible shell commands when
   preparing orchestrator startup prompts.
+- Do not search the current project repository for `tmux/bin/*`; resolve helper
+  binaries from `${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin`.
 - Stop the parent agent after the fork succeeds.
 
 ## Workflow
@@ -93,7 +98,7 @@ Out of scope:
 ## References
 
 - `references/worktree-bootstrap.md`
-- `../tmux-project-orchestrator-skill/docs/tmux-orch-state-contract.md`
+- `../tmux-project-orchestrator-skill/references/tmux-orch-state-contract.md`
 
 ## Output Format
 

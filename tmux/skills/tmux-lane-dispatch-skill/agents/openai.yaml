@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tmux Lane Dispatch"
+  short_description: "v0.1.1 - Dispatch one tmux task lane quickly"
+  default_prompt: "Use $tmux-lane-dispatch-skill to dispatch one coder, reviewer, or issue-gate lane in the current tmux task window."
