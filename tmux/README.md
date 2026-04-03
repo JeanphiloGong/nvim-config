@@ -276,7 +276,7 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + >`：当前 window 右移一位，并切换到交换后的目标位置
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 - `<prefix> + b`：复制当前 pane 路径对应仓库的 Git 分支名到剪贴板（至少会写入 tmux buffer）
-- `<prefix> + g`：在底部输入一句中文/英文，后台生成英文翻译与更自然的英文表达，并把推荐英文复制到剪贴板（可用时），完成后更新第 2 行左侧常驻消息槽
+- `<prefix> + g`：在底部输入一句中文/英文，先用 `trans` 快速生成可粘贴英文并立即复制；如果 Codex 可用，再异步补一版更自然的英文并覆盖剪贴板/状态消息
 - `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
 - `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
 - `<prefix> + F`：下方分屏，在新 pane 执行 `codex fork <session_id>`
@@ -286,8 +286,9 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
 
 Language Coach 依赖（可选）：
+- tmux 内默认走双阶段：先用 `trans` 给出快速结果，再异步尝试 `codex exec` 做结构化润色。
 - 优先使用 `codex exec` 做结构化语言教练输出；推荐已经登录可用的 Codex CLI。
-- 默认会返回：原句、英文翻译、推荐使用的更自然英文、简短中文点评、简短中文语法提示。
+- 历史里会保留：原句、快速 `EN`、Codex 的 `NOTE/TIP`、以及最终推荐的 `BEST`；`NOTE/TIP` 会显示在 `EN` 和 `BEST` 之间。
 - 剪贴板 / tmux buffer 中只放“推荐使用的更自然英文”，保持原来的粘贴习惯。
 - `translate-shell`（命令 `trans`）作为兜底后端；Codex 不可用或失败时会自动回退。
 - 可用环境变量：
