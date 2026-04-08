@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+set +v
+set +x
 set -u
 
 script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "${BASH_SOURCE[0]}")"
