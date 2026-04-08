@@ -277,7 +277,7 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 - `<prefix> + b`：复制当前 pane 路径对应仓库的 Git 分支名到剪贴板（至少会写入 tmux buffer）
 - `<prefix> + e`：在底部输入一句中文/英文，先用 `trans` 快速生成可粘贴英文并立即复制；如果 Codex 可用，再异步补一版更自然的英文并覆盖剪贴板/状态消息
-- `<prefix> + E`：先输入一行可选上下文，再输入要翻译的句子；Codex 会把上下文整理成一行 `CONTEXT` 放在最终 `BEST(codex)` 前面
+- `<prefix> + E`：打开可编辑 popup，支持多行输入正文和可选上下文；Codex 会把上下文整理成一行 `CONTEXT` 放在最终 `BEST(codex)` 前面
 - `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
 - `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
 - `<prefix> + F`：下方分屏，在新 pane 执行 `codex fork <session_id>`
@@ -290,7 +290,7 @@ Language Coach 依赖（可选）：
 - tmux 内默认走双阶段：先同步运行 `trans`，立即写入 `EN` 到状态栏/历史；然后异步启动 `codex exec` 做结构化润色。
 - 优先使用 `codex exec` 做结构化语言教练输出；推荐已经登录可用的 Codex CLI。
 - Codex 阶段会把 `trans` 的结果作为 first-pass draft 带进 prompt，再生成 `BEST(codex)`、`NOTE`、`TIP`。
-- 如果通过 `<prefix> + E` 提供了额外上下文，Codex 还会生成一行整理过的 `CONTEXT`，放在 `BEST(codex)` 前面，帮助理解最终表达该怎么用。
+- 如果通过 `<prefix> + E` 提供了额外上下文，Codex 还会生成一行整理过的 `CONTEXT`，放在 `BEST(codex)` 前面，帮助理解最终表达该怎么用；`E` 的 popup 支持多行上下文和多行正文。
 - 历史里会保留：原句、快速 `EN(trans)`、Codex 的 `NOTE/TIP`、可选的 `CONTEXT`、以及最终推荐的 `BEST(codex)`；`NOTE/TIP/CONTEXT` 会显示在 `EN` 和 `BEST` 之间。
 - 状态栏会先显示 `EN: ...`，Codex 完成后再更新成 `BEST: ...`。
 - 剪贴板 / tmux buffer 中只放“推荐使用的更自然英文”，保持原来的粘贴习惯。

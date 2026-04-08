@@ -21,6 +21,7 @@ history_backend_override="${TMUX_LANG_HISTORY_BACKEND:-}"
 status_backend_override="${TMUX_LANG_STATUS_BACKEND:-}"
 trans_draft="${TMUX_LANG_TRANS_DRAFT:-}"
 context="${TMUX_LANG_CONTEXT:-}"
+context_compact=""
 
 if [ -z "$input" ]; then
   printf "Input (zh/en): "
@@ -28,6 +29,7 @@ if [ -z "$input" ]; then
 fi
 
 input="$(printf '%s' "$input" | sed 's/[[:space:]]\+$//')"
+context="$(printf '%s' "$context" | sed 's/[[:space:]]\+$//')"
 if [ -z "$input" ]; then
   tmux display-message "Language: empty input"
   exit 0
@@ -66,7 +68,7 @@ normalize_line() {
   printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
 }
 
-context="$(normalize_line "$context")"
+context_compact="$(normalize_line "$context")"
 
 is_default_backend() {
   [ -z "$backend" ] || [ "$backend" = "auto" ] || [ "$backend" = "default" ]
@@ -309,7 +311,7 @@ EOF
 )"
   fi
 
-  if [ -n "$context" ]; then
+  if [ -n "$context_compact" ]; then
     prompt_extra="${prompt_extra}$(cat <<EOF
 Additional context from the user:
 $context
@@ -487,8 +489,9 @@ copy_result() {
     fi
   fi
 
-  short="$(printf '%s' "$text" | cut -c1-80)"
-  [ "${#text}" -gt 80 ] && short="${short}..."
+  status_text="$(normalize_line "$text")"
+  short="$(printf '%s' "$status_text" | cut -c1-80)"
+  [ "${#status_text}" -gt 80 ] && short="${short}..."
   short="${short//#/##}"
 
   if [ "$copy_ok" -eq 1 ]; then

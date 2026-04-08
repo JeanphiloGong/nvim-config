@@ -3,18 +3,104 @@ set -u
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 rewrite_bin="$script_dir/tmux-language-rewrite"
+draft_file=""
 
-trim_line() {
-  printf '%s' "$1" | sed 's/[[:space:]]\+$//'
+cleanup() {
+  if [ -n "$draft_file" ] && [ -f "$draft_file" ]; then
+    rm -f "$draft_file"
+  fi
+}
+trap cleanup EXIT
+
+trim_block() {
+  printf '%s' "$1" | awk '
+    {
+      lines[++count] = $0
+      if ($0 ~ /[^[:space:]]/) {
+        if (first == 0) {
+          first = count
+        }
+        last = count
+      }
+    }
+    END {
+      if (first == 0) {
+        exit
+      }
+      for (i = first; i <= last; i++) {
+        printf "%s", lines[i]
+        if (i < last) {
+          printf "\n"
+        }
+      }
+    }
+  '
 }
 
-printf "Context (optional): "
-IFS= read -r context || exit 0
-context="$(trim_line "$context")"
+extract_section() {
+  section="$1"
+  file="$2"
+  awk -v start="[$section]" -v stop="[/$section]" '
+    $0 == start {
+      in_section = 1
+      next
+    }
+    $0 == stop {
+      in_section = 0
+      exit
+    }
+    in_section {
+      print
+    }
+  ' "$file"
+}
 
-printf "Sentence: "
-IFS= read -r input || exit 0
-input="$(trim_line "$input")"
+open_editor() {
+  if [ -n "${VISUAL:-}" ] || [ -n "${EDITOR:-}" ]; then
+    sh -lc 'exec ${VISUAL:-${EDITOR:-nvim}} "$1"' sh "$draft_file"
+    return $?
+  fi
+
+  if command -v nvim >/dev/null 2>&1; then
+    nvim "$draft_file"
+    return $?
+  fi
+
+  if command -v vim >/dev/null 2>&1; then
+    vim "$draft_file"
+    return $?
+  fi
+
+  vi "$draft_file"
+}
+
+draft_file="$(mktemp "${TMPDIR:-/tmp}/tmux-language-context.XXXXXX")" || exit 1
+
+cat >"$draft_file" <<'EOF'
+# Write the text to translate between [input] and [/input].
+# Optional context goes between [context] and [/context].
+# Multi-line input is supported. Save and quit to submit.
+
+[input]
+
+[/input]
+
+[context]
+
+[/context]
+EOF
+
+open_editor || exit 0
+
+if ! grep -Fqx '[input]' "$draft_file" || ! grep -Fqx '[/input]' "$draft_file" || ! grep -Fqx '[context]' "$draft_file" || ! grep -Fqx '[/context]' "$draft_file"; then
+  tmux display-message "Language: invalid draft format"
+  exit 0
+fi
+
+input="$(extract_section "input" "$draft_file")"
+context="$(extract_section "context" "$draft_file")"
+input="$(trim_block "$input")"
+context="$(trim_block "$context")"
 
 if [ -z "$input" ]; then
   tmux display-message "Language: empty input"
