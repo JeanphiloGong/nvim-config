@@ -3,78 +3,249 @@ set -u
 
 history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
 limit="${1:-30}"
+render_file=""
+entry_count=0
+current_page=0
 
 if ! printf '%s' "$limit" | grep -Eq '^[0-9]+$'; then
   limit=30
 fi
 
-printf "Language history (latest %s)\n\n" "$limit"
+cleanup() {
+  if [ -n "$render_file" ] && [ -f "$render_file" ]; then
+    rm -f "$render_file"
+  fi
+}
+trap cleanup EXIT
+
+render_file="$(mktemp "${TMPDIR:-/tmp}/tmux-language-history.XXXXXX")" || exit 1
 
 if [ ! -s "$history_file" ]; then
-  printf "No history yet.\n\n"
-  printf "Press Enter to close..."
-  IFS= read -r _
+  printf "No history yet.\n" >"$render_file"
+else
+  tail -n "$limit" "$history_file" | awk -F '\t' '
+  {
+    idx = NR
+    ts = $1
+
+    if (NF >= 9) {
+      in_txt = $4
+      en_txt = $5
+      best_txt = $6
+      note_txt = $7
+      tip_txt = $8
+      context_txt = $9
+      printf "%2d. %s\n", idx, ts
+      printf "  IN        : %s\n", in_txt
+      printf "  EN(trans) : %s\n", en_txt
+      if (note_txt != "") {
+        printf "  NOTE      : %s\n", note_txt
+      }
+      if (tip_txt != "") {
+        printf "  TIP       : %s\n", tip_txt
+      }
+      if (context_txt != "") {
+        printf "  CONTEXT   : %s\n", context_txt
+      }
+      if (best_txt != "") {
+        printf "\n"
+        printf "  BEST(codex): %s\n", best_txt
+      }
+      printf "\f\n"
+    } else if (NF >= 7) {
+      in_txt = $3
+      en_txt = $4
+      best_txt = $5
+      note_txt = $6
+      tip_txt = $7
+      printf "%2d. %s\n", idx, ts
+      printf "  IN        : %s\n", in_txt
+      printf "  EN(trans) : %s\n", en_txt
+      if (note_txt != "") {
+        printf "  NOTE      : %s\n", note_txt
+      }
+      if (tip_txt != "") {
+        printf "  TIP       : %s\n", tip_txt
+      }
+      if (best_txt != "") {
+        printf "\n"
+        printf "  BEST(codex): %s\n", best_txt
+      }
+      printf "\f\n"
+    } else {
+      in_txt = $2
+      out_txt = $3
+      printf "%2d. %s\n", idx, ts
+      printf "  IN : %s\n", in_txt
+      printf "  OUT: %s\n", out_txt
+      printf "\f\n"
+    }
+  }
+  ' >"$render_file"
+fi
+
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  printf "Language history (latest %s)\n\n" "$limit"
+  awk '
+    $0 == "\f" {
+      printf "\n"
+      next
+    }
+    {
+      print
+    }
+  ' "$render_file"
   exit 0
 fi
 
-tail -n "$limit" "$history_file" | awk -F '\t' '
-{
-  idx = NR
-  ts = $1
+entries=()
+entry_heights=()
+page_starts=()
+entry_block=""
 
-  if (NF >= 9) {
-    in_txt = $4
-    en_txt = $5
-    best_txt = $6
-    note_txt = $7
-    tip_txt = $8
-    context_txt = $9
-    printf "%2d. %s\n", idx, ts
-    printf "  IN   : %s\n", in_txt
-    printf "  EN(trans) : %s\n", en_txt
-    if (note_txt != "") {
-      printf "  NOTE      : %s\n", note_txt
-    }
-    if (tip_txt != "") {
-      printf "  TIP       : %s\n", tip_txt
-    }
-    if (context_txt != "") {
-      printf "  CONTEXT   : %s\n", context_txt
-    }
-    if (best_txt != "") {
-      printf "\n"
-      printf "  BEST(codex): %s\n", best_txt
-    }
-    printf "\n"
-  } else if (NF >= 7) {
-    in_txt = $3
-    en_txt = $4
-    best_txt = $5
-    note_txt = $6
-    tip_txt = $7
-    printf "%2d. %s\n", idx, ts
-    printf "  IN   : %s\n", in_txt
-    printf "  EN(trans) : %s\n", en_txt
-    if (note_txt != "") {
-      printf "  NOTE      : %s\n", note_txt
-    }
-    if (tip_txt != "") {
-      printf "  TIP       : %s\n", tip_txt
-    }
-    if (best_txt != "") {
-      printf "\n"
-      printf "  BEST(codex): %s\n", best_txt
-    }
-    printf "\n"
-  } else {
-    in_txt = $2
-    out_txt = $3
-    printf "%2d. %s\n", idx, ts
-    printf "  IN : %s\n", in_txt
-    printf "  OUT: %s\n\n", out_txt
-  }
+while IFS= read -r line || [ -n "$line" ]; do
+  if [ "$line" = $'\f' ]; then
+    entries+=("$entry_block")
+    entry_heights+=("$(printf '%s\n' "$entry_block" | wc -l | tr -d ' ')")
+    entry_block=""
+    continue
+  fi
+
+  if [ -n "$entry_block" ]; then
+    entry_block="${entry_block}
+$line"
+  else
+    entry_block="$line"
+  fi
+done <"$render_file"
+
+if [ -n "$entry_block" ]; then
+  entries+=("$entry_block")
+  entry_heights+=("$(printf '%s\n' "$entry_block" | wc -l | tr -d ' ')")
+fi
+
+entry_count="${#entries[@]}"
+
+build_pages() {
+  page_size="$1"
+  page_starts=(0)
+
+  if [ "$entry_count" -le 1 ]; then
+    return
+  fi
+
+  idx=0
+  while [ "$idx" -lt "$entry_count" ]; do
+    used_lines=0
+    start_idx="$idx"
+
+    while [ "$idx" -lt "$entry_count" ]; do
+      entry_lines="${entry_heights[$idx]}"
+      if [ "$used_lines" -gt 0 ] && [ $((used_lines + entry_lines)) -gt "$page_size" ]; then
+        break
+      fi
+      if [ "$entry_lines" -gt "$page_size" ] && [ "$used_lines" -eq 0 ]; then
+        idx=$((idx + 1))
+        used_lines="$entry_lines"
+        break
+      fi
+      used_lines=$((used_lines + entry_lines))
+      idx=$((idx + 1))
+    done
+
+    if [ "$idx" -lt "$entry_count" ] && [ "$idx" -gt "$start_idx" ]; then
+      page_starts+=("$idx")
+    elif [ "$idx" -lt "$entry_count" ] && [ "$idx" -eq "$start_idx" ]; then
+      idx=$((idx + 1))
+      page_starts+=("$idx")
+    fi
+  done
 }
-'
 
-printf "Press Enter to close..."
-IFS= read -r _
+while true; do
+  term_lines="$(tput lines 2>/dev/null || printf '24')"
+  page_size=$((term_lines - 4))
+  if [ "$page_size" -lt 1 ]; then
+    page_size=1
+  fi
+
+  build_pages "$page_size"
+  total_pages="${#page_starts[@]}"
+  if [ "$total_pages" -lt 1 ]; then
+    total_pages=1
+  fi
+  if [ "$current_page" -lt 0 ]; then
+    current_page=0
+  fi
+  if [ "$current_page" -ge "$total_pages" ]; then
+    current_page=$((total_pages - 1))
+  fi
+
+  printf '\033[H\033[2J'
+  printf "Language history (latest %s)\n" "$limit"
+
+  if [ "$entry_count" -eq 0 ]; then
+    printf "\nNo history yet.\n"
+  else
+    start_idx="${page_starts[$current_page]}"
+    if [ "$current_page" -lt $((total_pages - 1)) ]; then
+      end_idx="${page_starts[$((current_page + 1))]}"
+    else
+      end_idx="$entry_count"
+    fi
+    printf "\n"
+    idx="$start_idx"
+    while [ "$idx" -lt "$end_idx" ]; do
+      printf '%s\n' "${entries[$idx]}"
+      if [ $((idx + 1)) -lt "$end_idx" ]; then
+        printf "\n"
+      fi
+      idx=$((idx + 1))
+    done
+  fi
+
+  printf "\n[j] next page  [k] previous page  [q] close"
+  printf "  (%s/%s)" "$((current_page + 1))" "$total_pages"
+
+  IFS= read -rsn1 key || exit 0
+  case "$key" in
+    j|' ')
+      if [ "$current_page" -lt $((total_pages - 1)) ]; then
+        current_page=$((current_page + 1))
+      fi
+      ;;
+    k)
+      if [ "$current_page" -gt 0 ]; then
+        current_page=$((current_page - 1))
+      fi
+      ;;
+    q|Q|'')
+      printf '\033[H\033[2J'
+      exit 0
+      ;;
+    $'\e')
+      IFS= read -rsn1 -t 0.05 key_rest || key_rest=""
+      if [ "$key_rest" = "[" ]; then
+        IFS= read -rsn1 -t 0.05 key_final || key_final=""
+        case "$key_final" in
+          B|6)
+            if [ "$current_page" -lt $((total_pages - 1)) ]; then
+              current_page=$((current_page + 1))
+            fi
+            if [ "$key_final" = "6" ]; then
+              IFS= read -rsn1 -t 0.05 _ || true
+            fi
+            ;;
+          A|5)
+            if [ "$current_page" -gt 0 ]; then
+              current_page=$((current_page - 1))
+            fi
+            if [ "$key_final" = "5" ]; then
+              IFS= read -rsn1 -t 0.05 _ || true
+            fi
+            ;;
+        esac
+      fi
+      ;;
+  esac
+done
