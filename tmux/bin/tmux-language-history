@@ -22,12 +22,13 @@ tail -n "$limit" "$history_file" | awk -F '\t' '
   idx = NR
   ts = $1
 
-  if (NF >= 8) {
+  if (NF >= 9) {
     in_txt = $4
     en_txt = $5
     best_txt = $6
     note_txt = $7
     tip_txt = $8
+    context_txt = $9
     printf "%2d. %s\n", idx, ts
     printf "  IN   : %s\n", in_txt
     printf "  EN(trans) : %s\n", en_txt
@@ -36,6 +37,9 @@ tail -n "$limit" "$history_file" | awk -F '\t' '
     }
     if (tip_txt != "") {
       printf "  TIP       : %s\n", tip_txt
+    }
+    if (context_txt != "") {
+      printf "  CONTEXT   : %s\n", context_txt
     }
     if (best_txt != "") {
       printf "\n"

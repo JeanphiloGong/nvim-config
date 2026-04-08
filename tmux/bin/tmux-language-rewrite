@@ -20,6 +20,7 @@ allow_paste="${TMUX_LANG_ALLOW_PASTE:-$auto_paste}"
 history_backend_override="${TMUX_LANG_HISTORY_BACKEND:-}"
 status_backend_override="${TMUX_LANG_STATUS_BACKEND:-}"
 trans_draft="${TMUX_LANG_TRANS_DRAFT:-}"
+context="${TMUX_LANG_CONTEXT:-}"
 
 if [ -z "$input" ]; then
   printf "Input (zh/en): "
@@ -41,11 +42,13 @@ english_translation=""
 polished_english=""
 teacher_note=""
 grammar_tip=""
+context_line=""
 fallback_reason=""
 history_en=""
 history_best=""
 history_note=""
 history_tip=""
+history_context=""
 result=""
 copy_ok=0
 copy_via="tmux-buffer"
@@ -57,10 +60,13 @@ existing_en=""
 existing_best=""
 existing_note=""
 existing_tip=""
+existing_context=""
 
 normalize_line() {
   printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
 }
+
+context="$(normalize_line "$context")"
 
 is_default_backend() {
   [ -z "$backend" ] || [ "$backend" = "auto" ] || [ "$backend" = "default" ]
@@ -110,6 +116,7 @@ history_upsert_impl() {
   best_text="$6"
   note_text="$7"
   tip_text="$8"
+  context_text="$9"
   tmp="${history_file}.tmp.$$"
 
   awk -F '\t' -v OFS='\t' \
@@ -120,12 +127,13 @@ history_upsert_impl() {
     -v en_text="$en_text" \
     -v best_text="$best_text" \
     -v note_text="$note_text" \
-    -v tip_text="$tip_text" '
+    -v tip_text="$tip_text" \
+    -v context_text="$context_text" '
     BEGIN {
       found = 0
     }
     NF >= 8 && $2 == req {
-      print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text
+      print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text, context_text
       found = 1
       next
     }
@@ -134,7 +142,7 @@ history_upsert_impl() {
     }
     END {
       if (!found) {
-        print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text
+        print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text, context_text
       }
     }
   ' "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
@@ -153,6 +161,7 @@ history_merge_auto_impl() {
   best_text="$6"
   note_text="$7"
   tip_text="$8"
+  context_text="$9"
   tmp="${history_file}.tmp.$$"
 
   awk -F '\t' -v OFS='\t' \
@@ -163,19 +172,25 @@ history_merge_auto_impl() {
     -v en_text="$en_text" \
     -v best_text="$best_text" \
     -v note_text="$note_text" \
-    -v tip_text="$tip_text" '
+    -v tip_text="$tip_text" \
+    -v context_text="$context_text" '
     function print_trans_record() {
       merged_best = $6
       merged_note = $7
       merged_tip = $8
+      merged_context = (NF >= 9 ? $9 : "")
       if (merged_best == "" && merged_note == "" && merged_tip == "") {
         merged_note = "Waiting for Codex refinement."
       }
-      print ts, req, "default", in_text, en_text, merged_best, merged_note, merged_tip
+      print ts, req, "default", in_text, en_text, merged_best, merged_note, merged_tip, merged_context
     }
     function print_codex_record() {
       merged_en = ($5 != "" ? $5 : en_text)
-      print ts, req, "default", in_text, merged_en, best_text, note_text, tip_text
+      merged_context = context_text
+      if (merged_context == "" && NF >= 9) {
+        merged_context = $9
+      }
+      print ts, req, "default", in_text, merged_en, best_text, note_text, tip_text, merged_context
     }
     BEGIN {
       found = 0
@@ -195,9 +210,9 @@ history_merge_auto_impl() {
     END {
       if (!found) {
         if (stage == "trans") {
-          print ts, req, "default", in_text, en_text, "", "Waiting for Codex refinement.", ""
+          print ts, req, "default", in_text, en_text, "", "Waiting for Codex refinement.", "", ""
         } else {
-          print ts, req, "default", in_text, en_text, best_text, note_text, tip_text
+          print ts, req, "default", in_text, en_text, best_text, note_text, tip_text, context_text
         }
       }
     }
@@ -217,12 +232,13 @@ history_load() {
   existing_best=""
   existing_note=""
   existing_tip=""
+  existing_context=""
 
   ensure_history_file
   line="$(awk -F '\t' -v req="$1" 'NF >= 8 && $2 == req { line = $0 } END { print line }' "$history_file" 2>/dev/null || true)"
   [ -n "$line" ] || return 1
 
-  IFS=$'\t' read -r existing_ts existing_request_id existing_backend existing_input existing_en existing_best existing_note existing_tip <<EOF
+  IFS=$'\t' read -r existing_ts existing_request_id existing_backend existing_input existing_en existing_best existing_note existing_tip existing_context <<EOF
 $line
 EOF
   return 0
@@ -263,20 +279,22 @@ rewrite_with_codex() {
   "type": "object",
   "properties": {
     "original_text": { "type": "string" },
-    "english_translation": { "type": "string" },
-    "polished_english": { "type": "string" },
-    "teacher_note_zh": { "type": "string" },
-    "grammar_tip_zh": { "type": "string" }
-  },
-  "required": [
-    "original_text",
-    "english_translation",
-    "polished_english",
-    "teacher_note_zh",
-    "grammar_tip_zh"
-  ],
-  "additionalProperties": false
-}
+      "english_translation": { "type": "string" },
+      "polished_english": { "type": "string" },
+      "teacher_note_zh": { "type": "string" },
+      "grammar_tip_zh": { "type": "string" },
+      "context_line": { "type": "string" }
+    },
+    "required": [
+      "original_text",
+      "english_translation",
+      "polished_english",
+      "teacher_note_zh",
+      "grammar_tip_zh",
+      "context_line"
+    ],
+    "additionalProperties": false
+  }
 EOF
 
   prompt_extra=""
@@ -286,6 +304,21 @@ Fast translation draft from trans:
 $trans_draft
 
 Use this draft as a first pass. Keep it if it is already accurate, but improve wording or correct it when needed.
+
+EOF
+)"
+  fi
+
+  if [ -n "$context" ]; then
+    prompt_extra="${prompt_extra}$(cat <<EOF
+Additional context from the user:
+$context
+
+Use this context to resolve tone, relationship, situation, and intended meaning.
+context_line must be a short Chinese lead-in derived from the context so it reads naturally right before polished_english.
+Do not output a dialogue.
+Do not output only a bare scene label.
+Do not copy the user's context verbatim.
 
 EOF
 )"
@@ -310,6 +343,8 @@ Rules:
 - polished_english must be the most natural English sentence you would actually recommend the learner use.
 - teacher_note_zh must be a short Chinese explanation of what was improved or corrected.
 - grammar_tip_zh must be a short Chinese usage or grammar tip.
+- context_line must be empty when no additional context was supplied.
+- context_line must be a concise Chinese contextual lead-in when additional context was supplied.
 - Keep each field concise and practical.
 
 $prompt_extra
@@ -326,11 +361,13 @@ EOF
   polished_english="$(jq -r '.polished_english // empty' "$output_file" 2>/dev/null || true)"
   teacher_note="$(jq -r '.teacher_note_zh // empty' "$output_file" 2>/dev/null || true)"
   grammar_tip="$(jq -r '.grammar_tip_zh // empty' "$output_file" 2>/dev/null || true)"
+  context_line="$(jq -r '.context_line // empty' "$output_file" 2>/dev/null || true)"
 
   english_translation="$(normalize_line "$english_translation")"
   polished_english="$(normalize_line "$polished_english")"
   teacher_note="$(normalize_line "$teacher_note")"
   grammar_tip="$(normalize_line "$grammar_tip")"
+  context_line="$(normalize_line "$context_line")"
 
   if [ -z "$english_translation" ]; then
     fallback_reason="codex_output_invalid"
@@ -366,7 +403,7 @@ rewrite_with_trans() {
 spawn_codex_refine_worker() {
   worker_trans_draft="$1"
   printf -v cmd \
-    'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_TARGET=%q TMUX_LANG_HISTORY_FILE=%q TMUX_LANG_LOG_FILE=%q TMUX_LANG_BACKEND=%q TMUX_LANG_CODEX_MODEL=%q TMUX_LANG_CODEX_EFFORT=%q TMUX_LANG_CODEX_CWD=%q TMUX_LANG_CODEX_BIN=%q TMUX_LANG_WORKFLOW_MODE=%q TMUX_LANG_REQUEST_ID=%q TMUX_LANG_ONLY_IF_ACTIVE=%q TMUX_LANG_ALLOW_PASTE=%q TMUX_LANG_HISTORY_BACKEND=%q TMUX_LANG_STATUS_BACKEND=%q TMUX_LANG_TRANS_DRAFT=%q bash %q %q' \
+    'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_TARGET=%q TMUX_LANG_HISTORY_FILE=%q TMUX_LANG_LOG_FILE=%q TMUX_LANG_BACKEND=%q TMUX_LANG_CODEX_MODEL=%q TMUX_LANG_CODEX_EFFORT=%q TMUX_LANG_CODEX_CWD=%q TMUX_LANG_CODEX_BIN=%q TMUX_LANG_WORKFLOW_MODE=%q TMUX_LANG_REQUEST_ID=%q TMUX_LANG_ONLY_IF_ACTIVE=%q TMUX_LANG_ALLOW_PASTE=%q TMUX_LANG_HISTORY_BACKEND=%q TMUX_LANG_STATUS_BACKEND=%q TMUX_LANG_TRANS_DRAFT=%q TMUX_LANG_CONTEXT=%q bash %q %q' \
     "$auto_paste" \
     "$target_pane" \
     "$history_file" \
@@ -383,6 +420,7 @@ spawn_codex_refine_worker() {
     "" \
     "BEST" \
     "$worker_trans_draft" \
+    "$context" \
     "$script_path" \
     "$input"
   tmux run-shell -b "$cmd"
@@ -489,6 +527,7 @@ if is_default_backend && [ "$workflow_mode" = "foreground" ] && [ ! -t 1 ] && [ 
   history_best=""
   history_note=""
   history_tip=""
+  history_context=""
   result="$history_en"
   status_backend_final="EN"
 
@@ -502,7 +541,8 @@ if is_default_backend && [ "$workflow_mode" = "foreground" ] && [ ! -t 1 ] && [ 
     "$history_en" \
     "$history_best" \
     "$history_note" \
-    "$history_tip"
+    "$history_tip" \
+    "$history_context"
   copy_result "$result" "$status_backend_final"
   paste_back
   spawn_codex_refine_worker "$history_en"
@@ -543,6 +583,7 @@ history_en="$(normalize_line "$english_translation")"
 history_best="$(normalize_line "$polished_english")"
 history_note="$(normalize_line "$teacher_note")"
 history_tip="$(normalize_line "$grammar_tip")"
+history_context="$(normalize_line "$context_line")"
 result="$polished_english"
 [ -n "$result" ] || result="$english_translation"
 [ -n "$result" ] || result="$input"
@@ -559,13 +600,15 @@ if [ "$workflow_mode" = "background" ]; then
     "$history_en" \
     "$history_best" \
     "$history_note" \
-    "$history_tip"
+    "$history_tip" \
+    "$history_context"
 
   history_load "$request_id" || true
   history_en="$existing_en"
   history_best="$existing_best"
   history_note="$existing_note"
   history_tip="$existing_tip"
+  history_context="$existing_context"
 
   if [ "$backend" = "codex" ] && [ "$codex_ok" -eq 1 ]; then
     result="$history_best"
@@ -581,7 +624,8 @@ else
     "$history_en" \
     "$history_best" \
     "$history_note" \
-    "$history_tip"
+    "$history_tip" \
+    "$history_context"
 fi
 
 copy_result "$result" "$status_backend_final"
@@ -595,6 +639,9 @@ if [ -t 1 ]; then
   fi
   if [ -n "$grammar_tip" ]; then
     printf "Tip:\n%s\n\n" "$grammar_tip"
+  fi
+  if [ -n "$history_context" ]; then
+    printf "Context:\n%s\n\n" "$history_context"
   fi
   if [ "$allow_paste" = "1" ] && [ "$copy_ok" -eq 1 ]; then
     printf "Copied via %s. Press Enter to paste..." "$copy_via"
