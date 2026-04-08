@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set +v
+set +x
+set -u
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+rewrite_bin="$script_dir/tmux-language-rewrite"
+
+trim_line() {
+  printf '%s' "$1" | sed 's/[[:space:]]\+$//'
+}
+
+printf "Sentence: "
+IFS= read -r input || exit 0
+input="$(trim_line "$input")"
+
+if [ -z "$input" ]; then
+  tmux display-message "Language: empty input"
+  exit 0
+fi
+
+tmux set -gq @shared_status_msg "Language: translating..." >/dev/null 2>&1 || true
+tmux refresh-client -S >/dev/null 2>&1 || true
+
+printf -v cmd \
+  'TMUX_LANG_AUTOPASTE=%q bash %q %q' \
+  "0" \
+  "$rewrite_bin" \
+  "$input"
+
+tmux run-shell -b "$cmd"
