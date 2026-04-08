@@ -133,7 +133,7 @@ bind-key b run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/t
 unbind-key -q g
 unbind-key -q e
 unbind-key -q E
-bind-key e command-prompt -p "Language input" 'run-shell -b "TMUX_LANG_AUTOPASTE=0 bash \"${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-language-rewrite\" \"%%\""'
+bind-key e display-popup -E -w 90% -h 8 -T "Language Input" -d "#{pane_current_path}" 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-language-input"'
 bind-key E display-popup -E -w 90% -h 80% -T "Language Context" -d "#{pane_current_path}" 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-language-context-input"'
 
 # Language Coach History：只读历史查看

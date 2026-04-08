@@ -276,7 +276,7 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + >`：当前 window 右移一位，并切换到交换后的目标位置
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 - `<prefix> + b`：复制当前 pane 路径对应仓库的 Git 分支名到剪贴板（至少会写入 tmux buffer）
-- `<prefix> + e`：在底部输入一句中文/英文，先用 `trans` 快速生成可粘贴英文并立即复制；如果 Codex 可用，再异步补一版更自然的英文并覆盖剪贴板/状态消息
+- `<prefix> + e`：打开一个小 popup 输入一句中文/英文，先用 `trans` 快速生成可粘贴英文并立即复制；如果 Codex 可用，再异步补一版更自然的英文并覆盖剪贴板/状态消息
 - `<prefix> + E`：打开可编辑 popup，支持多行输入正文和可选上下文；Codex 会把上下文整理成一行 `CONTEXT` 放在最终 `BEST(codex)` 前面
 - `<prefix> + H`：打开 Language Coach 只读历史（最近记录）
 - `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
