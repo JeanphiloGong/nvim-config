@@ -292,7 +292,7 @@ Language Coach 依赖（可选）：
 - Codex 阶段会把 `trans` 的结果作为 first-pass draft 带进 prompt，再生成 `BEST(codex)`、`NOTE`、`TIP`。
 - 如果通过 `<prefix> + E` 提供了额外上下文，Codex 还会生成一行整理过的 `CONTEXT`，放在 `BEST(codex)` 前面，帮助理解最终表达该怎么用；`E` 的 popup 支持多行上下文和多行正文。
 - 历史里会保留：原句、快速 `EN(trans)`、Codex 的 `NOTE/TIP`、可选的 `CONTEXT`、以及最终推荐的 `BEST(codex)`；`NOTE/TIP/CONTEXT` 会显示在 `EN` 和 `BEST` 之间。
-- 状态栏会先显示 `EN: ...`，Codex 完成后再更新成 `BEST: ...`。
+- 提交后状态栏会先显示 `Language: translating...` 或 `Language: translating with context...`，`trans` 返回后更新成 `EN: ...`，Codex 完成后再更新成 `BEST: ...`。
 - 剪贴板 / tmux buffer 中只放“推荐使用的更自然英文”，保持原来的粘贴习惯。
 - `translate-shell`（命令 `trans`）作为兜底后端；Codex 不可用或失败时会自动回退。
 - 可用环境变量：

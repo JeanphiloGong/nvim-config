@@ -107,6 +107,9 @@ if [ -z "$input" ]; then
   exit 0
 fi
 
+tmux set -gq @shared_status_msg "Language: translating with context..." >/dev/null 2>&1 || true
+tmux refresh-client -S >/dev/null 2>&1 || true
+
 printf -v cmd \
   'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_CONTEXT=%q bash %q %q' \
   "0" \
