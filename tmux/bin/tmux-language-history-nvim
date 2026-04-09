@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -u
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+fallback_viewer="$script_dir/tmux-language-history"
+history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
+limit="${1:-200}"
+view_file=""
+
+if ! printf '%s' "$limit" | grep -Eq '^[0-9]+$'; then
+  limit=200
+fi
+
+cleanup() {
+  if [ -n "$view_file" ] && [ -f "$view_file" ]; then
+    rm -f "$view_file"
+  fi
+}
+trap cleanup EXIT
+
+if ! command -v nvim >/dev/null 2>&1; then
+  exec bash "$fallback_viewer" "$limit"
+fi
+
+view_file="$(mktemp "${TMPDIR:-/tmp}/tmux-language-history.XXXXXX.md")" || exit 1
+
+if [ ! -s "$history_file" ]; then
+  cat >"$view_file" <<'EOF'
+# Language History
+
+No history yet.
+EOF
+else
+  {
+    printf '# Language History\n\n'
+    printf '_Latest %s entries from `%s`._\n\n' "$limit" "$history_file"
+
+    tail -n "$limit" "$history_file" | awk -F '\t' '
+      function emit_field(title, value) {
+        if (value == "") {
+          return
+        }
+        printf "#### %s\n\n%s\n\n", title, value
+      }
+      {
+        ts = $1
+        date = ts
+        time = ts
+
+        split(ts, ts_parts, "T")
+        if (length(ts_parts) >= 2) {
+          date = ts_parts[1]
+          time = ts_parts[2]
+          sub(/Z$/, "", time)
+        }
+
+        if (date != current_date) {
+          if (NR > 1) {
+            printf "\n"
+          }
+          printf "## %s\n\n", date
+          current_date = date
+        }
+
+        request_id = ""
+        backend = ""
+        if (NF >= 9) {
+          request_id = $2
+          backend = $3
+          in_txt = $4
+          en_txt = $5
+          best_txt = $6
+          note_txt = $7
+          tip_txt = $8
+          context_txt = $9
+        } else if (NF >= 7) {
+          in_txt = $3
+          en_txt = $4
+          best_txt = $5
+          note_txt = $6
+          tip_txt = $7
+          context_txt = ""
+        } else {
+          in_txt = $2
+          en_txt = $3
+          best_txt = ""
+          note_txt = ""
+          tip_txt = ""
+          context_txt = ""
+        }
+
+        printf "### %s\n\n", time
+        if (request_id != "") {
+          printf "- Request: `%s`\n", request_id
+        }
+        if (backend != "") {
+          printf "- Backend: `%s`\n", backend
+        }
+        if (request_id != "" || backend != "") {
+          printf "\n"
+        }
+
+        emit_field("Input", in_txt)
+        emit_field("EN (trans)", en_txt)
+        emit_field("Note", note_txt)
+        emit_field("Tip", tip_txt)
+        emit_field("Context", context_txt)
+        emit_field("Best", best_txt)
+      }
+    '
+  } >"$view_file"
+fi
+
+nvim -R "$view_file" \
+  -c 'setlocal bufhidden=wipe noswapfile' \
+  -c 'nnoremap <silent> <buffer> q :q<CR>' \
+  -c 'normal! gg'
