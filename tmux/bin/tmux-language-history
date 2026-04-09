@@ -6,6 +6,7 @@ limit="${1:-30}"
 render_file=""
 entry_count=0
 current_page=0
+initial_page_pending=1
 
 if ! printf '%s' "$limit" | grep -Eq '^[0-9]+$'; then
   limit=30
@@ -173,6 +174,10 @@ while true; do
   total_pages="${#page_starts[@]}"
   if [ "$total_pages" -lt 1 ]; then
     total_pages=1
+  fi
+  if [ "$initial_page_pending" -eq 1 ]; then
+    current_page=$((total_pages - 1))
+    initial_page_pending=0
   fi
   if [ "$current_page" -lt 0 ]; then
     current_page=0
