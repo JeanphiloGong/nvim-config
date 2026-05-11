@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ ! -t 0 ]; then
+  cat >/dev/null || true
+fi
+
+state="${1:-}"
+emit_stop_output=0
+
+if [ "${2:-}" = "--stop" ]; then
+  emit_stop_output=1
+fi
+
+finish() {
+  if [ "$emit_stop_output" -eq 1 ]; then
+    printf '{"continue":true,"suppressOutput":true}\n'
+  fi
+  exit 0
+}
+
+case "$state" in
+  idle | working | blocked | done | unknown) ;;
+  clear | release) ;;
+  *) exit 0 ;;
+esac
+
+[ -n "${TMUX:-}" ] || finish
+[ -n "${TMUX_PANE:-}" ] || finish
+
+status_bin="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-agent-status"
+[ -x "$status_bin" ] || finish
+
+case "$state" in
+  clear | release)
+    "$status_bin" clear "$TMUX_PANE" >/dev/null 2>&1 || true
+    ;;
+  *)
+    "$status_bin" report \
+      --pane "$TMUX_PANE" \
+      --agent codex \
+      --state "$state" \
+      --source codex-hook >/dev/null 2>&1 || true
+    ;;
+esac
+
+finish

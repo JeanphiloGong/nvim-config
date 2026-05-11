@@ -13,6 +13,16 @@
   - `Orch dashboard`：打开当前 tmux session 的编排状态面板
   - 其余条目：最近完成的 Codex panes，可直接跳回
 
+### AgentBoard 状态来源
+
+`AgentBoard` 用两层信号判断状态：
+
+- Codex lifecycle hooks 主动把 `working / blocked / done / idle` 写到当前 tmux pane metadata
+- `tmux-agent-scan` 再读取 pane 进程和屏幕文本，作为 hooks 不存在或过期时的补充判断
+
+全局 Codex hook 配置在 `~/.codex/hooks.json`，需要 `~/.codex/config.toml`
+里的 `[features].codex_hooks = true`。新开的 Codex 会话会读取这份配置。
+
 ## Skill Layers
 
 `tmux/skills/` 现在分成三个公开角色和两个内部 helper：
