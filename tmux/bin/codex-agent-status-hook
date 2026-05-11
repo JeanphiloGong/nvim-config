@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+payload=""
 if [ ! -t 0 ]; then
-  cat >/dev/null || true
+  payload="$(cat 2>/dev/null || true)"
 fi
 
 state="${1:-}"
@@ -31,17 +32,103 @@ esac
 status_bin="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-agent-status"
 [ -x "$status_bin" ] || finish
 
+activity_from_payload() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  local payload_file
+  payload_file="$(mktemp "${TMPDIR:-/tmp}/codex-agent-status.XXXXXX")" || return 0
+  printf '%s' "$payload" >"$payload_file" 2>/dev/null || {
+    rm -f "$payload_file"
+    return 0
+  }
+  python3 - "$state" "$payload_file" <<'PY' 2>/dev/null || true
+import json
+import re
+import sys
+
+state = sys.argv[1]
+with open(sys.argv[2], "r", encoding="utf-8", errors="replace") as fh:
+    raw = fh.read()
+
+try:
+    data = json.loads(raw) if raw.strip() else {}
+except Exception:
+    data = {}
+
+def clean(value, limit=72):
+    if isinstance(value, (dict, list)):
+        value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if value is None:
+        value = ""
+    value = re.sub(r"\s+", " ", str(value)).strip()
+    value = re.sub(r"[\x00-\x1f\x7f]", "", value)
+    if len(value) > limit:
+        value = value[: max(0, limit - 1)].rstrip() + "..."
+    return value
+
+event = clean(data.get("hook_event_name") or data.get("hookEventName"), 32)
+tool = clean(data.get("tool_name") or data.get("toolName"), 32)
+tool_input = data.get("tool_input") or data.get("toolInput") or {}
+command = ""
+description = ""
+if isinstance(tool_input, dict):
+    command = clean(tool_input.get("command"), 72)
+    description = clean(tool_input.get("description"), 72)
+
+prompt = clean(data.get("prompt"), 72)
+last_message = clean(data.get("last_assistant_message") or data.get("lastAssistantMessage"), 72)
+source = clean(data.get("source"), 32)
+
+if event == "SessionStart":
+    print(f"idle: {source or 'session'}")
+elif event == "UserPromptSubmit":
+    print(f"prompt: {prompt or 'submitted'}")
+elif event == "PreToolUse":
+    if tool == "Bash" and command:
+        print(f"bash: {command}")
+    elif tool == "apply_patch":
+        print("edit: apply_patch")
+    elif tool:
+        print(f"tool: {tool}")
+    else:
+        print("working")
+elif event == "PermissionRequest":
+    if description:
+        print(f"blocked: {description}")
+    elif tool:
+        print(f"blocked: {tool}")
+    else:
+        print("blocked")
+elif event == "PostToolUse":
+    print(f"done tool: {tool or 'tool'}")
+elif event == "Stop":
+    print(f"done: {last_message}" if last_message else "done")
+elif state:
+    print(state)
+PY
+  rm -f "$payload_file"
+}
+
+activity="$(activity_from_payload)"
+[ -n "$activity" ] || activity="$state"
+
 case "$state" in
   clear | release)
     "$status_bin" clear "$TMUX_PANE" >/dev/null 2>&1 || true
+    tmux set-option -pqu -t "$TMUX_PANE" @codex_pane_activity 2>/dev/null || true
+    tmux select-pane -t "$TMUX_PANE" -T "" 2>/dev/null || true
     ;;
   *)
     "$status_bin" report \
       --pane "$TMUX_PANE" \
       --agent codex \
       --state "$state" \
+      --message "$activity" \
       --source codex-hook >/dev/null 2>&1 || true
+    tmux set -pq -t "$TMUX_PANE" @codex_pane_activity "$activity" 2>/dev/null || true
+    tmux select-pane -t "$TMUX_PANE" -T "$activity" 2>/dev/null || true
     ;;
 esac
+
+tmux refresh-client -S 2>/dev/null || true
 
 finish
