@@ -11,6 +11,7 @@ local state = {
   expanded = {},
   line_to_index = {},
   row_lines = {},
+  status_cols = {},
   tree_top = 1,
   generated_at = nil,
   counts = {},
@@ -460,6 +461,7 @@ local function render_cached()
 
   state.line_to_index = {}
   state.row_lines = {}
+  state.status_cols = {}
 
   local counts = state.counts or {}
   local lines = {}
@@ -519,6 +521,8 @@ local function render_cached()
     local index = state.tree_top + offset - 1
     local row = state.tree_rows[index]
     local left = ""
+    local status_col_start = nil
+    local status_col_end = nil
     if row then
       local prefix = string.rep("  ", row.depth or 0)
       local icon = " "
@@ -529,24 +533,17 @@ local function render_cached()
         local pane = row.pane
         local source = pane.source == "report" and "*" or " "
         local name = pane.label or pane_location(pane)
-        left = string.format(
-          "%s%s%s%s %s %s",
-          source,
-          prefix,
-          icon,
-          kind_sign(row.kind),
-          state_sign(pane.state),
-          truncate(name, math.max(8, left_width - 8 - #prefix))
-        )
+        local status = state_sign(pane.state)
+        local left_prefix = string.format("%s%s%s%s ", source, prefix, icon, kind_sign(row.kind))
+        status_col_start = #left_prefix
+        status_col_end = status_col_start + #status
+        left = left_prefix .. status .. " " .. truncate(name, math.max(8, left_width - 8 - #prefix))
       else
-        left = string.format(
-          "%s%s%s %s %s",
-          prefix,
-          icon,
-          kind_sign(row.kind),
-          state_sign(row.status),
-          truncate(row.title, math.max(8, left_width - 7 - #prefix))
-        )
+        local status = state_sign(row.status)
+        local left_prefix = string.format("%s%s%s ", prefix, icon, kind_sign(row.kind))
+        status_col_start = #left_prefix
+        status_col_end = status_col_start + #status
+        left = left_prefix .. status .. " " .. truncate(row.title, math.max(8, left_width - 7 - #prefix))
       end
     end
     local right = preview_slice[offset] or ""
@@ -554,6 +551,7 @@ local function render_cached()
     if row then
       state.line_to_index[#lines] = index
       state.row_lines[index] = #lines
+      state.status_cols[index] = { status_col_start, status_col_end }
     end
   end
 
@@ -584,8 +582,9 @@ local function render_cached()
 
   for index, row in ipairs(state.tree_rows) do
     local line = state.row_lines[index]
-    if line then
-      vim.api.nvim_buf_add_highlight(state.buf, ns, state_hl(row.status), line - 1, 0, -1)
+    local cols = state.status_cols[index]
+    if line and cols then
+      vim.api.nvim_buf_add_highlight(state.buf, ns, state_hl(row.status), line - 1, cols[1], cols[2])
     end
   end
 
