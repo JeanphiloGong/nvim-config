@@ -118,11 +118,11 @@ source ~/.bashrc
 1) 安装 TPM：`git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm`
 2) 关联配置：`ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf`
 3) 启动 tmux 后执行 `tmux source ~/.tmux.conf`，再按 `prefix + I` 安装插件。
-4) `prefix + C` 打开 nvim `AgentBoard`，用于查看 agent pane 状态、预览/滚动 pane 历史、发送输入并跳转。
+4) `prefix + C` 打开 nvim `AgentBoard`，左侧用 session/window/pane 树管理 agent，右侧预览/滚动选中 pane 历史、发送输入并跳转。
 
 ## 实用命令
 - `:Time` 在光标处插入当前时间戳（YYYY-MM-DD HH:MM:SS）。
-- `:AgentBoard` 打开 tmux agent 控制面板；`Enter` 进入右侧预览滚动历史，`i` 发送输入，`J` 跳转到选中 pane。
+- `:AgentBoard` 打开 tmux agent 编排器；`Enter` / `Space` 展开左侧树或进入右侧预览，`i` 发送输入，`J` 跳转到选中 pane。
 
 ## 作者
 Jeanphilo Gong  

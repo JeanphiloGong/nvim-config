@@ -2,9 +2,11 @@ local M = {}
 
 local state = {
   buf = nil,
-  selected = 1,
+  selected_row = 1,
   show_all = false,
   panes = {},
+  tree_rows = {},
+  expanded = {},
   line_to_index = {},
   row_lines = {},
   generated_at = nil,
@@ -112,6 +114,65 @@ local function pane_location(pane)
   return target
 end
 
+local status_order = { "blocked", "working", "done", "idle", "unknown" }
+
+local function count_state(counts, agent_state)
+  counts[agent_state or "unknown"] = (counts[agent_state or "unknown"] or 0) + 1
+end
+
+local function count_summary(counts)
+  local parts = {}
+  for _, name in ipairs(status_order) do
+    local count = counts[name] or 0
+    if count > 0 then
+      table.insert(parts, name .. "=" .. count)
+    end
+  end
+  return table.concat(parts, " ")
+end
+
+local function node_status(counts)
+  for _, name in ipairs(status_order) do
+    if (counts[name] or 0) > 0 then
+      return name
+    end
+  end
+  return "unknown"
+end
+
+local function selected_row()
+  return state.tree_rows[state.selected_row]
+end
+
+local function selected_pane()
+  local row = selected_row()
+  if row and row.kind == "pane" then
+    return row.pane
+  end
+  return nil
+end
+
+local function selected_workspace_title()
+  local row = selected_row()
+  if not row then
+    return "Workspace"
+  end
+  if row.kind == "pane" then
+    return pane_location(row.pane)
+  end
+  return row.title or "Workspace"
+end
+
+local function select_row_id(row_id)
+  for index, row in ipairs(state.tree_rows) do
+    if row.id == row_id then
+      state.selected_row = index
+      return true
+    end
+  end
+  return false
+end
+
 local function pad(text, width)
   text = tostring(text or ""):gsub("\t", " "):gsub("\n", " ")
   local display_width = vim.fn.strdisplaywidth(text)
@@ -147,6 +208,24 @@ local function capture_preview(pane, include_history)
   return lines
 end
 
+local function node_workspace_lines(row)
+  if not row or row.kind == "pane" then
+    return {}
+  end
+  local next_level = row.kind == "session" and "windows" or "panes"
+  return {
+    row.title or "Workspace",
+    "",
+    "Type: " .. row.kind,
+    "Status: " .. (count_summary(row.counts) ~= "" and count_summary(row.counts) or "empty"),
+    "Panes: " .. tostring(row.pane_count or 0),
+    "Children: " .. tostring(row.child_count or 0) .. " " .. next_level,
+    "",
+    (state.expanded[row.id] and "Enter/Space collapses this node." or "Enter/Space expands this node."),
+    "Select a pane to open its agent workspace.",
+  }
+end
+
 local function compose_row(left, right, left_width, right_width)
   if right_width <= 0 then
     return left
@@ -166,28 +245,138 @@ local function preview_refresh_interval()
   return 1000
 end
 
+local function sorted_values(map)
+  local values = {}
+  for _, value in pairs(map) do
+    table.insert(values, value)
+  end
+  table.sort(values, function(a, b)
+    return tostring(a.sort_key or a.name or a.id) < tostring(b.sort_key or b.name or b.id)
+  end)
+  return values
+end
+
+local function build_tree_rows(panes)
+  local sessions = {}
+  for _, pane in ipairs(panes) do
+    local session_id = pane.session_id or pane.session or "-"
+    local session = sessions[session_id]
+    if not session then
+      session = {
+        id = "session:" .. session_id,
+        name = pane.session or session_id,
+        sort_key = pane.session or session_id,
+        counts = {},
+        windows = {},
+        pane_count = 0,
+      }
+      sessions[session_id] = session
+    end
+
+    count_state(session.counts, pane.state)
+    session.pane_count = session.pane_count + 1
+
+    local window_id = pane.window_id or ((pane.session or "-") .. ":" .. (pane.window or "-"))
+    local window = session.windows[window_id]
+    if not window then
+      window = {
+        id = "window:" .. window_id,
+        name = string.format("%s: %s", pane.window or "-", pane.window_name or "-"),
+        sort_key = tonumber(pane.window) or pane.window or window_id,
+        counts = {},
+        panes = {},
+      }
+      session.windows[window_id] = window
+    end
+
+    count_state(window.counts, pane.state)
+    table.insert(window.panes, pane)
+  end
+
+  local rows = {}
+  for _, session in ipairs(sorted_values(sessions)) do
+    local window_count = 0
+    for _ in pairs(session.windows) do
+      window_count = window_count + 1
+    end
+    table.insert(rows, {
+      kind = "session",
+      id = session.id,
+      title = session.name,
+      depth = 0,
+      counts = session.counts,
+      status = node_status(session.counts),
+      pane_count = session.pane_count,
+      child_count = window_count,
+    })
+
+    if state.expanded[session.id] then
+      for _, window in ipairs(sorted_values(session.windows)) do
+        table.sort(window.panes, function(a, b)
+          return tonumber(a.pane_index or 0) < tonumber(b.pane_index or 0)
+        end)
+
+        table.insert(rows, {
+          kind = "window",
+          id = window.id,
+          title = window.name,
+          depth = 1,
+          counts = window.counts,
+          status = node_status(window.counts),
+          pane_count = #window.panes,
+          child_count = #window.panes,
+        })
+
+        if state.expanded[window.id] then
+          for _, pane in ipairs(window.panes) do
+            table.insert(rows, {
+              kind = "pane",
+              id = "pane:" .. (pane.pane_id or pane_location(pane)),
+              title = string.format("%s %s", pane.pane_id or "-", pane.agent or "-"),
+              depth = 2,
+              status = pane.state or "unknown",
+              pane = pane,
+            })
+          end
+        end
+      end
+    end
+  end
+  return rows
+end
+
 local function set_panes(data)
+  local selected_id = selected_row() and selected_row().id
   state.panes = data.panes or {}
   state.counts = data.counts or {}
   state.generated_at = data.generated_at
-  if #state.panes == 0 then
-    state.selected = 1
-  elseif state.selected > #state.panes then
-    state.selected = #state.panes
-  elseif state.selected < 1 then
-    state.selected = 1
+  state.tree_rows = build_tree_rows(state.panes)
+  if selected_id then
+    select_row_id(selected_id)
+  end
+  if #state.tree_rows == 0 then
+    state.selected_row = 1
+  elseif state.selected_row > #state.tree_rows then
+    state.selected_row = #state.tree_rows
+  elseif state.selected_row < 1 then
+    state.selected_row = 1
   end
 end
 
 local function refresh_preview(include_history)
-  state.preview_lines = capture_preview(state.panes[state.selected], include_history or state.preview_focus)
+  local pane = selected_pane()
+  if pane then
+    state.preview_lines = capture_preview(pane, include_history or state.preview_focus)
+  else
+    state.preview_lines = node_workspace_lines(selected_row())
+  end
   if not state.preview_focus then
     state.preview_top = nil
   end
 end
 
 local function preview_display_height()
-  return math.max(#state.panes, vim.api.nvim_win_get_height(0) - 7, 1)
+  return math.max(#state.tree_rows, vim.api.nvim_win_get_height(0) - 7, 1)
 end
 
 local function clamp_preview_top(height)
@@ -217,7 +406,7 @@ local function render_cached()
     left_width = width
     right_width = 0
   end
-  local selected_pane = state.panes[state.selected]
+  local workspace_pane = selected_pane()
   local preview_lines = state.preview_lines or {}
   local preview_height = preview_display_height()
   local preview_max_top = clamp_preview_top(preview_height)
@@ -239,7 +428,7 @@ local function render_cached()
   end
   state.preview_col = right_width > 0 and left_width + 3 or 0
 
-  table.insert(lines, compose_row("AgentBoard", selected_pane and pane_location(selected_pane) or "Preview", left_width, right_width))
+  table.insert(lines, compose_row("AgentBoard", selected_workspace_title(), left_width, right_width))
   table.insert(
     lines,
     compose_row(
@@ -252,36 +441,48 @@ local function render_cached()
         counts.unknown or 0,
         state.show_all and "all panes" or "agents"
       ),
-      selected_pane and (selected_pane.path or "") or "",
+      workspace_pane and (workspace_pane.path or "") or "Select a pane to open its workspace",
       left_width,
       right_width
     )
   )
   table.insert(lines, compose_row("", "", left_width, right_width))
-  table.insert(lines, compose_row(string.format("%-8s %-7s %-18s %s", "STATE", "AGENT", "TARGET", "LABEL"), preview_header, left_width, right_width))
+  table.insert(lines, compose_row("WORKSPACE", preview_header, left_width, right_width))
   table.insert(lines, compose_row(string.rep("-", left_width), string.rep("-", math.max(right_width, 0)), left_width, right_width))
 
-  for index, pane in ipairs(state.panes) do
-    local source = pane.source == "report" and "*" or " "
-    local left = string.format(
-      "%s%-7s %-7s %-18s %s",
-      source,
-      pane.state or "unknown",
-      pane.agent or "-",
-      truncate(pane_location(pane), 18),
-      truncate(pane.label or "", math.max(8, left_width - 38))
-    )
+  for index, row in ipairs(state.tree_rows) do
+    local prefix = string.rep("  ", row.depth or 0)
+    local icon = " "
+    if row.kind ~= "pane" then
+      icon = state.expanded[row.id] and "▾" or "▸"
+    end
+    local left = ""
+    if row.kind == "pane" then
+      local pane = row.pane
+      local source = pane.source == "report" and "*" or " "
+      left = string.format(
+        "%s%s%s %-7s %s",
+        source,
+        prefix,
+        icon,
+        pane.state or "unknown",
+        truncate((pane.label or pane_location(pane)), math.max(8, left_width - 14 - #prefix))
+      )
+    else
+      local meta = string.format("%s panes=%s", count_summary(row.counts), row.pane_count or 0)
+      left = string.format("%s%s %-7s %s", prefix, icon, row.status or "unknown", truncate(row.title .. "  " .. meta, math.max(8, left_width - 12 - #prefix)))
+    end
     local right = preview_slice[index] or ""
     table.insert(lines, compose_row(left, right, left_width, right_width))
     state.line_to_index[#lines] = index
     state.row_lines[index] = #lines
   end
 
-  if #state.panes == 0 then
+  if #state.tree_rows == 0 then
     table.insert(lines, compose_row("No agent panes detected. Press a to include all tmux panes.", "", left_width, right_width))
   end
 
-  local consumed_preview = #state.panes
+  local consumed_preview = #state.tree_rows
   for index = consumed_preview + 1, #preview_slice do
     table.insert(lines, compose_row("", preview_slice[index], left_width, right_width))
   end
@@ -290,7 +491,7 @@ local function render_cached()
   if state.preview_focus then
     table.insert(lines, "Preview: j/k/Up/Down scroll  C-u/C-d page  Esc/q list  i send  J jump  r rescan")
   else
-    table.insert(lines, "Keys: j/k/C-j/C-k move  Enter preview  i send  J jump  click select  double-click jump  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  Enter/Space expand or preview  i send  J jump  click select  double-click action  r rescan  a all  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -303,14 +504,14 @@ local function render_cached()
   vim.api.nvim_buf_add_highlight(state.buf, ns, "AgentBoardDim", 1, 0, -1)
   vim.api.nvim_buf_add_highlight(state.buf, ns, "AgentBoardHeader", 3, 0, -1)
 
-  for index, pane in ipairs(state.panes) do
+  for index, row in ipairs(state.tree_rows) do
     local line = state.row_lines[index]
     if line then
-      vim.api.nvim_buf_add_highlight(state.buf, ns, state_hl(pane.state), line - 1, 0, 9)
+      vim.api.nvim_buf_add_highlight(state.buf, ns, state_hl(row.status), line - 1, 0, -1)
     end
   end
 
-  local selected_line = state.row_lines[state.selected]
+  local selected_line = state.row_lines[state.selected_row]
   if selected_line and vim.api.nvim_get_current_buf() == state.buf then
     local column = state.preview_focus and state.preview_col or 0
     pcall(vim.api.nvim_win_set_cursor, 0, { selected_line, column })
@@ -340,14 +541,14 @@ function M.refresh_preview()
 end
 
 function M.move(delta)
-  if #state.panes == 0 then
+  if #state.tree_rows == 0 then
     return
   end
   state.preview_focus = false
-  state.selected = math.max(1, math.min(#state.panes, state.selected + delta))
+  state.selected_row = math.max(1, math.min(#state.tree_rows, state.selected_row + delta))
   refresh_preview()
   render_cached()
-  local line = state.row_lines[state.selected]
+  local line = state.row_lines[state.selected_row]
   if line then
     pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
   end
@@ -359,7 +560,7 @@ local function select_line(line)
     return false
   end
   state.preview_focus = false
-  state.selected = index
+  state.selected_row = index
   refresh_preview()
   render_cached()
   pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
@@ -375,8 +576,25 @@ local function tmux(args)
   tmux_output(args)
 end
 
+function M.toggle_node()
+  local row = selected_row()
+  if not row then
+    return
+  end
+  if row.kind == "pane" then
+    M.enter_preview()
+    return
+  end
+
+  state.expanded[row.id] = not state.expanded[row.id]
+  state.tree_rows = build_tree_rows(state.panes)
+  select_row_id(row.id)
+  state.preview_focus = false
+  render_cached()
+end
+
 function M.jump()
-  local pane = state.panes[state.selected]
+  local pane = selected_pane()
   if not pane then
     return
   end
@@ -396,8 +614,9 @@ function M.jump()
 end
 
 function M.send_to_selected()
-  local pane = state.panes[state.selected]
+  local pane = selected_pane()
   if not pane then
+    notify("Select a pane row first", vim.log.levels.WARN)
     return
   end
 
@@ -419,6 +638,9 @@ function M.send_to_selected()
 end
 
 function M.enter_preview()
+  if not selected_pane() then
+    return
+  end
   if #state.preview_lines == 0 then
     return
   end
@@ -465,7 +687,7 @@ end
 function M.toggle_all()
   state.show_all = not state.show_all
   state.preview_focus = false
-  state.selected = 1
+  state.selected_row = 1
   render()
 end
 
@@ -545,7 +767,8 @@ local function attach_maps(buf)
     M.move(-1)
   end, "Previous agent")
   map(buf, "<Esc>", M.leave_preview, "Leave preview")
-  map(buf, "<CR>", M.enter_preview, "Enter preview")
+  map(buf, "<CR>", M.toggle_node, "Expand node or enter preview")
+  map(buf, "<Space>", M.toggle_node, "Expand node or enter preview")
   map(buf, "J", M.jump, "Jump to pane")
   map(buf, "<LeftMouse>", function()
     local pos = vim.fn.getmousepos()
@@ -556,7 +779,12 @@ local function attach_maps(buf)
   map(buf, "<2-LeftMouse>", function()
     local pos = vim.fn.getmousepos()
     if pos.winid == vim.api.nvim_get_current_win() and select_line(pos.line) then
-      M.jump()
+      local row = selected_row()
+      if row and row.kind == "pane" then
+        M.jump()
+      else
+        M.toggle_node()
+      end
     end
   end, "Jump to pane")
 end
