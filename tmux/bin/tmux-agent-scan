@@ -210,6 +210,7 @@ def scan(show_all=False):
 
         hook_agent = pane_option(pane_id, "@agent_status_agent")
         hook_state = pane_option(pane_id, "@agent_status_state")
+        hook_message = pane_option(pane_id, "@agent_status_message")
         hook_updated = pane_option(pane_id, "@agent_status_updated")
         user_title = pane_option(pane_id, "@user_pane_title")
         activity = pane_option(pane_id, "@codex_pane_activity")
@@ -227,7 +228,7 @@ def scan(show_all=False):
         text = capture_pane(pane_id)
         state, source = detect_state(agent, text, hook_state, hook_updated, hook_ttl)
         label = user_title or os.path.basename(path) or command or "-"
-        detail = activity or summary
+        detail = activity or summary or hook_message
         if detail:
             label = f"{label} | {detail}"
 
@@ -248,8 +249,9 @@ def scan(show_all=False):
                 "state": state,
                 "source": source,
                 "label": label,
-                "activity": activity,
+                "activity": activity or hook_message,
                 "summary": summary,
+                "message": hook_message,
             }
         )
 

@@ -282,6 +282,22 @@ local function pane_display_name(pane)
   return pane.label or pane_location(pane)
 end
 
+local function pane_activity(pane)
+  if not pane then
+    return "-"
+  end
+  if pane.activity and pane.activity ~= "" then
+    return pane.activity
+  end
+  if pane.summary and pane.summary ~= "" then
+    return pane.summary
+  end
+  if pane.message and pane.message ~= "" then
+    return pane.message
+  end
+  return pane_display_name(pane)
+end
+
 local function sorted_scope_panes(panes)
   local sorted = vim.deepcopy(panes or {})
   table.sort(sorted, function(a, b)
@@ -301,7 +317,7 @@ local function scope_pane_line(pane)
   local status = state_sign(pane.state)
   local agent = agent_sign(pane.agent)
   local target = string.format("%s:%s.%s", pane.session or "-", pane.window or "-", pane.pane_index or "-")
-  return string.format("%s %s %-8s %s", status, agent, pane.agent or "-", pane_display_name(pane) .. "  " .. target)
+  return string.format("%s %s %-8s %-12s %s", status, agent, pane.agent or "-", target, pane_activity(pane))
 end
 
 local function node_workspace_lines(row)
