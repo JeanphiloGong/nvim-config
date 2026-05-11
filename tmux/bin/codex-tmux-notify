@@ -103,10 +103,16 @@ tmux refresh-client -S 2>/dev/null || true
 if [ -n "$summary" ]; then
   tmux set -p -t "$pane" @codex_pane_summary "$summary" 2>/dev/null || true
 fi
+activity="done"
+if [ -n "$summary" ]; then
+  activity="done: $summary"
+fi
+tmux set -pq -t "$pane" @codex_pane_activity "$activity" 2>/dev/null || true
+tmux select-pane -t "$pane" -T "$activity" 2>/dev/null || true
 
 agent_status_bin="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-agent-status"
 if [ -x "$agent_status_bin" ]; then
-  "$agent_status_bin" report --pane "$pane" --agent codex --state done --message "$summary" --source codex-notify 2>/dev/null || true
+  "$agent_status_bin" report --pane "$pane" --agent codex --state done --message "$activity" --source codex-notify 2>/dev/null || true
 fi
 
 # Append to a simple history file so tmux can show a menu (latest first).

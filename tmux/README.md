@@ -20,7 +20,7 @@
 
 `AgentBoard` 用两层信号判断状态：
 
-- Codex lifecycle hooks 主动把 `working / blocked / done / idle` 写到当前 tmux pane metadata
+- Codex lifecycle hooks 主动把 `working / blocked / done / idle` 和当前动作写到当前 tmux pane metadata / pane title
 - `tmux-agent-scan` 再读取 pane 进程和屏幕文本，作为 hooks 不存在或过期时的补充判断
 
 全局 Codex hook 配置在 `~/.codex/hooks.json`，需要 `~/.codex/config.toml`

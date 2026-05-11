@@ -212,6 +212,7 @@ def scan(show_all=False):
         hook_state = pane_option(pane_id, "@agent_status_state")
         hook_updated = pane_option(pane_id, "@agent_status_updated")
         user_title = pane_option(pane_id, "@user_pane_title")
+        activity = pane_option(pane_id, "@codex_pane_activity")
         summary = pane_option(pane_id, "@codex_pane_summary")
 
         agent = (
@@ -225,9 +226,10 @@ def scan(show_all=False):
 
         text = capture_pane(pane_id)
         state, source = detect_state(agent, text, hook_state, hook_updated, hook_ttl)
-        label = user_title or title or os.path.basename(path) or command or "-"
-        if summary:
-            label = f"{label} | {summary}"
+        label = user_title or os.path.basename(path) or command or "-"
+        detail = activity or summary
+        if detail:
+            label = f"{label} | {detail}"
 
         panes.append(
             {
@@ -246,6 +248,7 @@ def scan(show_all=False):
                 "state": state,
                 "source": source,
                 "label": label,
+                "activity": activity,
                 "summary": summary,
             }
         )
