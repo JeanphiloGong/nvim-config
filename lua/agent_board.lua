@@ -108,8 +108,22 @@ local function kind_sign(kind)
   return ({
     session = "󰣇",
     window = "",
-    pane = "",
   })[kind] or "•"
+end
+
+local function agent_sign(agent)
+  return ({
+    codex = "",
+    claude = "󰚩",
+    opencode = "",
+    gemini = "",
+    copilot = "",
+    cursor = "󰆿",
+    droid = "",
+    amp = "",
+    pi = "π",
+    kimi = "󰘦",
+  })[agent] or ""
 end
 
 local function truncate(text, width)
@@ -218,6 +232,14 @@ local function pad(text, width)
     return truncate(text, width)
   end
   return text .. string.rep(" ", width - display_width)
+end
+
+local function with_right_status(body, status, width)
+  local status_width = vim.fn.strdisplaywidth(status)
+  local body_width = math.max(1, width - status_width - 1)
+  local padded_body = pad(body, body_width)
+  local text = padded_body .. " " .. status
+  return text, #padded_body + 1, #text
 end
 
 local function preview_history_lines()
@@ -534,16 +556,24 @@ local function render_cached()
         local source = pane.source == "report" and "*" or " "
         local name = pane.label or pane_location(pane)
         local status = state_sign(pane.state)
-        local left_prefix = string.format("%s%s%s%s ", source, prefix, icon, kind_sign(row.kind))
-        status_col_start = #left_prefix
-        status_col_end = status_col_start + #status
-        left = left_prefix .. status .. " " .. truncate(name, math.max(8, left_width - 8 - #prefix))
+        local body = string.format(
+          "%s%s%s %s",
+          prefix,
+          agent_sign(pane.agent),
+          source,
+          truncate(name, math.max(8, left_width - 8 - #prefix))
+        )
+        left, status_col_start, status_col_end = with_right_status(body, status, left_width)
       else
         local status = state_sign(row.status)
-        local left_prefix = string.format("%s%s%s ", prefix, icon, kind_sign(row.kind))
-        status_col_start = #left_prefix
-        status_col_end = status_col_start + #status
-        left = left_prefix .. status .. " " .. truncate(row.title, math.max(8, left_width - 7 - #prefix))
+        local body = string.format(
+          "%s%s%s %s",
+          prefix,
+          icon,
+          kind_sign(row.kind),
+          truncate(row.title, math.max(8, left_width - 7 - #prefix))
+        )
+        left, status_col_start, status_col_end = with_right_status(body, status, left_width)
       end
     end
     local right = preview_slice[offset] or ""
