@@ -2,6 +2,8 @@ local M = {}
 
 local state = {
   buf = nil,
+  tabpage = nil,
+  win = nil,
   selected_row = 1,
   show_all = false,
   panes = {},
@@ -9,6 +11,7 @@ local state = {
   expanded = {},
   line_to_index = {},
   row_lines = {},
+  tree_top = 1,
   generated_at = nil,
   counts = {},
   preview_lines = {},
@@ -21,6 +24,8 @@ local state = {
 
 local ns = vim.api.nvim_create_namespace("agent_board")
 local uv = vim.uv or vim.loop
+local header_lines = 5
+local footer_lines = 2
 
 local function config_path(...)
   return table.concat(vim.list_extend({ vim.fn.stdpath("config") }, { ... }), "/")
@@ -269,6 +274,17 @@ local function agent_board_is_current()
   return state.buf and vim.api.nvim_buf_is_valid(state.buf) and vim.api.nvim_get_current_buf() == state.buf
 end
 
+local function open_board_tab()
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_set_current_win(state.win)
+    return
+  end
+
+  vim.cmd("tabnew")
+  state.tabpage = vim.api.nvim_get_current_tabpage()
+  state.win = vim.api.nvim_get_current_win()
+end
+
 local function preview_refresh_interval()
   local interval = tonumber(vim.g.agent_board_preview_refresh_ms)
   if interval and interval > 0 then
@@ -408,7 +424,23 @@ local function refresh_preview(include_history)
 end
 
 local function preview_display_height()
-  return math.max(#state.tree_rows, vim.api.nvim_win_get_height(0) - 7, 1)
+  return math.max(vim.api.nvim_win_get_height(0) - header_lines - footer_lines, 1)
+end
+
+local function clamp_tree_top(height)
+  if #state.tree_rows == 0 then
+    state.tree_top = 1
+    return
+  end
+
+  local max_top = math.max(1, #state.tree_rows - height + 1)
+  state.tree_top = math.max(1, math.min(max_top, state.tree_top or 1))
+  if state.selected_row < state.tree_top then
+    state.tree_top = state.selected_row
+  elseif state.selected_row > state.tree_top + height - 1 then
+    state.tree_top = state.selected_row - height + 1
+  end
+  state.tree_top = math.max(1, math.min(max_top, state.tree_top))
 end
 
 local function clamp_preview_top(height)
@@ -441,6 +473,7 @@ local function render_cached()
   local workspace_pane = selected_pane()
   local preview_lines = state.preview_lines or {}
   local preview_height = preview_display_height()
+  clamp_tree_top(preview_height)
   local preview_max_top = clamp_preview_top(preview_height)
   if not state.preview_focus then
     state.preview_top = preview_max_top
@@ -482,56 +515,61 @@ local function render_cached()
   table.insert(lines, compose_row("WORKSPACE", preview_header, left_width, right_width))
   table.insert(lines, compose_row(string.rep("-", left_width), string.rep("-", math.max(right_width, 0)), left_width, right_width))
 
-  for index, row in ipairs(state.tree_rows) do
-    local prefix = string.rep("  ", row.depth or 0)
-    local icon = " "
-    if row.kind ~= "pane" then
-      icon = state.expanded[row.id] and "▾" or "▸"
-    end
+  for offset = 1, preview_height do
+    local index = state.tree_top + offset - 1
+    local row = state.tree_rows[index]
     local left = ""
-    if row.kind == "pane" then
-      local pane = row.pane
-      local source = pane.source == "report" and "*" or " "
-      local name = pane.label or pane_location(pane)
-      left = string.format(
-        "%s%s%s%s %s %s",
-        source,
-        prefix,
-        icon,
-        kind_sign(row.kind),
-        state_sign(pane.state),
-        truncate(name, math.max(8, left_width - 8 - #prefix))
-      )
-    else
-      left = string.format(
-        "%s%s%s %s %s",
-        prefix,
-        icon,
-        kind_sign(row.kind),
-        state_sign(row.status),
-        truncate(row.title, math.max(8, left_width - 7 - #prefix))
-      )
+    if row then
+      local prefix = string.rep("  ", row.depth or 0)
+      local icon = " "
+      if row.kind ~= "pane" then
+        icon = state.expanded[row.id] and "▾" or "▸"
+      end
+      if row.kind == "pane" then
+        local pane = row.pane
+        local source = pane.source == "report" and "*" or " "
+        local name = pane.label or pane_location(pane)
+        left = string.format(
+          "%s%s%s%s %s %s",
+          source,
+          prefix,
+          icon,
+          kind_sign(row.kind),
+          state_sign(pane.state),
+          truncate(name, math.max(8, left_width - 8 - #prefix))
+        )
+      else
+        left = string.format(
+          "%s%s%s %s %s",
+          prefix,
+          icon,
+          kind_sign(row.kind),
+          state_sign(row.status),
+          truncate(row.title, math.max(8, left_width - 7 - #prefix))
+        )
+      end
     end
-    local right = preview_slice[index] or ""
+    local right = preview_slice[offset] or ""
     table.insert(lines, compose_row(left, right, left_width, right_width))
-    state.line_to_index[#lines] = index
-    state.row_lines[index] = #lines
+    if row then
+      state.line_to_index[#lines] = index
+      state.row_lines[index] = #lines
+    end
   end
 
   if #state.tree_rows == 0 then
-    table.insert(lines, compose_row("No agent panes detected. Press a to include all tmux panes.", "", left_width, right_width))
+    lines[header_lines + 1] = compose_row(
+      "No agent panes detected. Press a to include all tmux panes.",
+      preview_slice[1] or "",
+      left_width,
+      right_width
+    )
   end
 
-  local consumed_preview = #state.tree_rows
-  for index = consumed_preview + 1, #preview_slice do
-    table.insert(lines, compose_row("", preview_slice[index], left_width, right_width))
-  end
-
-  table.insert(lines, "")
   if state.preview_focus then
     table.insert(lines, "Preview: j/k/Up/Down scroll  C-u/C-d page  Esc/q list  i send  J jump  r rescan")
   else
-    table.insert(lines, "Keys: j/k move  Enter/Space expand or preview  i send  J jump  click select  double-click action  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  gw working  gd done  i send  J jump  r rescan  a all  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -555,6 +593,35 @@ local function render_cached()
   if selected_line and vim.api.nvim_get_current_buf() == state.buf then
     local column = state.preview_focus and state.preview_col or 0
     pcall(vim.api.nvim_win_set_cursor, 0, { selected_line, column })
+  end
+end
+
+local function expand_status(target_status)
+  local first_pane_id = nil
+
+  for _, pane in ipairs(state.panes) do
+    if pane.state == target_status then
+      first_pane_id = first_pane_id or pane.pane_id
+      if pane.session_id then
+        state.expanded["session:" .. pane.session_id] = true
+      else
+        state.expanded["session:" .. (pane.session or "-")] = true
+      end
+      local window_id = pane.window_id or ((pane.session or "-") .. ":" .. (pane.window or "-"))
+      state.expanded["window:" .. window_id] = true
+    end
+  end
+
+  state.tree_rows = build_tree_rows(state.panes)
+  if first_pane_id then
+    select_row_id("pane:" .. first_pane_id)
+  end
+  state.preview_focus = false
+  refresh_preview()
+  render_cached()
+
+  if not first_pane_id then
+    notify("No " .. target_status .. " panes")
   end
 end
 
@@ -731,15 +798,40 @@ function M.toggle_all()
   render()
 end
 
+function M.expand_working()
+  expand_status("working")
+end
+
+function M.expand_done()
+  expand_status("done")
+end
+
 function M.close()
   M.stop_timer()
-  if vim.env.TMUX_AGENT_BOARD_QUIT_ON_JUMP == "1" then
+  if vim.env.TMUX_AGENT_BOARD_QUIT_ON_JUMP == "1" or vim.env.TMUX_AGENT_BOARD_QUIT_ON_CLOSE == "1" then
     vim.cmd("qa!")
     return
   end
+
+  local tabpage = state.tabpage
+  local closes_dedicated_tab = tabpage
+    and vim.api.nvim_tabpage_is_valid(tabpage)
+    and #vim.api.nvim_list_tabpages() > 1
+    and #vim.api.nvim_tabpage_list_wins(tabpage) == 1
+
+  if closes_dedicated_tab then
+    vim.api.nvim_set_current_tabpage(tabpage)
+    vim.cmd("tabclose!")
+    state.win = nil
+    state.tabpage = nil
+    return
+  end
+
   if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
     vim.cmd("bdelete!")
   end
+  state.win = nil
+  state.tabpage = nil
 end
 
 function M.start_timer()
@@ -775,6 +867,8 @@ local function attach_maps(buf)
   map(buf, "q", M.close_or_leave_preview, "Close AgentBoard or leave preview")
   map(buf, "r", M.refresh, "Refresh AgentBoard")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
+  map(buf, "gw", M.expand_working, "Expand working agents")
+  map(buf, "gd", M.expand_done, "Expand done agents")
   map(buf, "i", M.send_to_selected, "Send text to selected pane")
   map(buf, "j", function()
     M.scroll_preview(1)
@@ -832,6 +926,7 @@ end
 function M.open()
   ensure_highlights()
   vim.opt.mouse = "a"
+  open_board_tab()
 
   if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
     state.buf = vim.api.nvim_create_buf(false, true)
@@ -847,11 +942,15 @@ function M.open()
       callback = function()
         M.stop_timer()
         state.buf = nil
+        state.win = nil
+        state.tabpage = nil
       end,
     })
   end
 
   vim.api.nvim_set_current_buf(state.buf)
+  state.win = vim.api.nvim_get_current_win()
+  state.tabpage = vim.api.nvim_get_current_tabpage()
   vim.wo.number = false
   vim.wo.relativenumber = false
   vim.wo.signcolumn = "no"

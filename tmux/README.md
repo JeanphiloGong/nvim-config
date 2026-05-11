@@ -4,15 +4,18 @@
 
 ## Quick Access
 
-- `<prefix> + C`：打开 nvim `AgentBoard` 控制面板
+- `<prefix> + C`：打开/复用 nvim `AgentBoard` 控制面板
+  - 面板会在专用 nvim tab 中全屏打开，底部快捷键提示固定在窗口底部
   - 左侧是可折叠 workspace tree：session -> window -> pane
   - 左侧用 `S/W/P` 区分 session/window/pane，并用状态符号标记：`!` blocked、`>` working、`✓` done、`.` idle、`?` unknown
   - session/window 的聚合状态放在右侧 workspace
   - 右侧是选中 pane 的 agent workspace，默认每秒自动刷新
   - 在面板里用 `j/k` 或 `Ctrl-h/j/k/l` 移动，`Enter` / `Space` 展开 session/window；在 pane 上进入预览
+  - `gw` 展开所有 working agent；`gd` 展开所有 done agent
   - `i` 给选中 pane 发送一行输入
   - 预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回树
-  - `J` 跳转到选中 pane
+  - `J` 跳转到选中 pane，并保留 `AgentBoard` window 供下次复用
+  - `q` 关闭 `AgentBoard` window
   - `r` 重新扫描 pane 列表
   - 鼠标单击选择，双击跳转
 - `<prefix> + M`：打开 `Agents / Codex / Orch` 菜单
