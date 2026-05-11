@@ -52,6 +52,12 @@ local function run_scan()
   return data
 end
 
+local function tmux_output(args)
+  local cmd = { "tmux" }
+  vim.list_extend(cmd, args)
+  return vim.fn.system(cmd)
+end
+
 local function ensure_highlights()
   vim.api.nvim_set_hl(0, "AgentBoardHeader", { bold = true })
   vim.api.nvim_set_hl(0, "AgentBoardDim", { fg = "#777777" })
@@ -98,6 +104,35 @@ local function pane_location(pane)
   return target
 end
 
+local function pad(text, width)
+  text = tostring(text or ""):gsub("\t", " "):gsub("\n", " ")
+  local display_width = vim.fn.strdisplaywidth(text)
+  if display_width >= width then
+    return truncate(text, width)
+  end
+  return text .. string.rep(" ", width - display_width)
+end
+
+local function capture_preview(pane)
+  if not pane or not pane.pane_id then
+    return {}
+  end
+
+  local output = tmux_output({ "capture-pane", "-pt", pane.pane_id, "-J" })
+  local lines = vim.split(output or "", "\n", { plain = true })
+  if #lines > 0 and lines[#lines] == "" then
+    table.remove(lines, #lines)
+  end
+  return lines
+end
+
+local function compose_row(left, right, left_width, right_width)
+  if right_width <= 0 then
+    return left
+  end
+  return pad(left, left_width) .. " │ " .. truncate(right or "", right_width)
+end
+
 local function render()
   if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
     return
@@ -123,45 +158,65 @@ local function render()
 
   local counts = data.counts or {}
   local lines = {}
-  table.insert(lines, "AgentBoard")
+  local width = vim.api.nvim_win_get_width(0)
+  local left_width = math.min(math.max(46, math.floor(width * 0.45)), 78)
+  local right_width = width - left_width - 3
+  if right_width < 24 then
+    left_width = width
+    right_width = 0
+  end
+  local selected_pane = state.panes[state.selected]
+  local preview_lines = capture_preview(selected_pane)
+
+  table.insert(lines, compose_row("AgentBoard", selected_pane and pane_location(selected_pane) or "Preview", left_width, right_width))
   table.insert(
     lines,
-    string.format(
-      "blocked=%s working=%s done=%s idle=%s unknown=%s  scope=%s",
-      counts.blocked or 0,
-      counts.working or 0,
-      counts.done or 0,
-      counts.idle or 0,
-      counts.unknown or 0,
-      state.show_all and "all panes" or "agents"
+    compose_row(
+      string.format(
+        "blocked=%s working=%s done=%s idle=%s unknown=%s  scope=%s",
+        counts.blocked or 0,
+        counts.working or 0,
+        counts.done or 0,
+        counts.idle or 0,
+        counts.unknown or 0,
+        state.show_all and "all panes" or "agents"
+      ),
+      selected_pane and (selected_pane.path or "") or "",
+      left_width,
+      right_width
     )
   )
-  table.insert(lines, "")
-  table.insert(lines, string.format("%-9s %-9s %-28s %-8s %s", "STATE", "AGENT", "TARGET", "PANE", "LABEL"))
-  table.insert(lines, string.rep("-", 88))
+  table.insert(lines, compose_row("", "", left_width, right_width))
+  table.insert(lines, compose_row(string.format("%-8s %-7s %-18s %s", "STATE", "AGENT", "TARGET", "LABEL"), "PANE CONTENT", left_width, right_width))
+  table.insert(lines, compose_row(string.rep("-", left_width), string.rep("-", math.max(right_width, 0)), left_width, right_width))
 
   for index, pane in ipairs(state.panes) do
     local source = pane.source == "report" and "*" or " "
-    local line = string.format(
-      "%s%-8s %-9s %-28s %-8s %s",
+    local left = string.format(
+      "%s%-7s %-7s %-18s %s",
       source,
       pane.state or "unknown",
       pane.agent or "-",
-      truncate(pane_location(pane), 28),
-      pane.pane_id or "-",
-      truncate(pane.label or "", 80)
+      truncate(pane_location(pane), 18),
+      truncate(pane.label or "", math.max(8, left_width - 38))
     )
-    table.insert(lines, line)
+    local right = preview_lines[index] or ""
+    table.insert(lines, compose_row(left, right, left_width, right_width))
     state.line_to_index[#lines] = index
     state.row_lines[index] = #lines
   end
 
   if #state.panes == 0 then
-    table.insert(lines, "No agent panes detected. Press a to include all tmux panes.")
+    table.insert(lines, compose_row("No agent panes detected. Press a to include all tmux panes.", "", left_width, right_width))
+  end
+
+  local consumed_preview = #state.panes
+  for index = consumed_preview + 1, #preview_lines do
+    table.insert(lines, compose_row("", preview_lines[index], left_width, right_width))
   end
 
   table.insert(lines, "")
-  table.insert(lines, "Keys: C-j/C-k move  C-h/C-l move  Enter/Space jump  click select  double-click jump  r refresh  a all  q quit")
+  table.insert(lines, "Keys: C-j/C-k move  i send  J/Enter/Space jump  click select  double-click jump  r refresh  a all  q quit")
   table.insert(lines, "* means state came from an agent report hook.")
 
   vim.bo[state.buf].modifiable = true
@@ -217,9 +272,7 @@ function M.select_current_line()
 end
 
 local function tmux(args)
-  local cmd = { "tmux" }
-  vim.list_extend(cmd, args)
-  vim.fn.system(cmd)
+  tmux_output(args)
 end
 
 function M.jump()
@@ -239,6 +292,24 @@ function M.jump()
   else
     notify("Jumped to " .. pane_location(pane))
   end
+end
+
+function M.send_to_selected()
+  local pane = state.panes[state.selected]
+  if not pane then
+    return
+  end
+
+  vim.ui.input({ prompt = "Send to " .. pane_location(pane) .. ": " }, function(input)
+    if not input or input == "" then
+      return
+    end
+    tmux({ "send-keys", "-t", pane.pane_id, "-l", input })
+    tmux({ "send-keys", "-t", pane.pane_id, "Enter" })
+    vim.schedule(function()
+      render()
+    end)
+  end)
 end
 
 function M.toggle_all()
@@ -265,6 +336,7 @@ local function attach_maps(buf)
   map(buf, "q", M.close, "Close AgentBoard")
   map(buf, "r", M.refresh, "Refresh AgentBoard")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
+  map(buf, "i", M.send_to_selected, "Send text to selected pane")
   map(buf, "j", function()
     M.move(1)
   end, "Next agent")
@@ -290,6 +362,7 @@ local function attach_maps(buf)
     M.move(-1)
   end, "Previous agent")
   map(buf, "<CR>", M.jump, "Jump to pane")
+  map(buf, "J", M.jump, "Jump to pane")
   map(buf, "<Space>", M.jump, "Jump to pane")
   map(buf, "<LeftMouse>", function()
     local pos = vim.fn.getmousepos()
