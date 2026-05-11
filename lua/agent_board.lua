@@ -88,6 +88,16 @@ local function state_hl(agent_state)
   })[agent_state] or "AgentBoardUnknown"
 end
 
+local function state_sign(agent_state)
+  return ({
+    blocked = "!",
+    working = ">",
+    done = "✓",
+    idle = ".",
+    unknown = "?",
+  })[agent_state] or "?"
+end
+
 local function truncate(text, width)
   text = tostring(text or ""):gsub("\t", " "):gsub("\n", " ")
   if vim.fn.strdisplaywidth(text) <= width then
@@ -163,6 +173,20 @@ local function selected_workspace_title()
   return row.title or "Workspace"
 end
 
+local function row_workspace_title(row)
+  if not row then
+    return "Workspace"
+  end
+  if row.kind == "pane" then
+    return pane_location(row.pane)
+  end
+  local summary = count_summary(row.counts)
+  if summary ~= "" then
+    return row.title .. "  " .. summary
+  end
+  return row.title or "Workspace"
+end
+
 local function select_row_id(row_id)
   for index, row in ipairs(state.tree_rows) do
     if row.id == row_id then
@@ -214,7 +238,7 @@ local function node_workspace_lines(row)
   end
   local next_level = row.kind == "session" and "windows" or "panes"
   return {
-    row.title or "Workspace",
+    row_workspace_title(row),
     "",
     "Type: " .. row.kind,
     "Status: " .. (count_summary(row.counts) ~= "" and count_summary(row.counts) or "empty"),
@@ -400,7 +424,7 @@ local function render_cached()
   local counts = state.counts or {}
   local lines = {}
   local width = vim.api.nvim_win_get_width(0)
-  local left_width = math.min(math.max(46, math.floor(width * 0.45)), 78)
+  local left_width = math.min(math.max(28, math.floor(width * 0.28)), 40)
   local right_width = width - left_width - 3
   if right_width < 24 then
     left_width = width
@@ -428,7 +452,7 @@ local function render_cached()
   end
   state.preview_col = right_width > 0 and left_width + 3 or 0
 
-  table.insert(lines, compose_row("AgentBoard", selected_workspace_title(), left_width, right_width))
+  table.insert(lines, compose_row("Agents", selected_workspace_title(), left_width, right_width))
   table.insert(
     lines,
     compose_row(
@@ -460,17 +484,23 @@ local function render_cached()
     if row.kind == "pane" then
       local pane = row.pane
       local source = pane.source == "report" and "*" or " "
+      local name = pane.label or pane_location(pane)
       left = string.format(
-        "%s%s%s %-7s %s",
+        "%s%s%s %s %s",
         source,
         prefix,
         icon,
-        pane.state or "unknown",
-        truncate((pane.label or pane_location(pane)), math.max(8, left_width - 14 - #prefix))
+        state_sign(pane.state),
+        truncate(name, math.max(8, left_width - 7 - #prefix))
       )
     else
-      local meta = string.format("%s panes=%s", count_summary(row.counts), row.pane_count or 0)
-      left = string.format("%s%s %-7s %s", prefix, icon, row.status or "unknown", truncate(row.title .. "  " .. meta, math.max(8, left_width - 12 - #prefix)))
+      left = string.format(
+        "%s%s %s %s",
+        prefix,
+        icon,
+        state_sign(row.status),
+        truncate(row.title, math.max(8, left_width - 6 - #prefix))
+      )
     end
     local right = preview_slice[index] or ""
     table.insert(lines, compose_row(left, right, left_width, right_width))
