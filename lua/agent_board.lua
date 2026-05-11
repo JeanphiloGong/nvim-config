@@ -8,9 +8,14 @@ local state = {
   line_to_index = {},
   row_lines = {},
   generated_at = nil,
+  counts = {},
+  preview_lines = {},
+  timer = nil,
+  input_active = false,
 }
 
 local ns = vim.api.nvim_create_namespace("agent_board")
+local uv = vim.uv or vim.loop
 
 local function config_path(...)
   return table.concat(vim.list_extend({ vim.fn.stdpath("config") }, { ... }), "/")
@@ -133,17 +138,21 @@ local function compose_row(left, right, left_width, right_width)
   return pad(left, left_width) .. " │ " .. truncate(right or "", right_width)
 end
 
-local function render()
-  if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
-    return
-  end
+local function agent_board_is_current()
+  return state.buf and vim.api.nvim_buf_is_valid(state.buf) and vim.api.nvim_get_current_buf() == state.buf
+end
 
-  local data = run_scan()
-  if not data then
-    return
+local function preview_refresh_interval()
+  local interval = tonumber(vim.g.agent_board_preview_refresh_ms)
+  if interval and interval > 0 then
+    return interval
   end
+  return 1000
+end
 
+local function set_panes(data)
   state.panes = data.panes or {}
+  state.counts = data.counts or {}
   state.generated_at = data.generated_at
   if #state.panes == 0 then
     state.selected = 1
@@ -152,11 +161,21 @@ local function render()
   elseif state.selected < 1 then
     state.selected = 1
   end
+end
+
+local function refresh_preview()
+  state.preview_lines = capture_preview(state.panes[state.selected])
+end
+
+local function render_cached()
+  if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
+    return
+  end
 
   state.line_to_index = {}
   state.row_lines = {}
 
-  local counts = data.counts or {}
+  local counts = state.counts or {}
   local lines = {}
   local width = vim.api.nvim_win_get_width(0)
   local left_width = math.min(math.max(46, math.floor(width * 0.45)), 78)
@@ -166,7 +185,7 @@ local function render()
     right_width = 0
   end
   local selected_pane = state.panes[state.selected]
-  local preview_lines = capture_preview(selected_pane)
+  local preview_lines = state.preview_lines or {}
 
   table.insert(lines, compose_row("AgentBoard", selected_pane and pane_location(selected_pane) or "Preview", left_width, right_width))
   table.insert(
@@ -216,7 +235,7 @@ local function render()
   end
 
   table.insert(lines, "")
-  table.insert(lines, "Keys: C-j/C-k move  i send  J/Enter/Space jump  click select  double-click jump  r refresh  a all  q quit")
+  table.insert(lines, "Keys: C-j/C-k move  i send  J/Enter/Space jump  click select  double-click jump  r rescan  a all  q quit")
   table.insert(lines, "* means state came from an agent report hook.")
 
   vim.bo[state.buf].modifiable = true
@@ -241,8 +260,26 @@ local function render()
   end
 end
 
+local function render()
+  local data = run_scan()
+  if not data then
+    return
+  end
+  set_panes(data)
+  refresh_preview()
+  render_cached()
+end
+
 function M.refresh()
   render()
+end
+
+function M.refresh_preview()
+  if state.input_active or not agent_board_is_current() then
+    return
+  end
+  refresh_preview()
+  render_cached()
 end
 
 function M.move(delta)
@@ -250,6 +287,8 @@ function M.move(delta)
     return
   end
   state.selected = math.max(1, math.min(#state.panes, state.selected + delta))
+  refresh_preview()
+  render_cached()
   local line = state.row_lines[state.selected]
   if line then
     pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
@@ -262,6 +301,8 @@ local function select_line(line)
     return false
   end
   state.selected = index
+  refresh_preview()
+  render_cached()
   pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
   return true
 end
@@ -286,6 +327,7 @@ function M.jump()
   tmux({ "select-pane", "-t", pane.pane_id })
 
   if vim.env.TMUX_AGENT_BOARD_QUIT_ON_JUMP == "1" then
+    M.stop_timer()
     vim.schedule(function()
       vim.cmd("qa!")
     end)
@@ -300,14 +342,16 @@ function M.send_to_selected()
     return
   end
 
+  state.input_active = true
   vim.ui.input({ prompt = "Send to " .. pane_location(pane) .. ": " }, function(input)
+    state.input_active = false
     if not input or input == "" then
       return
     end
     tmux({ "send-keys", "-t", pane.pane_id, "-l", input })
     tmux({ "send-keys", "-t", pane.pane_id, "Enter" })
     vim.schedule(function()
-      render()
+      M.refresh_preview()
     end)
   end)
 end
@@ -319,12 +363,38 @@ function M.toggle_all()
 end
 
 function M.close()
+  M.stop_timer()
   if vim.env.TMUX_AGENT_BOARD_QUIT_ON_JUMP == "1" then
     vim.cmd("qa!")
     return
   end
   if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
     vim.cmd("bdelete!")
+  end
+end
+
+function M.start_timer()
+  if state.timer then
+    return
+  end
+  local timer = uv.new_timer()
+  local interval = preview_refresh_interval()
+  state.timer = timer
+  timer:start(interval, interval, vim.schedule_wrap(function()
+    if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
+      M.stop_timer()
+      return
+    end
+    M.refresh_preview()
+  end))
+end
+
+function M.stop_timer()
+  local timer = state.timer
+  state.timer = nil
+  if timer then
+    timer:stop()
+    timer:close()
   end
 end
 
@@ -390,6 +460,14 @@ function M.open()
     vim.bo[state.buf].filetype = "agent-board"
     vim.api.nvim_buf_set_name(state.buf, "AgentBoard")
     attach_maps(state.buf)
+    vim.api.nvim_create_autocmd("BufWipeout", {
+      buffer = state.buf,
+      once = true,
+      callback = function()
+        M.stop_timer()
+        state.buf = nil
+      end,
+    })
   end
 
   vim.api.nvim_set_current_buf(state.buf)
@@ -398,6 +476,7 @@ function M.open()
   vim.wo.signcolumn = "no"
   vim.wo.cursorline = true
   render()
+  M.start_timer()
 end
 
 function M.setup()
