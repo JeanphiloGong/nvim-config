@@ -98,6 +98,14 @@ local function state_sign(agent_state)
   })[agent_state] or "?"
 end
 
+local function kind_sign(kind)
+  return ({
+    session = "S",
+    window = "W",
+    pane = "P",
+  })[kind] or "-"
+end
+
 local function truncate(text, width)
   text = tostring(text or ""):gsub("\t", " "):gsub("\n", " ")
   if vim.fn.strdisplaywidth(text) <= width then
@@ -486,20 +494,22 @@ local function render_cached()
       local source = pane.source == "report" and "*" or " "
       local name = pane.label or pane_location(pane)
       left = string.format(
-        "%s%s%s %s %s",
+        "%s%s%s%s %s %s",
         source,
         prefix,
         icon,
+        kind_sign(row.kind),
         state_sign(pane.state),
-        truncate(name, math.max(8, left_width - 7 - #prefix))
+        truncate(name, math.max(8, left_width - 8 - #prefix))
       )
     else
       left = string.format(
-        "%s%s %s %s",
+        "%s%s%s %s %s",
         prefix,
         icon,
+        kind_sign(row.kind),
         state_sign(row.status),
-        truncate(row.title, math.max(8, left_width - 6 - #prefix))
+        truncate(row.title, math.max(8, left_width - 7 - #prefix))
       )
     end
     local right = preview_slice[index] or ""

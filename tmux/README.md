@@ -6,7 +6,7 @@
 
 - `<prefix> + C`：打开 nvim `AgentBoard` 控制面板
   - 左侧是可折叠 workspace tree：session -> window -> pane
-  - 左侧只显示名称和状态符号：`!` blocked、`>` working、`✓` done、`.` idle、`?` unknown
+  - 左侧用 `S/W/P` 区分 session/window/pane，并用状态符号标记：`!` blocked、`>` working、`✓` done、`.` idle、`?` unknown
   - session/window 的聚合状态放在右侧 workspace
   - 右侧是选中 pane 的 agent workspace，默认每秒自动刷新
   - 在面板里用 `j/k` 或 `Ctrl-h/j/k/l` 移动，`Enter` / `Space` 展开 session/window；在 pane 上进入预览
