@@ -95,20 +95,20 @@ end
 
 local function state_sign(agent_state)
   return ({
-    blocked = "!",
-    working = ">",
-    done = "✓",
-    idle = ".",
-    unknown = "?",
-  })[agent_state] or "?"
+    blocked = "",
+    working = "",
+    done = "",
+    idle = "",
+    unknown = "",
+  })[agent_state] or ""
 end
 
 local function kind_sign(kind)
   return ({
-    session = "S",
-    window = "W",
-    pane = "P",
-  })[kind] or "-"
+    session = "󰣇",
+    window = "",
+    pane = "",
+  })[kind] or "•"
 end
 
 local function truncate(text, width)
