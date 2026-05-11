@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import subprocess
+import time
+
+
+AGENTS = {
+    "pi": "pi",
+    "claude": "claude",
+    "claude-code": "claude",
+    "codex": "codex",
+    "gemini": "gemini",
+    "cursor": "cursor",
+    "cline": "cline",
+    "opencode": "opencode",
+    "open-code": "opencode",
+    "github-copilot": "copilot",
+    "ghcs": "copilot",
+    "kimi": "kimi",
+    "droid": "droid",
+    "amp": "amp",
+    "amp-local": "amp",
+}
+
+BLOCKED_PATTERNS = (
+    "permission required",
+    "waiting for permission",
+    "waiting for approval",
+    "waiting for user confirmation",
+    "press enter to confirm",
+    "enter to submit answer",
+    "enter confirm",
+    "enter submit",
+    "allow command",
+    "allow execution",
+    "apply this change",
+    "yes (y)",
+    "[y/n]",
+    "(y/n)",
+)
+
+WORKING_PATTERNS = (
+    "esc to interrupt",
+    "ctrl+c to interrupt",
+    "ctrl-c to interrupt",
+    "ctrl+c to stop",
+    "ctrl-c to stop",
+    "working (",
+    "working...",
+    "running tools",
+    "thinking",
+    "processing",
+    "generating",
+)
+
+
+def run(cmd, timeout=1.5):
+    try:
+        return subprocess.run(
+            cmd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            check=False,
+        ).stdout
+    except Exception:
+        return ""
+
+
+def tmux(*args, timeout=1.5):
+    return run(["tmux", *args], timeout=timeout)
+
+
+def pane_option(pane, option):
+    return tmux("show", "-pv", "-t", pane, option).strip()
+
+
+def agent_from_name(name):
+    key = os.path.basename(name or "").lower()
+    return AGENTS.get(key)
+
+
+def agent_from_args(args):
+    lower = (args or "").lower()
+    if "@openai/codex" in lower or re.search(r"(^|[/\s])codex($|[\s/])", lower):
+        return "codex"
+    if re.search(r"(^|[/\s])claude(-code)?($|[\s/])", lower):
+        return "claude"
+    if re.search(r"(^|[/\s])opencode($|[\s/])", lower):
+        return "opencode"
+    if re.search(r"(^|[/\s])gemini($|[\s/])", lower):
+        return "gemini"
+    if re.search(r"(^|[/\s])droid($|[\s/])", lower):
+        return "droid"
+    if re.search(r"(^|[/\s])amp(-local)?($|[\s/])", lower):
+        return "amp"
+    return None
+
+
+def processes_for_tty(tty):
+    if not tty:
+        return []
+    tty_name = tty.removeprefix("/dev/")
+    out = run(["ps", "-t", tty_name, "-o", "pid=", "-o", "comm=", "-o", "args="])
+    processes = []
+    for line in out.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) < 2:
+            continue
+        pid = parts[0]
+        comm = parts[1]
+        args = parts[2] if len(parts) > 2 else ""
+        processes.append({"pid": pid, "comm": comm, "args": args})
+    return processes
+
+
+def agent_from_tty(tty):
+    best = None
+    for process in processes_for_tty(tty):
+        comm = process["comm"]
+        args = process["args"]
+        agent = agent_from_name(comm) or agent_from_args(args)
+        if not agent:
+            continue
+        score = 1
+        if agent_from_name(comm):
+            score = 3
+        elif comm.lower() in {"node", "bun", "python", "python3", "bash", "sh", "zsh", "fish"}:
+            score = 2
+        if best is None or score > best[0]:
+            best = (score, agent)
+    return best[1] if best else None
+
+
+def capture_pane(pane):
+    return tmux("capture-pane", "-pt", pane, "-J", timeout=1.0)
+
+
+def detect_state(agent, text, hook_state="", hook_updated="", hook_ttl=3600):
+    lower = text.lower()
+    if agent:
+        asks_for_confirmation = (
+            ("do you want" in lower or "would you like" in lower)
+            and ("yes" in lower or "proceed" in lower or "[y/n]" in lower or "(y/n)" in lower)
+        )
+        if asks_for_confirmation:
+            return "blocked", "scan"
+        if any(pattern in lower for pattern in BLOCKED_PATTERNS):
+            return "blocked", "scan"
+        if any(pattern in lower for pattern in WORKING_PATTERNS):
+            return "working", "scan"
+
+    if hook_state in {"idle", "working", "blocked", "done", "unknown"}:
+        try:
+            if int(time.time()) - int(hook_updated or "0") <= hook_ttl:
+                return hook_state, "report"
+        except ValueError:
+            pass
+
+    if agent:
+        return "idle", "scan"
+    return "unknown", "scan"
+
+
+def scan(show_all=False):
+    fmt = "\t".join(
+        [
+            "#{session_name}",
+            "#{session_id}",
+            "#{window_index}",
+            "#{window_id}",
+            "#{window_name}",
+            "#{pane_index}",
+            "#{pane_id}",
+            "#{pane_current_command}",
+            "#{pane_current_path}",
+            "#{pane_title}",
+            "#{pane_tty}",
+        ]
+    )
+    out = tmux("list-panes", "-a", "-F", fmt, timeout=2.0)
+    hook_ttl_raw = tmux("show", "-gv", "@agent_status_hook_ttl").strip()
+    try:
+        hook_ttl = int(hook_ttl_raw or "3600")
+    except ValueError:
+        hook_ttl = 3600
+
+    panes = []
+    for line in out.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 11:
+            continue
+        (
+            session,
+            session_id,
+            window_index,
+            window_id,
+            window_name,
+            pane_index,
+            pane_id,
+            command,
+            path,
+            title,
+            tty,
+        ) = fields
+
+        hook_agent = pane_option(pane_id, "@agent_status_agent")
+        hook_state = pane_option(pane_id, "@agent_status_state")
+        hook_updated = pane_option(pane_id, "@agent_status_updated")
+        user_title = pane_option(pane_id, "@user_pane_title")
+        summary = pane_option(pane_id, "@codex_pane_summary")
+
+        agent = (
+            hook_agent
+            or agent_from_name(command)
+            or agent_from_tty(tty)
+            or agent_from_args(title)
+        )
+        if not agent and not show_all:
+            continue
+
+        text = capture_pane(pane_id)
+        state, source = detect_state(agent, text, hook_state, hook_updated, hook_ttl)
+        label = user_title or title or os.path.basename(path) or command or "-"
+        if summary:
+            label = f"{label} | {summary}"
+
+        panes.append(
+            {
+                "session": session,
+                "session_id": session_id,
+                "window": window_index,
+                "window_id": window_id,
+                "window_name": window_name,
+                "pane_index": pane_index,
+                "pane_id": pane_id,
+                "command": command,
+                "path": path,
+                "title": title,
+                "tty": tty,
+                "agent": agent or "-",
+                "state": state,
+                "source": source,
+                "label": label,
+                "summary": summary,
+            }
+        )
+
+    severity = {"blocked": 0, "working": 1, "done": 2, "idle": 3, "unknown": 4}
+    panes.sort(
+        key=lambda pane: (
+            severity.get(pane["state"], 9),
+            pane["session"],
+            int(pane["window"]),
+            int(pane["pane_index"]),
+        )
+    )
+    return {
+        "generated_at": int(time.time()),
+        "show_all": show_all,
+        "panes": panes,
+        "counts": {
+            state: sum(1 for pane in panes if pane["state"] == state)
+            for state in ("blocked", "working", "done", "idle", "unknown")
+        },
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Scan tmux panes for agent state")
+    parser.add_argument("--all", action="store_true", help="include panes without detected agents")
+    parser.add_argument("--pretty", action="store_true", help="pretty-print JSON")
+    args = parser.parse_args()
+
+    data = scan(show_all=args.all)
+    if args.pretty:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()

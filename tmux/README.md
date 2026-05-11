@@ -4,7 +4,12 @@
 
 ## Quick Access
 
-- `<prefix> + C`：打开 `Codex / Orch` 菜单
+- `<prefix> + C`：打开 nvim `AgentBoard` 控制面板
+  - 扫描当前 tmux server 的 agent panes，显示 `working / blocked / done / idle`
+  - 在面板里用 `Ctrl-h/j/k/l` 移动，`Space` / `Enter` 跳转到选中 pane
+  - 鼠标单击选择，双击跳转
+- `<prefix> + M`：打开 `Agents / Codex / Orch` 菜单
+  - `Agent board`：打开 nvim `AgentBoard`
   - `Orch dashboard`：打开当前 tmux session 的编排状态面板
   - 其余条目：最近完成的 Codex panes，可直接跳回
 

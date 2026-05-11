@@ -25,12 +25,15 @@ fi
 
 target_pane="${TMUX_PANE:-}"
 if [ -n "$target_pane" ]; then
-  set -- display-menu -t "$target_pane" -T "Codex / Orch" -x R -y P
+  set -- display-menu -t "$target_pane" -T "Agents / Codex / Orch" -x R -y P
 else
-  set -- display-menu -T "Codex / Orch" -x R -y P
+  set -- display-menu -T "Agents / Codex / Orch" -x R -y P
 fi
 
 menu_items=0
+
+set -- "$@" "Agent board" "A" "new-window -n agent-board \"TMUX_AGENT_BOARD_QUIT_ON_JUMP=1 nvim -c AgentBoard\""
+menu_items=$((menu_items + 1))
 
 set -- "$@" "Orch dashboard" "O" "display-popup -E -w 90% -h 85% -T \"tmux-orch\" -d \"#{pane_current_path}\" \"bash \\\"$orch_dashboard\\\"\""
 menu_items=$((menu_items + 1))
