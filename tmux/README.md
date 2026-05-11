@@ -8,7 +8,8 @@
   - 左侧扫描当前 tmux server 的 agent panes，显示 `working / blocked / done / idle`
   - 右侧显示选中 pane 的当前画面，默认每秒自动刷新
   - 在面板里用 `Ctrl-h/j/k/l` 移动，`i` 给选中 pane 发送一行输入
-  - `J` / `Space` / `Enter` 跳转到选中 pane
+  - `Enter` 进入右侧预览；预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回列表
+  - `J` 跳转到选中 pane
   - `r` 重新扫描 pane 列表
   - 鼠标单击选择，双击跳转
 - `<prefix> + M`：打开 `Agents / Codex / Orch` 菜单

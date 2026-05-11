@@ -10,6 +10,9 @@ local state = {
   generated_at = nil,
   counts = {},
   preview_lines = {},
+  preview_focus = false,
+  preview_top = nil,
+  preview_col = 0,
   timer = nil,
   input_active = false,
 }
@@ -118,12 +121,25 @@ local function pad(text, width)
   return text .. string.rep(" ", width - display_width)
 end
 
-local function capture_preview(pane)
+local function preview_history_lines()
+  local lines = tonumber(vim.g.agent_board_preview_history_lines)
+  if lines and lines > 0 then
+    return math.floor(lines)
+  end
+  return 2000
+end
+
+local function capture_preview(pane, include_history)
   if not pane or not pane.pane_id then
     return {}
   end
 
-  local output = tmux_output({ "capture-pane", "-pt", pane.pane_id, "-J" })
+  local cmd = { "capture-pane", "-p", "-J" }
+  if include_history then
+    vim.list_extend(cmd, { "-S", "-" .. preview_history_lines() })
+  end
+  vim.list_extend(cmd, { "-t", pane.pane_id })
+  local output = tmux_output(cmd)
   local lines = vim.split(output or "", "\n", { plain = true })
   if #lines > 0 and lines[#lines] == "" then
     table.remove(lines, #lines)
@@ -163,8 +179,25 @@ local function set_panes(data)
   end
 end
 
-local function refresh_preview()
-  state.preview_lines = capture_preview(state.panes[state.selected])
+local function refresh_preview(include_history)
+  state.preview_lines = capture_preview(state.panes[state.selected], include_history or state.preview_focus)
+  if not state.preview_focus then
+    state.preview_top = nil
+  end
+end
+
+local function preview_display_height()
+  return math.max(#state.panes, vim.api.nvim_win_get_height(0) - 7, 1)
+end
+
+local function clamp_preview_top(height)
+  local preview_lines = state.preview_lines or {}
+  local max_top = math.max(1, #preview_lines - height + 1)
+  if not state.preview_top then
+    state.preview_top = max_top
+  end
+  state.preview_top = math.max(1, math.min(max_top, state.preview_top))
+  return max_top
 end
 
 local function render_cached()
@@ -186,6 +219,25 @@ local function render_cached()
   end
   local selected_pane = state.panes[state.selected]
   local preview_lines = state.preview_lines or {}
+  local preview_height = preview_display_height()
+  local preview_max_top = clamp_preview_top(preview_height)
+  if not state.preview_focus then
+    state.preview_top = preview_max_top
+  end
+  local preview_slice = {}
+  for index = state.preview_top, math.min(#preview_lines, state.preview_top + preview_height - 1) do
+    table.insert(preview_slice, preview_lines[index])
+  end
+  local preview_header = "PANE CONTENT"
+  if state.preview_focus and #preview_lines > 0 then
+    preview_header = string.format(
+      "PANE CONTENT %s-%s/%s",
+      state.preview_top,
+      math.min(#preview_lines, state.preview_top + preview_height - 1),
+      #preview_lines
+    )
+  end
+  state.preview_col = right_width > 0 and left_width + 3 or 0
 
   table.insert(lines, compose_row("AgentBoard", selected_pane and pane_location(selected_pane) or "Preview", left_width, right_width))
   table.insert(
@@ -206,7 +258,7 @@ local function render_cached()
     )
   )
   table.insert(lines, compose_row("", "", left_width, right_width))
-  table.insert(lines, compose_row(string.format("%-8s %-7s %-18s %s", "STATE", "AGENT", "TARGET", "LABEL"), "PANE CONTENT", left_width, right_width))
+  table.insert(lines, compose_row(string.format("%-8s %-7s %-18s %s", "STATE", "AGENT", "TARGET", "LABEL"), preview_header, left_width, right_width))
   table.insert(lines, compose_row(string.rep("-", left_width), string.rep("-", math.max(right_width, 0)), left_width, right_width))
 
   for index, pane in ipairs(state.panes) do
@@ -219,7 +271,7 @@ local function render_cached()
       truncate(pane_location(pane), 18),
       truncate(pane.label or "", math.max(8, left_width - 38))
     )
-    local right = preview_lines[index] or ""
+    local right = preview_slice[index] or ""
     table.insert(lines, compose_row(left, right, left_width, right_width))
     state.line_to_index[#lines] = index
     state.row_lines[index] = #lines
@@ -230,12 +282,16 @@ local function render_cached()
   end
 
   local consumed_preview = #state.panes
-  for index = consumed_preview + 1, #preview_lines do
-    table.insert(lines, compose_row("", preview_lines[index], left_width, right_width))
+  for index = consumed_preview + 1, #preview_slice do
+    table.insert(lines, compose_row("", preview_slice[index], left_width, right_width))
   end
 
   table.insert(lines, "")
-  table.insert(lines, "Keys: C-j/C-k move  i send  J/Enter/Space jump  click select  double-click jump  r rescan  a all  q quit")
+  if state.preview_focus then
+    table.insert(lines, "Preview: j/k/Up/Down scroll  C-u/C-d page  Esc/q list  i send  J jump  r rescan")
+  else
+    table.insert(lines, "Keys: j/k/C-j/C-k move  Enter preview  i send  J jump  click select  double-click jump  r rescan  a all  q quit")
+  end
   table.insert(lines, "* means state came from an agent report hook.")
 
   vim.bo[state.buf].modifiable = true
@@ -256,7 +312,8 @@ local function render_cached()
 
   local selected_line = state.row_lines[state.selected]
   if selected_line and vim.api.nvim_get_current_buf() == state.buf then
-    pcall(vim.api.nvim_win_set_cursor, 0, { selected_line, 0 })
+    local column = state.preview_focus and state.preview_col or 0
+    pcall(vim.api.nvim_win_set_cursor, 0, { selected_line, column })
   end
 end
 
@@ -266,7 +323,7 @@ local function render()
     return
   end
   set_panes(data)
-  refresh_preview()
+  refresh_preview(state.preview_focus)
   render_cached()
 end
 
@@ -275,7 +332,7 @@ function M.refresh()
 end
 
 function M.refresh_preview()
-  if state.input_active or not agent_board_is_current() then
+  if state.input_active or state.preview_focus or not agent_board_is_current() then
     return
   end
   refresh_preview()
@@ -286,6 +343,7 @@ function M.move(delta)
   if #state.panes == 0 then
     return
   end
+  state.preview_focus = false
   state.selected = math.max(1, math.min(#state.panes, state.selected + delta))
   refresh_preview()
   render_cached()
@@ -300,6 +358,7 @@ local function select_line(line)
   if not index then
     return false
   end
+  state.preview_focus = false
   state.selected = index
   refresh_preview()
   render_cached()
@@ -351,13 +410,61 @@ function M.send_to_selected()
     tmux({ "send-keys", "-t", pane.pane_id, "-l", input })
     tmux({ "send-keys", "-t", pane.pane_id, "Enter" })
     vim.schedule(function()
-      M.refresh_preview()
+      if agent_board_is_current() then
+        refresh_preview(state.preview_focus)
+        render_cached()
+      end
     end)
   end)
 end
 
+function M.enter_preview()
+  if #state.preview_lines == 0 then
+    return
+  end
+  state.preview_top = nil
+  state.preview_focus = true
+  refresh_preview(true)
+  state.preview_top = math.max(1, #state.preview_lines - preview_display_height() + 1)
+  render_cached()
+end
+
+function M.leave_preview()
+  if not state.preview_focus then
+    return
+  end
+  state.preview_focus = false
+  state.preview_top = nil
+  render_cached()
+end
+
+function M.close_or_leave_preview()
+  if state.preview_focus then
+    M.leave_preview()
+    return
+  end
+  M.close()
+end
+
+function M.scroll_preview(delta)
+  if not state.preview_focus then
+    M.move(delta)
+    return
+  end
+  local height = preview_display_height()
+  local max_top = math.max(1, #(state.preview_lines or {}) - height + 1)
+  state.preview_top = math.max(1, math.min(max_top, (state.preview_top or max_top) + delta))
+  render_cached()
+end
+
+function M.scroll_preview_page(delta)
+  local height = preview_display_height()
+  M.scroll_preview(delta * math.max(1, height - 1))
+end
+
 function M.toggle_all()
   state.show_all = not state.show_all
+  state.preview_focus = false
   state.selected = 1
   render()
 end
@@ -403,22 +510,28 @@ local function map(buf, lhs, rhs, desc)
 end
 
 local function attach_maps(buf)
-  map(buf, "q", M.close, "Close AgentBoard")
+  map(buf, "q", M.close_or_leave_preview, "Close AgentBoard or leave preview")
   map(buf, "r", M.refresh, "Refresh AgentBoard")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
   map(buf, "i", M.send_to_selected, "Send text to selected pane")
   map(buf, "j", function()
-    M.move(1)
-  end, "Next agent")
+    M.scroll_preview(1)
+  end, "Next agent or scroll preview")
   map(buf, "k", function()
-    M.move(-1)
-  end, "Previous agent")
+    M.scroll_preview(-1)
+  end, "Previous agent or scroll preview")
   map(buf, "<Down>", function()
-    M.move(1)
-  end, "Next agent")
+    M.scroll_preview(1)
+  end, "Next agent or scroll preview")
   map(buf, "<Up>", function()
-    M.move(-1)
-  end, "Previous agent")
+    M.scroll_preview(-1)
+  end, "Previous agent or scroll preview")
+  map(buf, "<C-d>", function()
+    M.scroll_preview_page(1)
+  end, "Scroll preview down")
+  map(buf, "<C-u>", function()
+    M.scroll_preview_page(-1)
+  end, "Scroll preview up")
   map(buf, "<C-j>", function()
     M.move(1)
   end, "Next agent")
@@ -431,9 +544,9 @@ local function attach_maps(buf)
   map(buf, "<C-h>", function()
     M.move(-1)
   end, "Previous agent")
-  map(buf, "<CR>", M.jump, "Jump to pane")
+  map(buf, "<Esc>", M.leave_preview, "Leave preview")
+  map(buf, "<CR>", M.enter_preview, "Enter preview")
   map(buf, "J", M.jump, "Jump to pane")
-  map(buf, "<Space>", M.jump, "Jump to pane")
   map(buf, "<LeftMouse>", function()
     local pos = vim.fn.getmousepos()
     if pos.winid == vim.api.nvim_get_current_win() then
