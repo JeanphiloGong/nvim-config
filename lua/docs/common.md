@@ -50,6 +50,7 @@
 
 ## Tmux 与快捷键提示
 - `christoomey/vim-tmux-navigator`：`Ctrl-h/j/k/l` 在 Neovim 与 tmux 分窗间无缝切换。
+- `:AgentBoard`：在 Neovim 中打开 tmux agent 控制面板；`prefix + C` 会新建一个临时 nvim window 直接进入该面板。
 - `folke/which-key.nvim`：`<leader>` 起手时弹出可用按键提示，无需手动配置。
 
 ## 进阶定制

@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+valid_state() {
+  case "${1:-}" in
+    idle | working | blocked | done | unknown) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+clear_report() {
+  local pane="${1:-${TMUX_PANE:-}}"
+  [ -n "$pane" ] || exit 0
+
+  tmux set-option -pqu -t "$pane" @agent_status_agent 2>/dev/null || true
+  tmux set-option -pqu -t "$pane" @agent_status_state 2>/dev/null || true
+  tmux set-option -pqu -t "$pane" @agent_status_message 2>/dev/null || true
+  tmux set-option -pqu -t "$pane" @agent_status_updated 2>/dev/null || true
+  tmux set-option -pqu -t "$pane" @agent_status_source 2>/dev/null || true
+}
+
+report_state() {
+  local pane="${TMUX_PANE:-}"
+  local agent=""
+  local state=""
+  local message=""
+  local source="manual"
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --pane)
+        pane="${2:-}"
+        shift 2
+        ;;
+      --agent)
+        agent="${2:-}"
+        shift 2
+        ;;
+      --state)
+        state="${2:-}"
+        shift 2
+        ;;
+      --message)
+        message="${2:-}"
+        shift 2
+        ;;
+      --source)
+        source="${2:-}"
+        shift 2
+        ;;
+      --clear | --release)
+        clear_report "$pane"
+        exit 0
+        ;;
+      *)
+        exit 2
+        ;;
+    esac
+  done
+
+  [ -n "$pane" ] || exit 0
+  [ -n "$agent" ] || agent="agent"
+  valid_state "$state" || exit 2
+
+  tmux set -pq -t "$pane" @agent_status_agent "$agent" 2>/dev/null || true
+  tmux set -pq -t "$pane" @agent_status_state "$state" 2>/dev/null || true
+  tmux set -pq -t "$pane" @agent_status_message "$message" 2>/dev/null || true
+  tmux set -pq -t "$pane" @agent_status_updated "$(date +%s)" 2>/dev/null || true
+  tmux set -pq -t "$pane" @agent_status_source "$source" 2>/dev/null || true
+}
+
+case "${1:-}" in
+  report)
+    shift
+    report_state "$@"
+    ;;
+  clear)
+    shift
+    clear_report "${1:-${TMUX_PANE:-}}"
+    ;;
+  *)
+    printf 'usage: tmux-agent-status report --pane PANE --agent NAME --state STATE [--message TEXT]\n' >&2
+    exit 2
+    ;;
+esac
