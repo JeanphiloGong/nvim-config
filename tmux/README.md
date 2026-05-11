@@ -5,10 +5,12 @@
 ## Quick Access
 
 - `<prefix> + C`：打开 nvim `AgentBoard` 控制面板
-  - 左侧扫描当前 tmux server 的 agent panes，显示 `working / blocked / done / idle`
-  - 右侧显示选中 pane 的当前画面，默认每秒自动刷新
-  - 在面板里用 `Ctrl-h/j/k/l` 移动，`i` 给选中 pane 发送一行输入
-  - `Enter` 进入右侧预览；预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回列表
+  - 左侧是可折叠 workspace tree：session -> window -> pane
+  - session/window 行聚合显示 `working / blocked / done / idle`
+  - 右侧是选中 pane 的 agent workspace，默认每秒自动刷新
+  - 在面板里用 `j/k` 或 `Ctrl-h/j/k/l` 移动，`Enter` / `Space` 展开 session/window；在 pane 上进入预览
+  - `i` 给选中 pane 发送一行输入
+  - 预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回树
   - `J` 跳转到选中 pane
   - `r` 重新扫描 pane 列表
   - 鼠标单击选择，双击跳转
