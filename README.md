@@ -118,7 +118,7 @@ source ~/.bashrc
 1) 安装 TPM：`git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm`
 2) 关联配置：`ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf`
 3) 启动 tmux 后执行 `tmux source ~/.tmux.conf`，再按 `prefix + I` 安装插件。
-4) `prefix + C` 打开 nvim `AgentBoard`，左侧用 session/window/pane 树管理 agent，右侧按选中范围显示 scope inspector 或单 agent workspace。
+4) `prefix + C` 打开 nvim `AgentBoard`，左侧用 session/window/pane 树管理 agent，右侧按选中范围显示 scope inspector、Codex 当前动作或单 agent workspace。
 
 ## 实用命令
 - `:Time` 在光标处插入当前时间戳（YYYY-MM-DD HH:MM:SS）。

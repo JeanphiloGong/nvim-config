@@ -9,7 +9,7 @@
   - 左侧是可折叠 workspace tree：session -> window -> pane
   - 左侧用 Nerd Font 图标区分 session/window，pane 行左侧显示 agent 图标：`` codex、`󰚩` claude、`` opencode、`` gemini、`` copilot
   - 状态图标固定在左侧 tree column 的右边缘：`` blocked、`` working、`` done、`` idle、`` unknown
-  - 选中 session/window 时，右侧是 scope inspector：聚合状态、重点 agents 和可用动作
+  - 选中 session/window 时，右侧是 scope inspector：聚合状态、重点 agents、Codex 当前动作和可用动作
   - 选中 pane 时，右侧是单 agent workspace，默认每秒自动刷新
   - 在面板里用 `j/k` 或 `Ctrl-h/j/k/l` 移动，`Enter` / `Space` 展开 session/window；在 pane 上进入预览
   - `gw` 展开所有 working agent；`gd` 展开所有 done agent
@@ -28,7 +28,7 @@
 
 `AgentBoard` 用两层信号判断状态：
 
-- Codex lifecycle hooks 主动把 `working / blocked / done / idle` 和当前动作写到当前 tmux pane metadata / pane title
+- Codex lifecycle hooks 主动把 `working / blocked / done / idle`、当前动作和最近总结写到当前 tmux pane metadata / pane title
 - `tmux-agent-scan` 再读取 pane 进程和屏幕文本，作为 hooks 不存在或过期时的补充判断
 
 全局 Codex hook 配置在 `~/.codex/hooks.json`，需要 `~/.codex/config.toml`

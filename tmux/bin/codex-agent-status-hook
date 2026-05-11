@@ -32,7 +32,7 @@ esac
 status_bin="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-agent-status"
 [ -x "$status_bin" ] || finish
 
-activity_from_payload() {
+metadata_from_payload() {
   command -v python3 >/dev/null 2>&1 || return 0
   local payload_file
   payload_file="$(mktemp "${TMPDIR:-/tmp}/codex-agent-status.XXXXXX")" || return 0
@@ -54,7 +54,20 @@ try:
 except Exception:
     data = {}
 
-def clean(value, limit=72):
+def pick(obj, *keys):
+    if not isinstance(obj, dict):
+        return ""
+    for key in keys:
+        if key in obj and obj[key] not in (None, ""):
+            return obj[key]
+    normalized = {str(key).replace("-", "_").lower(): value for key, value in obj.items()}
+    for key in keys:
+        value = normalized.get(str(key).replace("-", "_").lower())
+        if value not in (None, ""):
+            return value
+    return ""
+
+def clean(value, limit=96):
     if isinstance(value, (dict, list)):
         value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     if value is None:
@@ -65,56 +78,90 @@ def clean(value, limit=72):
         value = value[: max(0, limit - 1)].rstrip() + "..."
     return value
 
-event = clean(data.get("hook_event_name") or data.get("hookEventName"), 32)
-tool = clean(data.get("tool_name") or data.get("toolName"), 32)
-tool_input = data.get("tool_input") or data.get("toolInput") or {}
+def message_text(value, limit=96):
+    if isinstance(value, dict):
+        value = pick(value, "content", "text", "message")
+    elif isinstance(value, list):
+        parts = []
+        for item in value:
+            text = message_text(item, limit)
+            if text:
+                parts.append(text)
+        value = " ".join(parts)
+    return clean(value, limit)
+
+event = clean(pick(data, "hook_event_name", "hookEventName", "hook-event-name"), 32)
+tool = clean(pick(data, "tool_name", "toolName", "tool-name"), 32)
+tool_input = pick(data, "tool_input", "toolInput", "tool-input")
+tool_input = tool_input if isinstance(tool_input, dict) else {}
 command = ""
 description = ""
+target = ""
 if isinstance(tool_input, dict):
-    command = clean(tool_input.get("command"), 72)
-    description = clean(tool_input.get("description"), 72)
+    command = clean(pick(tool_input, "command", "cmd"), 96)
+    description = clean(pick(tool_input, "description"), 96)
+    target = clean(pick(tool_input, "file_path", "filePath", "path", "query", "pattern"), 64)
 
-prompt = clean(data.get("prompt"), 72)
-last_message = clean(data.get("last_assistant_message") or data.get("lastAssistantMessage"), 72)
-source = clean(data.get("source"), 32)
+prompt = clean(pick(data, "prompt", "user_prompt", "userPrompt", "user-prompt"), 96)
+last_message = message_text(pick(data, "last_assistant_message", "lastAssistantMessage", "last-assistant-message"), 96)
+source = clean(pick(data, "source"), 32)
+
+activity = ""
+summary = ""
+tool_key = tool.lower()
 
 if event == "SessionStart":
-    print(f"idle: {source or 'session'}")
+    activity = f"idle: {source or 'session'}"
 elif event == "UserPromptSubmit":
-    print(f"prompt: {prompt or 'submitted'}")
+    activity = f"prompt: {prompt or 'submitted'}"
 elif event == "PreToolUse":
-    if tool == "Bash" and command:
-        print(f"bash: {command}")
-    elif tool == "apply_patch":
-        print("edit: apply_patch")
+    if tool_key == "bash" and command:
+        activity = f"bash: {description or command}"
+    elif tool_key in {"apply_patch", "edit", "multiedit", "write"}:
+        activity = f"edit: {target or tool or 'file'}"
+    elif tool_key in {"read", "glob", "grep", "ls"}:
+        activity = f"inspect: {target or tool}"
     elif tool:
-        print(f"tool: {tool}")
+        activity = f"tool: {tool}"
     else:
-        print("working")
+        activity = "working"
 elif event == "PermissionRequest":
     if description:
-        print(f"blocked: {description}")
+        activity = f"blocked: {description}"
     elif tool:
-        print(f"blocked: {tool}")
+        activity = f"blocked: {tool}"
     else:
-        print("blocked")
+        activity = "blocked"
 elif event == "PostToolUse":
-    print(f"done tool: {tool or 'tool'}")
+    activity = f"used: {tool or 'tool'}"
 elif event == "Stop":
-    print(f"done: {last_message}" if last_message else "done")
+    summary = last_message
+    activity = f"done: {summary}" if summary else "done"
 elif state:
-    print(state)
+    if state == "done" and last_message:
+        summary = last_message
+        activity = f"done: {summary}"
+    else:
+        activity = state
+
+print(f"{activity}\t{summary}")
 PY
   rm -f "$payload_file"
 }
 
-activity="$(activity_from_payload)"
+metadata="$(metadata_from_payload)"
+activity=""
+summary=""
+if [ -n "$metadata" ]; then
+  IFS=$'\t' read -r activity summary <<<"$metadata"
+fi
 [ -n "$activity" ] || activity="$state"
 
 case "$state" in
   clear | release)
     "$status_bin" clear "$TMUX_PANE" >/dev/null 2>&1 || true
     tmux set-option -pqu -t "$TMUX_PANE" @codex_pane_activity 2>/dev/null || true
+    tmux set-option -pqu -t "$TMUX_PANE" @codex_pane_summary 2>/dev/null || true
     tmux select-pane -t "$TMUX_PANE" -T "" 2>/dev/null || true
     ;;
   *)
@@ -125,6 +172,9 @@ case "$state" in
       --message "$activity" \
       --source codex-hook >/dev/null 2>&1 || true
     tmux set -pq -t "$TMUX_PANE" @codex_pane_activity "$activity" 2>/dev/null || true
+    if [ -n "$summary" ]; then
+      tmux set -pq -t "$TMUX_PANE" @codex_pane_summary "$summary" 2>/dev/null || true
+    fi
     tmux select-pane -t "$TMUX_PANE" -T "$activity" 2>/dev/null || true
     ;;
 esac
