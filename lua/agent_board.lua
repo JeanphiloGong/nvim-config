@@ -153,6 +153,13 @@ local function pane_location(pane)
 end
 
 local status_order = { "blocked", "working", "done", "idle", "unknown" }
+local status_rank = {
+  blocked = 1,
+  working = 2,
+  done = 3,
+  idle = 4,
+  unknown = 5,
+}
 
 local function count_state(counts, agent_state)
   counts[agent_state or "unknown"] = (counts[agent_state or "unknown"] or 0) + 1
@@ -268,22 +275,72 @@ local function capture_preview(pane, include_history)
   return lines
 end
 
+local function pane_display_name(pane)
+  if not pane then
+    return "-"
+  end
+  return pane.label or pane_location(pane)
+end
+
+local function sorted_scope_panes(panes)
+  local sorted = vim.deepcopy(panes or {})
+  table.sort(sorted, function(a, b)
+    local a_rank = status_rank[a.state or "unknown"] or status_rank.unknown
+    local b_rank = status_rank[b.state or "unknown"] or status_rank.unknown
+    if a_rank ~= b_rank then
+      return a_rank < b_rank
+    end
+    local a_target = string.format("%s:%s.%s", a.session or "", a.window or "", a.pane_index or "")
+    local b_target = string.format("%s:%s.%s", b.session or "", b.window or "", b.pane_index or "")
+    return a_target < b_target
+  end)
+  return sorted
+end
+
+local function scope_pane_line(pane)
+  local status = state_sign(pane.state)
+  local agent = agent_sign(pane.agent)
+  local target = string.format("%s:%s.%s", pane.session or "-", pane.window or "-", pane.pane_index or "-")
+  return string.format("%s %s %-8s %s", status, agent, pane.agent or "-", pane_display_name(pane) .. "  " .. target)
+end
+
 local function node_workspace_lines(row)
   if not row or row.kind == "pane" then
     return {}
   end
   local next_level = row.kind == "session" and "windows" or "panes"
-  return {
+  local panes = sorted_scope_panes(row.panes)
+  local lines = {
     row_workspace_title(row),
     "",
-    "Type: " .. row.kind,
+    "Scope: " .. row.kind,
     "Status: " .. (count_summary(row.counts) ~= "" and count_summary(row.counts) or "empty"),
-    "Panes: " .. tostring(row.pane_count or 0),
+    "Agents: " .. tostring(row.pane_count or 0),
     "Children: " .. tostring(row.child_count or 0) .. " " .. next_level,
     "",
-    (state.expanded[row.id] and "Enter/Space collapses this node." or "Enter/Space expands this node."),
-    "Select a pane to open its agent workspace.",
   }
+
+  table.insert(lines, "Focus")
+  if #panes == 0 then
+    table.insert(lines, "No agent panes in this scope.")
+  else
+    for index, pane in ipairs(panes) do
+      if index > 10 then
+        table.insert(lines, string.format("... %s more", #panes - 10))
+        break
+      end
+      table.insert(lines, scope_pane_line(pane))
+    end
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, "Actions")
+  table.insert(lines, state.expanded[row.id] and "Enter/Space collapse this scope" or "Enter/Space expand this scope")
+  table.insert(lines, "gw expand working agents")
+  table.insert(lines, "gd expand done agents")
+  table.insert(lines, "Select a pane row for the single-agent workspace.")
+
+  return lines
 end
 
 local function compose_row(left, right, left_width, right_width)
@@ -339,6 +396,7 @@ local function build_tree_rows(panes)
         sort_key = pane.session or session_id,
         counts = {},
         windows = {},
+        panes = {},
         pane_count = 0,
       }
       sessions[session_id] = session
@@ -346,6 +404,7 @@ local function build_tree_rows(panes)
 
     count_state(session.counts, pane.state)
     session.pane_count = session.pane_count + 1
+    table.insert(session.panes, pane)
 
     local window_id = pane.window_id or ((pane.session or "-") .. ":" .. (pane.window or "-"))
     local window = session.windows[window_id]
@@ -379,6 +438,7 @@ local function build_tree_rows(panes)
       status = node_status(session.counts),
       pane_count = session.pane_count,
       child_count = window_count,
+      panes = session.panes,
     })
 
     if state.expanded[session.id] then
@@ -396,6 +456,7 @@ local function build_tree_rows(panes)
           status = node_status(window.counts),
           pane_count = #window.panes,
           child_count = #window.panes,
+          panes = window.panes,
         })
 
         if state.expanded[window.id] then
@@ -506,10 +567,11 @@ local function render_cached()
   for index = state.preview_top, math.min(#preview_lines, state.preview_top + preview_height - 1) do
     table.insert(preview_slice, preview_lines[index])
   end
-  local preview_header = "PANE CONTENT"
+  local row = selected_row()
+  local preview_header = workspace_pane and "AGENT WORKSPACE" or "SCOPE INSPECTOR"
   if state.preview_focus and #preview_lines > 0 then
     preview_header = string.format(
-      "PANE CONTENT %s-%s/%s",
+      "PANE HISTORY %s-%s/%s",
       state.preview_top,
       math.min(#preview_lines, state.preview_top + preview_height - 1),
       #preview_lines
@@ -530,7 +592,7 @@ local function render_cached()
         counts.unknown or 0,
         state.show_all and "all panes" or "agents"
       ),
-      workspace_pane and (workspace_pane.path or "") or "Select a pane to open its workspace",
+      workspace_pane and (workspace_pane.path or "") or (row and ("Inspecting " .. row.kind .. " scope") or "Select a scope"),
       left_width,
       right_width
     )

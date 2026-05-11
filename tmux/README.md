@@ -9,8 +9,8 @@
   - 左侧是可折叠 workspace tree：session -> window -> pane
   - 左侧用 Nerd Font 图标区分 session/window，pane 行左侧显示 agent 图标：`` codex、`󰚩` claude、`` opencode、`` gemini、`` copilot
   - 状态图标固定在左侧 tree column 的右边缘：`` blocked、`` working、`` done、`` idle、`` unknown
-  - session/window 的聚合状态放在右侧 workspace
-  - 右侧是选中 pane 的 agent workspace，默认每秒自动刷新
+  - 选中 session/window 时，右侧是 scope inspector：聚合状态、重点 agents 和可用动作
+  - 选中 pane 时，右侧是单 agent workspace，默认每秒自动刷新
   - 在面板里用 `j/k` 或 `Ctrl-h/j/k/l` 移动，`Enter` / `Space` 展开 session/window；在 pane 上进入预览
   - `gw` 展开所有 working agent；`gd` 展开所有 done agent
   - `i` 给选中 pane 发送一行输入
