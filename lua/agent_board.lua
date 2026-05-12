@@ -166,22 +166,6 @@ local function pane_target(pane)
   return string.format("%s:%s.%s", pane.session or "-", pane.window or "-", pane.pane_index or "-")
 end
 
-local function pane_stage(pane)
-  if pane and pane.phase and pane.phase ~= "" and pane.phase ~= "unknown" then
-    return pane.phase
-  end
-  return ({
-    blocked = "waiting",
-    error = "blocked",
-    stale = "waiting",
-    ["review-ready"] = "reporting",
-    working = "working",
-    done = "reporting",
-    idle = "complete",
-    unknown = "unknown",
-  })[pane and pane.state or "unknown"] or "unknown"
-end
-
 local status_order = { "blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown" }
 local status_rank = {
   blocked = 1,
@@ -319,6 +303,12 @@ local function pane_activity(pane)
   if not pane then
     return "-"
   end
+  if pane.headline and pane.headline ~= "" then
+    return pane.headline
+  end
+  if pane.current and pane.current ~= "" then
+    return pane.current
+  end
   if pane.activity and pane.activity ~= "" then
     return pane.activity
   end
@@ -361,6 +351,46 @@ local function add_detail(lines, label, value)
   return false
 end
 
+local function add_plan(lines, plan)
+  if type(plan) ~= "table" or vim.tbl_isempty(plan) then
+    return false
+  end
+  table.insert(lines, "  Plan:")
+  for index, item in ipairs(plan) do
+    if type(item) == "table" then
+      local status = item.status or "todo"
+      local text = item.text or ""
+      if text ~= "" then
+        table.insert(lines, string.format("    %d. %-5s %s", index, status, text))
+      end
+    end
+  end
+  return true
+end
+
+local function pane_blocked(pane)
+  if pane and pane.blocked and pane.blocked ~= "" then
+    return pane.blocked
+  end
+  if pane and pane.need and pane.need ~= "" then
+    return pane.need
+  end
+  return ""
+end
+
+local function pane_outcome(pane)
+  if pane and pane.brief_outcome and pane.brief_outcome ~= "" then
+    return pane.brief_outcome
+  end
+  if pane and pane.outcome and pane.outcome ~= "" then
+    return pane.outcome
+  end
+  if pane and pane.summary and pane.summary ~= "" then
+    return pane.summary
+  end
+  return ""
+end
+
 local function sorted_scope_panes(panes)
   local sorted = vim.deepcopy(panes or {})
   table.sort(sorted, function(a, b)
@@ -383,21 +413,21 @@ local function add_agent_card(lines, pane)
   table.insert(
     lines,
     string.format(
-      "%s %s %-8s %-12s state=%s phase=%s updated=%s",
+      "%s %s %-8s %-12s %s",
       state_sign(status),
       agent_sign(pane.agent),
       pane.agent or "-",
       target,
-      status,
-      pane_phase(pane),
-      updated
+      truncate(pane_activity(pane) .. "  updated=" .. updated, 80)
     )
   )
   local has_detail = false
   has_detail = add_detail(lines, "Goal", pane.goal) or has_detail
-  has_detail = add_detail(lines, "Now", pane_activity(pane)) or has_detail
-  has_detail = add_detail(lines, "Need", pane.need) or has_detail
-  has_detail = add_detail(lines, "Outcome", pane.outcome or pane.summary) or has_detail
+  has_detail = add_detail(lines, "Now", pane.current or pane_activity(pane)) or has_detail
+  has_detail = add_detail(lines, "Evidence", pane.evidence) or has_detail
+  has_detail = add_detail(lines, "Next", pane.next) or has_detail
+  has_detail = add_detail(lines, "Blocked", pane_blocked(pane)) or has_detail
+  has_detail = add_detail(lines, "Outcome", pane_outcome(pane)) or has_detail
   if not has_detail then
     add_detail(lines, "Now", "No current activity reported")
   end
@@ -479,23 +509,25 @@ local function agent_workspace_lines(pane)
   local lines = {
     pane_location(pane),
     "",
-    "AGENT STATUS",
+    "MANAGER BRIEF",
     string.rep("-", 64),
     string.format(
-      "%s %s    agent=%s    stage=%s    updated=%s",
+      "%s %s    agent=%s    updated=%s",
       state_sign(pane.state),
-      pane.state or "unknown",
+      agent_sign(pane.agent),
       pane.agent or "-",
-      pane_stage(pane),
       relative_time(pane.updated)
     ),
   }
   add_detail(lines, "Target", pane_target(pane))
   add_detail(lines, "Window", pane.window_name)
   add_detail(lines, "Goal", pane.goal)
-  add_detail(lines, "Now", pane_activity(pane))
-  add_detail(lines, "Need", pane.need)
-  add_detail(lines, "Outcome", pane.outcome or pane.summary)
+  add_plan(lines, pane.plan)
+  add_detail(lines, "Current Focus", pane.current or pane_activity(pane))
+  add_detail(lines, "Latest Evidence", pane.evidence)
+  add_detail(lines, "Next", pane.next)
+  add_detail(lines, "Blocked", pane_blocked(pane))
+  add_detail(lines, "Outcome", pane_outcome(pane))
   add_detail(lines, "Path", pane.path)
   table.insert(lines, "")
   table.insert(lines, "PANE VIEW")

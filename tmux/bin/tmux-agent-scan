@@ -135,6 +135,12 @@ def record_value(record, key, fallback=""):
     return fallback or ""
 
 
+def record_list(record, key):
+    if isinstance(record, dict) and isinstance(record.get(key), list):
+        return record[key]
+    return []
+
+
 def scan(show_all=False):
     fmt = "\t".join(
         [
@@ -211,9 +217,18 @@ def scan(show_all=False):
         goal = record_value(record, "goal", opt_goal)
         need = record_value(record, "need", opt_need)
         outcome = record_value(record, "outcome", opt_outcome)
+        headline = record_value(record, "headline")
+        current = record_value(record, "current")
+        evidence = record_value(record, "evidence")
+        next_step = record_value(record, "next")
+        blocked = record_value(record, "blocked")
+        brief_outcome = record_value(record, "brief_outcome")
+        brief_updated = record_value(record, "brief_updated")
+        attention = record_value(record, "attention")
+        plan = record_list(record, "plan")
         hook_updated = record_value(record, "updated", opt_updated)
         hook_source = record_value(record, "source", opt_source)
-        activity = opt_activity or hook_message
+        activity = headline or current or opt_activity or hook_message
         summary = opt_summary
 
         agent = (
@@ -226,8 +241,10 @@ def scan(show_all=False):
             continue
 
         state, source = detect_state(agent, hook_state, hook_updated, hook_ttl)
+        if attention in VALID_STATES and source == "report" and state != "stale":
+            state = attention
         label = user_title or os.path.basename(path) or command or "-"
-        detail = activity or outcome or summary or hook_message
+        detail = headline or current or activity or brief_outcome or outcome or summary or hook_message
         if detail:
             label = f"{label} | {detail}"
 
@@ -257,6 +274,15 @@ def scan(show_all=False):
                 "activity": activity or hook_message,
                 "summary": summary,
                 "message": hook_message,
+                "attention": attention,
+                "headline": headline,
+                "plan": plan,
+                "current": current,
+                "evidence": evidence,
+                "next": next_step,
+                "blocked": blocked,
+                "brief_outcome": brief_outcome,
+                "brief_updated": brief_updated,
             }
         )
 
