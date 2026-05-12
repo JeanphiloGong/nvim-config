@@ -121,7 +121,7 @@ def append_event(args, raw):
         "state": args.state,
         "phase": args.phase,
         "message": args.message,
-        "goal": args.goal or facts.get("prompt", ""),
+        "goal": args.goal,
         "need": args.need,
         "outcome": args.outcome,
         "source": args.source,
@@ -560,6 +560,8 @@ def extract_json_object(text):
 
 def call_summary_command(context, timeout):
     command = os.environ.get("AGENT_BOARD_SUMMARY_CMD", "").strip()
+    if not command and truthy_env("AGENT_BOARD_CODEX_SUMMARY"):
+        command = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent-board-codex-summary")
     if not command:
         return None
     proc = subprocess.run(
@@ -632,7 +634,7 @@ def call_openai_compatible(context, timeout):
 
 
 def should_call_llm(events, record):
-    if os.environ.get("AGENT_BOARD_SUMMARY_CMD"):
+    if os.environ.get("AGENT_BOARD_SUMMARY_CMD") or truthy_env("AGENT_BOARD_CODEX_SUMMARY"):
         return True
     if not truthy_env("AGENT_BOARD_LLM"):
         return False
@@ -700,7 +702,8 @@ def maybe_llm_brief(pane, events, record, fallback):
     if not should_call_llm(events, record):
         return fallback
 
-    timeout_raw = os.environ.get("AGENT_BOARD_LLM_TIMEOUT", "12")
+    default_timeout = "45" if truthy_env("AGENT_BOARD_CODEX_SUMMARY") else "12"
+    timeout_raw = os.environ.get("AGENT_BOARD_LLM_TIMEOUT", default_timeout)
     try:
         timeout = max(2, int(timeout_raw))
     except ValueError:

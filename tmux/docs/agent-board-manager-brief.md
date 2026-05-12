@@ -146,12 +146,13 @@ AgentBoard 应该优先展示管理语言，再展示实现语言：
 2. `tmux-agent-brief event` 追加到 XDG state 下的 per-pane JSONL 文件
 3. `tmux-agent-brief summarize` 在后台读取最近 events、上一版 brief 和规则兜底 brief
 4. 如果配置了 `AGENT_BOARD_SUMMARY_CMD`，summarizer 把上下文 JSON 通过 stdin 交给该命令，并要求 stdout 返回 brief JSON
-5. 如果设置了 `AGENT_BOARD_LLM=1` 和 `OPENAI_API_KEY`，summarizer 调用 OpenAI-compatible Chat Completions，并要求模型返回 brief JSON
-6. 如果 LLM 不可用、超时或返回无效 JSON，summarizer 写入规则兜底 brief
-7. 最终 cached summary record 写回 `panes.json`
-8. summarizer 加锁，避免同一 pane 同时运行多个后台总结任务
-9. AgentBoard 优先渲染 cached brief 字段，再兜底展示 enum 字段
-10. pane capture 只作为后续可选输入，不作为 UI 高频操作
+5. 如果设置了 `AGENT_BOARD_CODEX_SUMMARY=1`，summarizer 通过 `agent-board-codex-summary` 调用 `codex exec`，并要求 Codex 返回 brief JSON
+6. 如果设置了 `AGENT_BOARD_LLM=1` 和 `OPENAI_API_KEY`，summarizer 调用 OpenAI-compatible Chat Completions，并要求模型返回 brief JSON
+7. 如果 LLM 不可用、超时或返回无效 JSON，summarizer 写入规则兜底 brief
+8. 最终 cached summary record 写回 `panes.json`
+9. summarizer 加锁，避免同一 pane 同时运行多个后台总结任务
+10. AgentBoard 优先渲染 cached brief 字段，再兜底展示 enum 字段
+11. pane capture 只作为后续可选输入，不作为 UI 高频操作
 
 配置示例：
 
@@ -159,6 +160,14 @@ AgentBoard 应该优先展示管理语言，再展示实现语言：
 export AGENT_BOARD_LLM=1
 export OPENAI_API_KEY=...
 export AGENT_BOARD_LLM_MODEL=gpt-5.2
+```
+
+调用 Codex CLI：
+
+```sh
+export AGENT_BOARD_CODEX_SUMMARY=1
+export AGENT_BOARD_CODEX_MODEL=gpt-5.2
+export AGENT_BOARD_CODEX_TIMEOUT=45
 ```
 
 使用自定义 summarizer：

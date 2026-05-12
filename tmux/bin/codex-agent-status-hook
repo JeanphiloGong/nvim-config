@@ -20,6 +20,8 @@ finish() {
   exit 0
 }
 
+[ "${AGENT_BOARD_SUMMARIZER:-}" = "1" ] && finish
+
 case "$state" in
   idle | working | blocked | done | unknown) ;;
   clear | release) ;;
@@ -119,6 +121,17 @@ def phase_for_tool(tool_key, command="", description="", target=""):
         return "inspecting"
     return "inspecting"
 
+def is_control_prompt(text):
+    value = (text or "").strip()
+    lower = value.lower()
+    if lower in {"continue"} or value in {"继续", "继续吧"}:
+        return True
+    if "$git-commit-skill" in lower:
+        return True
+    if re.search(r"\bstage\s+and\s+commit\b|\bgit\s+commit\b", lower):
+        return True
+    return False
+
 health = state
 phase = "unknown"
 goal = ""
@@ -135,8 +148,9 @@ if event == "SessionStart":
 elif event == "UserPromptSubmit":
     health = "working"
     phase = "intake"
-    goal = prompt
-    activity = f"goal: {prompt or 'submitted'}"
+    if not is_control_prompt(prompt):
+        goal = prompt
+    activity = f"request: {prompt or 'submitted'}"
 elif event == "PreToolUse":
     health = "working"
     phase = phase_for_tool(tool_key, command, description, target)
