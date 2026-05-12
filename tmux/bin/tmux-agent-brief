@@ -4,9 +4,12 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 
 ATTENTION_STATES = {"blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown"}
@@ -85,6 +88,10 @@ def parse_payload(raw):
         "assistant_message": message_text(
             pick(data, "last_assistant_message", "lastAssistantMessage", "last-assistant-message"),
             220,
+        ),
+        "tool_result": message_text(
+            pick(data, "tool_result", "toolResult", "tool-result", "tool_response", "toolResponse", "output", "result"),
+            500,
         ),
         "command": clean(pick(tool_input, "command", "cmd"), 220),
         "description": clean(pick(tool_input, "description"), 180),
@@ -413,6 +420,305 @@ def next_text(plan, state):
     return "等待下一步输入"
 
 
+def build_rule_brief(pane, events, record):
+    state = latest_value(events, "state", record.get("state", "unknown"))
+    if state not in ATTENTION_STATES:
+        state = "unknown"
+    goal = latest_value(events, "goal", record.get("goal", ""))
+    if not goal:
+        goal = latest_value(events, "prompt", "未记录目标")
+
+    kind = goal_kind(goal)
+    plan = build_plan(events, kind, state)
+    latest = events[-1]
+    current = action_text(latest)
+    blocked = "无"
+    if state == "blocked":
+        blocked = latest.get("need") or latest.get("description") or latest.get("message") or "等待人工处理"
+    outcome = latest_value(events, "outcome", record.get("outcome", ""))
+    if not outcome and state in {"review-ready", "done"}:
+        outcome = latest.get("assistant_message") or "当前轮次已完成，等待查看"
+    if not outcome:
+        outcome = "尚未完成"
+
+    headline = current
+    if state in {"review-ready", "done"} and outcome:
+        headline = "等待查看结果：" + clean(outcome, 80)
+    elif state == "blocked":
+        headline = "需要介入：" + clean(blocked, 80)
+
+    return {
+        "pane_id": pane,
+        "attention": state,
+        "goal": goal,
+        "headline": clean(headline, 120),
+        "plan": plan,
+        "current": clean(current, 140),
+        "evidence": evidence_text(events),
+        "next": clean(next_text(plan, state), 120),
+        "blocked": clean(blocked, 120),
+        "brief_outcome": clean(outcome, 160),
+        "brief_updated": int(time.time()),
+        "brief_source": "rules",
+    }
+
+
+def truthy_env(name):
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def compact_event(event):
+    keys = (
+        "ts",
+        "event",
+        "state",
+        "phase",
+        "message",
+        "goal",
+        "need",
+        "outcome",
+        "tool",
+        "description",
+        "command",
+        "path",
+        "prompt",
+        "assistant_message",
+        "tool_result",
+    )
+    compact = {}
+    for key in keys:
+        value = event.get(key)
+        if value not in (None, ""):
+            compact[key] = clean(value, 260)
+    return compact
+
+
+def previous_brief(record):
+    keys = (
+        "attention",
+        "goal",
+        "headline",
+        "plan",
+        "current",
+        "evidence",
+        "next",
+        "blocked",
+        "brief_outcome",
+        "brief_source",
+    )
+    return {key: record.get(key) for key in keys if record.get(key) not in (None, "")}
+
+
+def build_llm_context(pane, events, record, fallback):
+    return {
+        "pane_id": pane,
+        "generated_at": int(time.time()),
+        "previous_brief": previous_brief(record),
+        "fallback_brief": fallback,
+        "recent_events": [compact_event(event) for event in events[-30:]],
+    }
+
+
+def summary_prompt(context):
+    return (
+        "你是 AgentBoard 的后台管理简报 summarizer。"
+        "根据事件流为一个 AI agent 生成管理者视角的中文简报。"
+        "只返回一个 JSON object，不要 markdown，不要解释。"
+        "字段必须是：attention, goal, headline, plan, current, evidence, next, blocked, brief_outcome。"
+        "attention 只能是 blocked/error/stale/review-ready/working/done/idle/unknown。"
+        "plan 是 3 到 8 个步骤的数组，每项为 {status,text}，status 只能是 done/doing/todo。"
+        "不要编造没有证据的完成状态；证据不足时用谨慎自然语言。"
+        "blocked 无阻塞时写“无”。"
+        "headline 用一句话说明这个 agent 现在最重要的状态。"
+        "下面是上下文 JSON：\n"
+        + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def extract_json_object(text):
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        value = json.loads(text)
+        return value if isinstance(value, dict) else None
+    except Exception:
+        pass
+
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[index:])
+        except Exception:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def call_summary_command(context, timeout):
+    command = os.environ.get("AGENT_BOARD_SUMMARY_CMD", "").strip()
+    if not command:
+        return None
+    proc = subprocess.run(
+        shlex.split(command),
+        input=json.dumps(context, ensure_ascii=False),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(clean(proc.stderr or proc.stdout or "summary command failed", 300))
+    data = extract_json_object(proc.stdout)
+    if not data:
+        raise RuntimeError("summary command did not return JSON")
+    return data
+
+
+def call_openai_compatible(context, timeout):
+    if not truthy_env("AGENT_BOARD_LLM"):
+        return None
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("AGENT_BOARD_LLM_API_KEY")
+    if not api_key:
+        return None
+
+    base_url = os.environ.get("AGENT_BOARD_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    model = os.environ.get("AGENT_BOARD_LLM_MODEL", "gpt-5.2")
+    body = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You return only valid JSON for an agent management brief.",
+            },
+            {
+                "role": "user",
+                "content": summary_prompt(context),
+            },
+        ],
+        "response_format": {"type": "json_object"},
+    }
+    req = urllib.request.Request(
+        base_url + "/chat/completions",
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(clean(detail or str(exc), 300))
+
+    data = json.loads(raw)
+    content = ""
+    choices = data.get("choices")
+    if isinstance(choices, list) and choices:
+        message = choices[0].get("message") if isinstance(choices[0], dict) else {}
+        if isinstance(message, dict):
+            content = message.get("content") or ""
+    brief = extract_json_object(content)
+    if not brief:
+        raise RuntimeError("LLM response did not contain JSON")
+    return brief
+
+
+def should_call_llm(events, record):
+    if os.environ.get("AGENT_BOARD_SUMMARY_CMD"):
+        return True
+    if not truthy_env("AGENT_BOARD_LLM"):
+        return False
+
+    latest = events[-1] if events else {}
+    urgent = latest.get("event") in {"UserPromptSubmit", "PermissionRequest", "Stop"}
+    if urgent:
+        return True
+
+    try:
+        min_interval = int(os.environ.get("AGENT_BOARD_LLM_MIN_INTERVAL", "20"))
+    except ValueError:
+        min_interval = 20
+    try:
+        last = int(record.get("llm_updated") or "0")
+    except ValueError:
+        last = 0
+    return int(time.time()) - last >= max(0, min_interval)
+
+
+def normalize_plan(value, fallback):
+    plan = []
+    if isinstance(value, list):
+        for item in value[:8]:
+            if not isinstance(item, dict):
+                continue
+            status = clean(item.get("status"), 16)
+            if status not in {"done", "doing", "todo"}:
+                status = "todo"
+            text = clean(item.get("text"), 120)
+            if text:
+                plan.append({"status": status, "text": text})
+    if len(plan) >= 3:
+        return plan
+    return fallback.get("plan") or []
+
+
+def normalize_llm_brief(raw, fallback):
+    brief = dict(fallback)
+    attention = clean(raw.get("attention"), 32)
+    if attention in ATTENTION_STATES:
+        brief["attention"] = attention
+    for source_key, target_key, limit in (
+        ("goal", "goal", 220),
+        ("headline", "headline", 120),
+        ("current", "current", 140),
+        ("evidence", "evidence", 160),
+        ("next", "next", 120),
+        ("blocked", "blocked", 120),
+        ("brief_outcome", "brief_outcome", 160),
+        ("outcome", "brief_outcome", 160),
+    ):
+        value = clean(raw.get(source_key), limit)
+        if value:
+            brief[target_key] = value
+    brief["plan"] = normalize_plan(raw.get("plan"), fallback)
+    brief["brief_updated"] = int(time.time())
+    brief["brief_source"] = "llm"
+    brief["llm_updated"] = int(time.time())
+    brief.pop("brief_error", None)
+    return brief
+
+
+def maybe_llm_brief(pane, events, record, fallback):
+    if not should_call_llm(events, record):
+        return fallback
+
+    timeout_raw = os.environ.get("AGENT_BOARD_LLM_TIMEOUT", "12")
+    try:
+        timeout = max(2, int(timeout_raw))
+    except ValueError:
+        timeout = 12
+    context = build_llm_context(pane, events, record, fallback)
+    try:
+        raw = call_summary_command(context, timeout)
+        if raw is None:
+            raw = call_openai_compatible(context, timeout)
+        if raw is None:
+            return fallback
+        return normalize_llm_brief(raw, fallback)
+    except Exception as exc:
+        brief = dict(fallback)
+        brief["brief_error"] = clean(str(exc), 220)
+        return brief
+
+
 def summarize_pane(pane):
     root = state_root()
     os.makedirs(os.path.join(root, "locks"), exist_ok=True)
@@ -431,45 +737,8 @@ def summarize_pane(pane):
         if not isinstance(table, dict):
             table = {"panes": {}} if wrapped else {}
         record = record_for(table, wrapped, pane)
-        state = latest_value(events, "state", record.get("state", "unknown"))
-        if state not in ATTENTION_STATES:
-            state = "unknown"
-        goal = latest_value(events, "goal", record.get("goal", ""))
-        if not goal:
-            goal = latest_value(events, "prompt", "未记录目标")
-
-        kind = goal_kind(goal)
-        plan = build_plan(events, kind, state)
-        latest = events[-1]
-        current = action_text(latest)
-        blocked = "无"
-        if state == "blocked":
-            blocked = latest.get("need") or latest.get("description") or latest.get("message") or "等待人工处理"
-        outcome = latest_value(events, "outcome", record.get("outcome", ""))
-        if not outcome and state in {"review-ready", "done"}:
-            outcome = latest.get("assistant_message") or "当前轮次已完成，等待查看"
-        if not outcome:
-            outcome = "尚未完成"
-
-        headline = current
-        if state in {"review-ready", "done"} and outcome:
-            headline = "等待查看结果：" + clean(outcome, 80)
-        elif state == "blocked":
-            headline = "需要介入：" + clean(blocked, 80)
-
-        brief = {
-            "pane_id": pane,
-            "attention": state,
-            "goal": goal,
-            "headline": clean(headline, 120),
-            "plan": plan,
-            "current": clean(current, 140),
-            "evidence": evidence_text(events),
-            "next": clean(next_text(plan, state), 120),
-            "blocked": clean(blocked, 120),
-            "brief_outcome": clean(outcome, 160),
-            "brief_updated": int(time.time()),
-        }
+        fallback = build_rule_brief(pane, events, record)
+        brief = maybe_llm_brief(pane, events, record, fallback)
 
         write_brief(pane, brief)
 

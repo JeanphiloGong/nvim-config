@@ -109,8 +109,9 @@ hook 和轻量扫描器应该记录事实，而不是直接写最终文案：
 - pane 是否存活、tmux topology
 - hook payload 不足时可选的一小段屏幕文本
 
-summarizer 负责把这些事实整理成简报。这样不会打断 agent 自己的执行路径，
-也不要求每个 agent 主动调用状态上报命令。
+summarizer 负责把这些事实整理成简报。它应该优先使用后台 LLM 生成管理视角，
+规则版只作为 LLM 不可用、超时或返回坏 JSON 时的兜底。这样不会打断 agent
+自己的执行路径，也不要求每个 agent 主动调用状态上报命令。
 
 ## 从 herdr 借鉴什么
 
@@ -143,10 +144,32 @@ AgentBoard 应该优先展示管理语言，再展示实现语言：
 
 1. `codex-agent-status-hook` 继续写原有状态，同时把 hook event 交给 `tmux-agent-brief`
 2. `tmux-agent-brief event` 追加到 XDG state 下的 per-pane JSONL 文件
-3. `tmux-agent-brief summarize` 异步生成 cached summary record，并写回 `panes.json`
-4. summarizer 加锁和限频，避免重复后台任务
-5. AgentBoard 优先渲染 cached brief 字段，再兜底展示 enum 字段
-6. pane capture 只作为后续可选输入，不作为 UI 高频操作
+3. `tmux-agent-brief summarize` 在后台读取最近 events、上一版 brief 和规则兜底 brief
+4. 如果配置了 `AGENT_BOARD_SUMMARY_CMD`，summarizer 把上下文 JSON 通过 stdin 交给该命令，并要求 stdout 返回 brief JSON
+5. 如果设置了 `AGENT_BOARD_LLM=1` 和 `OPENAI_API_KEY`，summarizer 调用 OpenAI-compatible Chat Completions，并要求模型返回 brief JSON
+6. 如果 LLM 不可用、超时或返回无效 JSON，summarizer 写入规则兜底 brief
+7. 最终 cached summary record 写回 `panes.json`
+8. summarizer 加锁，避免同一 pane 同时运行多个后台总结任务
+9. AgentBoard 优先渲染 cached brief 字段，再兜底展示 enum 字段
+10. pane capture 只作为后续可选输入，不作为 UI 高频操作
+
+配置示例：
+
+```sh
+export AGENT_BOARD_LLM=1
+export OPENAI_API_KEY=...
+export AGENT_BOARD_LLM_MODEL=gpt-5.2
+```
+
+使用自定义 summarizer：
+
+```sh
+export AGENT_BOARD_SUMMARY_CMD="$HOME/bin/agent-board-summarize"
+```
+
+自定义命令的 stdin 是上下文 JSON，stdout 必须是 JSON object，字段为
+`attention`、`goal`、`headline`、`plan`、`current`、`evidence`、`next`、
+`blocked`、`brief_outcome`。
 
 这样 AgentBoard 才会从 pane 状态列表变成任务管理界面：用户不用跳进每个
 agent pane，也能判断谁在推进、谁完成了、谁卡住了，以及下一步该介入哪里。
