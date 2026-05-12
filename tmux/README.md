@@ -10,7 +10,7 @@
   - 左侧用 Nerd Font 图标区分 session/window，pane 行左侧显示 agent 图标：`` codex、`󰚩` claude、`` opencode、`` gemini、`` copilot
   - 状态图标固定在左侧 tree column 的右边缘：`` blocked、`` error、`󰔚` stale、`` review-ready、`` working、`` done、`` idle、`` unknown
   - 选中 session/window 时，右侧是 scope inspector：按 attention / review / working / done / quiet 分组，展示每个 agent 的目标、当前动作、阻塞点和结果
-  - 选中 pane 时，右侧是单 agent inspector，上方是结构化状态卡片，下方是当前 pane 画面，默认每秒自动刷新
+  - 选中 pane 时，右侧是单 agent inspector，上方是结构化状态卡片，分开显示 route target / stage / goal / need / outcome，下方是当前 pane 画面，默认每秒自动刷新
   - 在面板里用 `j/k` 或 `Ctrl-h/j/k/l` 移动，`Enter` / `Space` 展开 session/window；在 pane 上进入预览
   - `gw` 展开所有 working agent；`gr` 展开所有 review-ready agent；`gd` 展开所有 done agent
   - `i` 给选中 pane 发送一行输入

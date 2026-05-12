@@ -162,6 +162,26 @@ local function pane_location(pane)
   return target
 end
 
+local function pane_target(pane)
+  return string.format("%s:%s.%s", pane.session or "-", pane.window or "-", pane.pane_index or "-")
+end
+
+local function pane_stage(pane)
+  if pane and pane.phase and pane.phase ~= "" and pane.phase ~= "unknown" then
+    return pane.phase
+  end
+  return ({
+    blocked = "waiting",
+    error = "blocked",
+    stale = "waiting",
+    ["review-ready"] = "reporting",
+    working = "working",
+    done = "reporting",
+    idle = "complete",
+    unknown = "unknown",
+  })[pane and pane.state or "unknown"] or "unknown"
+end
+
 local status_order = { "blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown" }
 local status_rank = {
   blocked = 1,
@@ -462,15 +482,16 @@ local function agent_workspace_lines(pane)
     "AGENT STATUS",
     string.rep("-", 64),
     string.format(
-      "%s %s    agent=%s    phase=%s    updated=%s",
+      "%s %s    agent=%s    stage=%s    updated=%s",
       state_sign(pane.state),
       pane.state or "unknown",
       pane.agent or "-",
-      pane_phase(pane),
+      pane_stage(pane),
       relative_time(pane.updated)
     ),
   }
-  add_detail(lines, "Target", pane_location(pane))
+  add_detail(lines, "Target", pane_target(pane))
+  add_detail(lines, "Window", pane.window_name)
   add_detail(lines, "Goal", pane.goal)
   add_detail(lines, "Now", pane_activity(pane))
   add_detail(lines, "Need", pane.need)
