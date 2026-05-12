@@ -3,11 +3,127 @@ set -euo pipefail
 
 command -v tmux >/dev/null 2>&1 || exit 0
 
+state_file_path() {
+  if [ -n "${AGENT_BOARD_STATE_FILE:-}" ]; then
+    printf '%s\n' "$AGENT_BOARD_STATE_FILE"
+    return
+  fi
+  printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/agent-board/panes.json"
+}
+
 valid_state() {
   case "${1:-}" in
     idle | working | blocked | review-ready | done | error | stale | unknown) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+update_state_file() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  local file
+  file="$(state_file_path)"
+  mkdir -p "$(dirname "$file")" 2>/dev/null || return 0
+
+  python3 - "$file" "$pane" "$agent" "$state" "$phase" "$phase_set" "$message" "$goal" "$goal_set" "$need" "$need_set" "$outcome" "$outcome_set" "$source" <<'PY' 2>/dev/null || true
+import fcntl
+import json
+import os
+import sys
+import time
+
+(
+    path,
+    pane,
+    agent,
+    state,
+    phase,
+    phase_set,
+    message,
+    goal,
+    goal_set,
+    need,
+    need_set,
+    outcome,
+    outcome_set,
+    source,
+) = sys.argv[1:15]
+
+lock_path = path + ".lock"
+os.makedirs(os.path.dirname(path), exist_ok=True)
+
+with open(lock_path, "w", encoding="utf-8") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            table = json.load(fh)
+    except Exception:
+        table = {}
+    if not isinstance(table, dict):
+        table = {}
+
+    record = table.get(pane)
+    if not isinstance(record, dict):
+        record = {}
+
+    record.update(
+        {
+            "pane_id": pane,
+            "agent": agent,
+            "state": state,
+            "message": message,
+            "updated": int(time.time()),
+            "source": source,
+        }
+    )
+    if phase_set == "1":
+        record["phase"] = phase
+    if goal_set == "1":
+        record["goal"] = goal
+    if need_set == "1":
+        record["need"] = need
+    if outcome_set == "1":
+        record["outcome"] = outcome
+
+    table[pane] = record
+    tmp = path + ".tmp." + str(os.getpid())
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(table, fh, ensure_ascii=False, separators=(",", ":"))
+        fh.write("\n")
+    os.replace(tmp, path)
+PY
+}
+
+clear_state_file() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  local pane="$1"
+  local file
+  file="$(state_file_path)"
+  [ -f "$file" ] || return 0
+
+  python3 - "$file" "$pane" <<'PY' 2>/dev/null || true
+import fcntl
+import json
+import os
+import sys
+
+path, pane = sys.argv[1:3]
+lock_path = path + ".lock"
+
+with open(lock_path, "w", encoding="utf-8") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            table = json.load(fh)
+    except Exception:
+        table = {}
+    if isinstance(table, dict) and pane in table:
+        table.pop(pane, None)
+        tmp = path + ".tmp." + str(os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(table, fh, ensure_ascii=False, separators=(",", ":"))
+            fh.write("\n")
+        os.replace(tmp, path)
+PY
 }
 
 clear_report() {
@@ -23,6 +139,7 @@ clear_report() {
   tmux set-option -pqu -t "$pane" @agent_status_outcome 2>/dev/null || true
   tmux set-option -pqu -t "$pane" @agent_status_updated 2>/dev/null || true
   tmux set-option -pqu -t "$pane" @agent_status_source 2>/dev/null || true
+  clear_state_file "$pane"
 }
 
 report_state() {
@@ -105,6 +222,7 @@ report_state() {
   [ "$outcome_set" -eq 1 ] && tmux set -pq -t "$pane" @agent_status_outcome "$outcome" 2>/dev/null || true
   tmux set -pq -t "$pane" @agent_status_updated "$(date +%s)" 2>/dev/null || true
   tmux set -pq -t "$pane" @agent_status_source "$source" 2>/dev/null || true
+  update_state_file
 }
 
 case "${1:-}" in
