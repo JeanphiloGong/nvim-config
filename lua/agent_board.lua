@@ -78,6 +78,9 @@ local function ensure_highlights()
   vim.api.nvim_set_hl(0, "AgentBoardHeader", { bold = true })
   vim.api.nvim_set_hl(0, "AgentBoardDim", { fg = "#777777" })
   vim.api.nvim_set_hl(0, "AgentBoardBlocked", { fg = "#ff6b6b", bold = true })
+  vim.api.nvim_set_hl(0, "AgentBoardError", { fg = "#ff4d4d", bold = true })
+  vim.api.nvim_set_hl(0, "AgentBoardStale", { fg = "#f4a261", bold = true })
+  vim.api.nvim_set_hl(0, "AgentBoardReviewReady", { fg = "#80ed99", bold = true })
   vim.api.nvim_set_hl(0, "AgentBoardWorking", { fg = "#ffd166", bold = true })
   vim.api.nvim_set_hl(0, "AgentBoardDone", { fg = "#4cc9f0", bold = true })
   vim.api.nvim_set_hl(0, "AgentBoardIdle", { fg = "#80ed99" })
@@ -87,6 +90,9 @@ end
 local function state_hl(agent_state)
   return ({
     blocked = "AgentBoardBlocked",
+    error = "AgentBoardError",
+    stale = "AgentBoardStale",
+    ["review-ready"] = "AgentBoardReviewReady",
     working = "AgentBoardWorking",
     done = "AgentBoardDone",
     idle = "AgentBoardIdle",
@@ -97,6 +103,9 @@ end
 local function state_sign(agent_state)
   return ({
     blocked = "",
+    error = "",
+    stale = "󰔚",
+    ["review-ready"] = "",
     working = "",
     done = "",
     idle = "",
@@ -152,13 +161,16 @@ local function pane_location(pane)
   return target
 end
 
-local status_order = { "blocked", "working", "done", "idle", "unknown" }
+local status_order = { "blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown" }
 local status_rank = {
   blocked = 1,
-  working = 2,
-  done = 3,
-  idle = 4,
-  unknown = 5,
+  error = 2,
+  stale = 3,
+  ["review-ready"] = 4,
+  working = 5,
+  done = 6,
+  idle = 7,
+  unknown = 8,
 }
 
 local function count_state(counts, agent_state)
@@ -298,6 +310,36 @@ local function pane_activity(pane)
   return pane_display_name(pane)
 end
 
+local function pane_phase(pane)
+  if pane and pane.phase and pane.phase ~= "" then
+    return pane.phase
+  end
+  return "unknown"
+end
+
+local function relative_time(epoch)
+  local stamp = tonumber(epoch or "")
+  if not stamp or stamp <= 0 then
+    return "unknown"
+  end
+  local delta = math.max(0, os.time() - stamp)
+  if delta < 60 then
+    return tostring(delta) .. "s ago"
+  end
+  if delta < 3600 then
+    return tostring(math.floor(delta / 60)) .. "m ago"
+  end
+  return tostring(math.floor(delta / 3600)) .. "h ago"
+end
+
+local function add_detail(lines, label, value)
+  if value and value ~= "" then
+    table.insert(lines, string.format("  %-8s %s", label .. ":", value))
+    return true
+  end
+  return false
+end
+
 local function sorted_scope_panes(panes)
   local sorted = vim.deepcopy(panes or {})
   table.sort(sorted, function(a, b)
@@ -313,11 +355,63 @@ local function sorted_scope_panes(panes)
   return sorted
 end
 
-local function scope_pane_line(pane)
-  local status = state_sign(pane.state)
-  local agent = agent_sign(pane.agent)
-  local target = string.format("%s:%s.%s", pane.session or "-", pane.window or "-", pane.pane_index or "-")
-  return string.format("%s %s %-8s %-12s %s", status, agent, pane.agent or "-", target, pane_activity(pane))
+local function add_agent_card(lines, pane)
+  local status = pane.state or "unknown"
+  local target = truncate(pane_location(pane), 24)
+  local updated = relative_time(pane.updated)
+  table.insert(
+    lines,
+    string.format(
+      "%s %s %-8s %-12s state=%s phase=%s updated=%s",
+      state_sign(status),
+      agent_sign(pane.agent),
+      pane.agent or "-",
+      target,
+      status,
+      pane_phase(pane),
+      updated
+    )
+  )
+  local has_detail = false
+  has_detail = add_detail(lines, "Goal", pane.goal) or has_detail
+  has_detail = add_detail(lines, "Now", pane_activity(pane)) or has_detail
+  has_detail = add_detail(lines, "Need", pane.need) or has_detail
+  has_detail = add_detail(lines, "Outcome", pane.outcome or pane.summary) or has_detail
+  if not has_detail then
+    add_detail(lines, "Now", "No current activity reported")
+  end
+  table.insert(lines, "")
+end
+
+local function pane_in_states(pane, names)
+  for _, name in ipairs(names) do
+    if pane.state == name then
+      return true
+    end
+  end
+  return false
+end
+
+local function add_scope_group(lines, title, panes, states, limit)
+  local group = {}
+  for _, pane in ipairs(panes) do
+    if pane_in_states(pane, states) then
+      table.insert(group, pane)
+    end
+  end
+  if #group == 0 then
+    return
+  end
+
+  table.insert(lines, title .. " (" .. tostring(#group) .. ")")
+  for index, pane in ipairs(group) do
+    if index > limit then
+      table.insert(lines, string.format("... %s more", #group - limit))
+      table.insert(lines, "")
+      break
+    end
+    add_agent_card(lines, pane)
+  end
 end
 
 local function node_workspace_lines(row)
@@ -329,33 +423,62 @@ local function node_workspace_lines(row)
   local lines = {
     row_workspace_title(row),
     "",
-    "Scope: " .. row.kind,
-    "Status: " .. (count_summary(row.counts) ~= "" and count_summary(row.counts) or "empty"),
-    "Agents: " .. tostring(row.pane_count or 0),
-    "Children: " .. tostring(row.child_count or 0) .. " " .. next_level,
+    string.format(
+      "Scope: %s    Agents: %s    Children: %s %s",
+      row.kind,
+      tostring(row.pane_count or 0),
+      tostring(row.child_count or 0),
+      next_level
+    ),
+    "Health: " .. (count_summary(row.counts) ~= "" and count_summary(row.counts) or "empty"),
     "",
   }
 
-  table.insert(lines, "Focus")
   if #panes == 0 then
     table.insert(lines, "No agent panes in this scope.")
   else
-    for index, pane in ipairs(panes) do
-      if index > 10 then
-        table.insert(lines, string.format("... %s more", #panes - 10))
-        break
-      end
-      table.insert(lines, scope_pane_line(pane))
-    end
+    add_scope_group(lines, "ATTENTION", panes, { "blocked", "error", "stale" }, 6)
+    add_scope_group(lines, "READY FOR REVIEW", panes, { "review-ready" }, 6)
+    add_scope_group(lines, "IN PROGRESS", panes, { "working" }, 8)
+    add_scope_group(lines, "COMPLETE", panes, { "done" }, 4)
+    add_scope_group(lines, "QUIET", panes, { "idle", "unknown" }, 4)
   end
 
   table.insert(lines, "")
   table.insert(lines, "Actions")
   table.insert(lines, state.expanded[row.id] and "Enter/Space collapse this scope" or "Enter/Space expand this scope")
   table.insert(lines, "gw expand working agents")
-  table.insert(lines, "gd expand done agents")
+  table.insert(lines, "gr expand review-ready agents")
   table.insert(lines, "Select a pane row for the single-agent workspace.")
 
+  return lines
+end
+
+local function agent_workspace_lines(pane)
+  local lines = {
+    pane_location(pane),
+    "",
+    "AGENT STATUS",
+    string.rep("-", 64),
+    string.format(
+      "%s %s    agent=%s    phase=%s    updated=%s",
+      state_sign(pane.state),
+      pane.state or "unknown",
+      pane.agent or "-",
+      pane_phase(pane),
+      relative_time(pane.updated)
+    ),
+  }
+  add_detail(lines, "Target", pane_location(pane))
+  add_detail(lines, "Goal", pane.goal)
+  add_detail(lines, "Now", pane_activity(pane))
+  add_detail(lines, "Need", pane.need)
+  add_detail(lines, "Outcome", pane.outcome or pane.summary)
+  add_detail(lines, "Path", pane.path)
+  table.insert(lines, "")
+  table.insert(lines, "PANE VIEW")
+  table.insert(lines, string.rep("-", 64))
+  vim.list_extend(lines, capture_preview(pane, false))
   return lines
 end
 
@@ -514,7 +637,11 @@ end
 local function refresh_preview(include_history)
   local pane = selected_pane()
   if pane then
-    state.preview_lines = capture_preview(pane, include_history or state.preview_focus)
+    if include_history or state.preview_focus then
+      state.preview_lines = capture_preview(pane, true)
+    else
+      state.preview_lines = agent_workspace_lines(pane)
+    end
   else
     state.preview_lines = node_workspace_lines(selected_row())
   end
@@ -575,16 +702,16 @@ local function render_cached()
   local preview_lines = state.preview_lines or {}
   local preview_height = preview_display_height()
   clamp_tree_top(preview_height)
-  local preview_max_top = clamp_preview_top(preview_height)
+  clamp_preview_top(preview_height)
   if not state.preview_focus then
-    state.preview_top = preview_max_top
+    state.preview_top = 1
   end
   local preview_slice = {}
   for index = state.preview_top, math.min(#preview_lines, state.preview_top + preview_height - 1) do
     table.insert(preview_slice, preview_lines[index])
   end
   local row = selected_row()
-  local preview_header = workspace_pane and "AGENT WORKSPACE" or "SCOPE INSPECTOR"
+  local preview_header = workspace_pane and "AGENT INSPECTOR" or "SCOPE INSPECTOR"
   if state.preview_focus and #preview_lines > 0 then
     preview_header = string.format(
       "PANE HISTORY %s-%s/%s",
@@ -600,12 +727,8 @@ local function render_cached()
     lines,
     compose_row(
       string.format(
-        "blocked=%s working=%s done=%s idle=%s unknown=%s  scope=%s",
-        counts.blocked or 0,
-        counts.working or 0,
-        counts.done or 0,
-        counts.idle or 0,
-        counts.unknown or 0,
+        "%s  scope=%s",
+        count_summary(counts) ~= "" and count_summary(counts) or "empty",
         state.show_all and "all panes" or "agents"
       ),
       workspace_pane and (workspace_pane.path or "") or (row and ("Inspecting " .. row.kind .. " scope") or "Select a scope"),
@@ -675,7 +798,7 @@ local function render_cached()
   if state.preview_focus then
     table.insert(lines, "Preview: j/k/Up/Down scroll  C-u/C-d page  Esc/q list  i send  J jump  r rescan")
   else
-    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  gw working  gd done  i send  J jump  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  gw working  gr review  gd done  i send  J jump  r rescan  a all  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -749,6 +872,10 @@ end
 function M.refresh_preview()
   if state.input_active or state.preview_focus or not agent_board_is_current() then
     return
+  end
+  local data = run_scan()
+  if data then
+    set_panes(data)
   end
   refresh_preview()
   render_cached()
@@ -871,6 +998,7 @@ function M.leave_preview()
   end
   state.preview_focus = false
   state.preview_top = nil
+  refresh_preview()
   render_cached()
 end
 
@@ -907,6 +1035,10 @@ end
 
 function M.expand_working()
   expand_status("working")
+end
+
+function M.expand_review_ready()
+  expand_status("review-ready")
 end
 
 function M.expand_done()
@@ -975,6 +1107,7 @@ local function attach_maps(buf)
   map(buf, "r", M.refresh, "Refresh AgentBoard")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
   map(buf, "gw", M.expand_working, "Expand working agents")
+  map(buf, "gr", M.expand_review_ready, "Expand review-ready agents")
   map(buf, "gd", M.expand_done, "Expand done agents")
   map(buf, "i", M.send_to_selected, "Send text to selected pane")
   map(buf, "j", function()

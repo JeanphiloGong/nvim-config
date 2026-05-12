@@ -56,6 +56,8 @@ WORKING_PATTERNS = (
     "generating",
 )
 
+VALID_STATES = ("blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown")
+
 
 def run(cmd, timeout=1.5):
     try:
@@ -141,6 +143,16 @@ def capture_pane(pane):
 
 
 def detect_state(agent, text, hook_state="", hook_updated="", hook_ttl=3600):
+    if hook_state in VALID_STATES:
+        try:
+            age = int(time.time()) - int(hook_updated or "0")
+        except ValueError:
+            age = hook_ttl + 1
+        if age <= hook_ttl:
+            return hook_state, "report"
+        if hook_state == "working":
+            return "stale", "report"
+
     lower = text.lower()
     if agent:
         asks_for_confirmation = (
@@ -153,13 +165,6 @@ def detect_state(agent, text, hook_state="", hook_updated="", hook_ttl=3600):
             return "blocked", "scan"
         if any(pattern in lower for pattern in WORKING_PATTERNS):
             return "working", "scan"
-
-    if hook_state in {"idle", "working", "blocked", "done", "unknown"}:
-        try:
-            if int(time.time()) - int(hook_updated or "0") <= hook_ttl:
-                return hook_state, "report"
-        except ValueError:
-            pass
 
     if agent:
         return "idle", "scan"
@@ -210,7 +215,11 @@ def scan(show_all=False):
 
         hook_agent = pane_option(pane_id, "@agent_status_agent")
         hook_state = pane_option(pane_id, "@agent_status_state")
+        phase = pane_option(pane_id, "@agent_status_phase")
         hook_message = pane_option(pane_id, "@agent_status_message")
+        goal = pane_option(pane_id, "@agent_status_goal")
+        need = pane_option(pane_id, "@agent_status_need")
+        outcome = pane_option(pane_id, "@agent_status_outcome")
         hook_updated = pane_option(pane_id, "@agent_status_updated")
         user_title = pane_option(pane_id, "@user_pane_title")
         activity = pane_option(pane_id, "@codex_pane_activity")
@@ -249,13 +258,27 @@ def scan(show_all=False):
                 "state": state,
                 "source": source,
                 "label": label,
+                "phase": phase,
+                "goal": goal,
+                "need": need,
+                "outcome": outcome,
+                "updated": hook_updated,
                 "activity": activity or hook_message,
                 "summary": summary,
                 "message": hook_message,
             }
         )
 
-    severity = {"blocked": 0, "working": 1, "done": 2, "idle": 3, "unknown": 4}
+    severity = {
+        "blocked": 0,
+        "error": 1,
+        "stale": 2,
+        "review-ready": 3,
+        "working": 4,
+        "done": 5,
+        "idle": 6,
+        "unknown": 7,
+    }
     panes.sort(
         key=lambda pane: (
             severity.get(pane["state"], 9),
@@ -270,7 +293,7 @@ def scan(show_all=False):
         "panes": panes,
         "counts": {
             state: sum(1 for pane in panes if pane["state"] == state)
-            for state in ("blocked", "working", "done", "idle", "unknown")
+            for state in VALID_STATES
         },
     }
 

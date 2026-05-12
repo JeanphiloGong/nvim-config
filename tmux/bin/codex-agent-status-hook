@@ -40,7 +40,7 @@ metadata_from_payload() {
     rm -f "$payload_file"
     return 0
   }
-  python3 - "$state" "$payload_file" <<'PY' 2>/dev/null || true
+python3 - "$state" "$payload_file" <<'PY' 2>/dev/null || true
 import json
 import re
 import sys
@@ -106,17 +106,42 @@ prompt = clean(pick(data, "prompt", "user_prompt", "userPrompt", "user-prompt"),
 last_message = message_text(pick(data, "last_assistant_message", "lastAssistantMessage", "last-assistant-message"), 96)
 source = clean(pick(data, "source"), 32)
 
+def phase_for_tool(tool_key, command="", description="", target=""):
+    text = " ".join([tool_key, command, description, target]).lower()
+    if re.search(r"\b(pytest|bats|cargo test|go test|npm test|pnpm test|yarn test|vitest|jest|rspec)\b", text):
+        return "testing"
+    if re.search(r"\bgit\s+(add|commit|status|diff|show|log)\b", text):
+        return "committing" if re.search(r"\bgit\s+(add|commit)\b", text) else "inspecting"
+    if tool_key in {"apply_patch", "edit", "multiedit", "write"}:
+        return "editing"
+    if tool_key in {"read", "glob", "grep", "ls"}:
+        return "inspecting"
+    return "inspecting"
+
+health = state
+phase = "unknown"
+goal = ""
 activity = ""
 summary = ""
+need = ""
+outcome = ""
 tool_key = tool.lower()
 
 if event == "SessionStart":
+    health = "idle"
+    phase = "complete"
     activity = f"idle: {source or 'session'}"
 elif event == "UserPromptSubmit":
-    activity = f"prompt: {prompt or 'submitted'}"
+    health = "working"
+    phase = "intake"
+    goal = prompt
+    activity = f"goal: {prompt or 'submitted'}"
 elif event == "PreToolUse":
+    health = "working"
+    phase = phase_for_tool(tool_key, command, description, target)
     if tool_key == "bash" and command:
-        activity = f"bash: {description or command}"
+        prefix = "test" if phase == "testing" else "shell"
+        activity = f"{prefix}: {description or command}"
     elif tool_key in {"apply_patch", "edit", "multiedit", "write"}:
         activity = f"edit: {target or tool or 'file'}"
     elif tool_key in {"read", "glob", "grep", "ls"}:
@@ -126,6 +151,9 @@ elif event == "PreToolUse":
     else:
         activity = "working"
 elif event == "PermissionRequest":
+    health = "blocked"
+    phase = "waiting"
+    need = description or tool or "permission"
     if description:
         activity = f"blocked: {description}"
     elif tool:
@@ -133,29 +161,56 @@ elif event == "PermissionRequest":
     else:
         activity = "blocked"
 elif event == "PostToolUse":
+    health = "working"
+    phase = phase_for_tool(tool_key, command, description, target)
     activity = f"used: {tool or 'tool'}"
 elif event == "Stop":
+    health = "review-ready"
+    phase = "reporting"
     summary = last_message
-    activity = f"done: {summary}" if summary else "done"
+    outcome = summary
+    activity = f"ready: {summary}" if summary else "ready for review"
 elif state:
     if state == "done" and last_message:
+        health = "review-ready"
+        phase = "reporting"
         summary = last_message
-        activity = f"done: {summary}"
+        outcome = summary
+        activity = f"ready: {summary}"
     else:
+        phase = "unknown"
         activity = state
 
-print(f"{activity}\t{summary}")
+for value in (health, phase, goal, activity, summary, need, outcome):
+    print(value)
 PY
   rm -f "$payload_file"
 }
 
 metadata="$(metadata_from_payload)"
+metadata_fields=()
 activity=""
 summary=""
+health_state="$state"
+phase=""
+goal=""
+need=""
+outcome=""
 if [ -n "$metadata" ]; then
-  IFS=$'\t' read -r activity summary <<<"$metadata"
+  mapfile -t metadata_fields <<<"$metadata"
+  health_state="${metadata_fields[0]:-$state}"
+  phase="${metadata_fields[1]:-}"
+  goal="${metadata_fields[2]:-}"
+  activity="${metadata_fields[3]:-}"
+  summary="${metadata_fields[4]:-}"
+  need="${metadata_fields[5]:-}"
+  outcome="${metadata_fields[6]:-}"
 fi
 [ -n "$activity" ] || activity="$state"
+case "$health_state" in
+  idle | working | blocked | review-ready | done | error | stale | unknown) ;;
+  *) health_state="$state" ;;
+esac
 
 case "$state" in
   clear | release)
@@ -165,12 +220,25 @@ case "$state" in
     tmux select-pane -t "$TMUX_PANE" -T "" 2>/dev/null || true
     ;;
   *)
-    "$status_bin" report \
+    report_args=(
+      report
       --pane "$TMUX_PANE" \
       --agent codex \
-      --state "$state" \
+      --state "$health_state" \
+      --phase "$phase" \
       --message "$activity" \
-      --source codex-hook >/dev/null 2>&1 || true
+      --source codex-hook
+    )
+    if [ -n "$goal" ] || [ "$phase" = "complete" ]; then
+      report_args+=(--goal "$goal")
+    fi
+    if [ -n "$need" ] || [ "$health_state" != "blocked" ]; then
+      report_args+=(--need "$need")
+    fi
+    if [ -n "$outcome" ] || [ "$phase" = "intake" ] || [ "$phase" = "complete" ] || [ "$health_state" = "working" ]; then
+      report_args+=(--outcome "$outcome")
+    fi
+    "$status_bin" "${report_args[@]}" >/dev/null 2>&1 || true
     tmux set -pq -t "$TMUX_PANE" @codex_pane_activity "$activity" 2>/dev/null || true
     if [ -n "$summary" ]; then
       tmux set -pq -t "$TMUX_PANE" @codex_pane_summary "$summary" 2>/dev/null || true
