@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+
+SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "attention",
+        "goal",
+        "headline",
+        "plan",
+        "current",
+        "evidence",
+        "next",
+        "blocked",
+        "brief_outcome",
+    ],
+    "properties": {
+        "attention": {
+            "type": "string",
+            "enum": ["blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown"],
+        },
+        "goal": {"type": "string"},
+        "headline": {"type": "string"},
+        "plan": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["status", "text"],
+                "properties": {
+                    "status": {"type": "string", "enum": ["done", "doing", "todo"]},
+                    "text": {"type": "string"},
+                },
+            },
+        },
+        "current": {"type": "string"},
+        "evidence": {"type": "string"},
+        "next": {"type": "string"},
+        "blocked": {"type": "string"},
+        "brief_outcome": {"type": "string"},
+    },
+}
+
+
+def prompt_for(context):
+    return (
+        "你是 AgentBoard 的后台管理简报 summarizer。\n"
+        "你的唯一任务是根据提供的事件流，为一个 AI agent 生成中文管理简报。\n"
+        "不要运行命令，不要读写文件，不要修改仓库；只基于输入 JSON 判断。\n"
+        "只返回符合 schema 的 JSON object。\n\n"
+        "判断规则：\n"
+        "- attention 只能使用 allowed enum。\n"
+        "- plan 必须是 3 到 8 个步骤，每个步骤 status 只能是 done/doing/todo。\n"
+        "- 不要把没有证据的步骤标成 done。\n"
+        "- 如果 blocked 没有阻塞，写“无”。\n"
+        "- headline 用一句话说明这个 agent 现在最重要的状态。\n"
+        "- evidence 应该说明你依据哪些最近事件判断当前状态。\n\n"
+        "上下文 JSON：\n"
+        + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def main():
+    try:
+        context = json.load(sys.stdin)
+    except Exception as exc:
+        raise SystemExit(f"invalid context JSON: {exc}")
+
+    codex_bin = os.environ.get("AGENT_BOARD_CODEX_BIN", "codex")
+    model = os.environ.get("AGENT_BOARD_CODEX_MODEL") or os.environ.get("AGENT_BOARD_LLM_MODEL", "gpt-5.2")
+    cwd = os.environ.get("AGENT_BOARD_CODEX_CWD", os.path.expanduser("~"))
+    timeout = int(os.environ.get("AGENT_BOARD_CODEX_TIMEOUT", os.environ.get("AGENT_BOARD_LLM_TIMEOUT", "45")))
+
+    env = os.environ.copy()
+    env["AGENT_BOARD_SUMMARIZER"] = "1"
+    env.pop("TMUX", None)
+    env.pop("TMUX_PANE", None)
+
+    with tempfile.TemporaryDirectory(prefix="agent-board-codex-summary.") as tmp:
+        schema_path = os.path.join(tmp, "brief.schema.json")
+        output_path = os.path.join(tmp, "brief.json")
+        with open(schema_path, "w", encoding="utf-8") as fh:
+            json.dump(SCHEMA, fh, ensure_ascii=False)
+
+        cmd = [
+            codex_bin,
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--ignore-rules",
+            "--disable",
+            "codex_hooks",
+            "-s",
+            "read-only",
+            "-a",
+            "never",
+            "-C",
+            cwd,
+            "-m",
+            model,
+            "--output-schema",
+            schema_path,
+            "--output-last-message",
+            output_path,
+            "-",
+        ]
+        subprocess.run(
+            cmd,
+            input=prompt_for(context),
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=timeout,
+            check=True,
+        )
+
+        with open(output_path, "r", encoding="utf-8") as fh:
+            result = json.load(fh)
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()

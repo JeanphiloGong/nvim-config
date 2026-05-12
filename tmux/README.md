@@ -33,6 +33,7 @@
 - `tmux-agent-status` 同步维护本地状态表：`${XDG_STATE_HOME:-$HOME/.local/state}/agent-board/panes.json`
 - `tmux-agent-brief` 会把 Codex hook 事件追加到 `${XDG_STATE_HOME:-$HOME/.local/state}/agent-board/events/`，并异步生成 `headline`、`plan`、`current`、`evidence`、`next`、`blocked`、`brief_outcome`
   - 默认使用本地规则兜底；设置 `AGENT_BOARD_SUMMARY_CMD` 可调用自定义 summarizer，或设置 `AGENT_BOARD_LLM=1` + `OPENAI_API_KEY` 使用内置 OpenAI-compatible Chat Completions
+  - 设置 `AGENT_BOARD_CODEX_SUMMARY=1` 可通过 `agent-board-codex-summary` 调用 `codex exec` 生成 brief；可用 `AGENT_BOARD_CODEX_MODEL`、`AGENT_BOARD_CODEX_TIMEOUT`、`AGENT_BOARD_CODEX_BIN` 调整 Codex 调用
   - 可用 `AGENT_BOARD_LLM_MODEL`、`AGENT_BOARD_LLM_BASE_URL`、`AGENT_BOARD_LLM_TIMEOUT`、`AGENT_BOARD_LLM_MIN_INTERVAL` 调整模型、接口和限频
 - `tmux-agent-scan` 只用一次 `tmux list-panes` 读取 topology，并合并本地状态表；不再对每个 pane 高频 `show-option` / `capture-pane`
 - AgentBoard 默认每秒刷新右侧当前视图，每 5 秒重新扫描一次 topology / 状态表；可用 `vim.g.agent_board_scan_refresh_ms` 调整扫描间隔
