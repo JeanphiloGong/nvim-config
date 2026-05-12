@@ -20,6 +20,7 @@ local state = {
   preview_top = nil,
   preview_col = 0,
   timer = nil,
+  last_scan_ms = nil,
   input_active = false,
 }
 
@@ -512,6 +513,21 @@ local function preview_refresh_interval()
   return 1000
 end
 
+local function scan_refresh_interval()
+  local interval = tonumber(vim.g.agent_board_scan_refresh_ms)
+  if interval and interval > 0 then
+    return interval
+  end
+  return 5000
+end
+
+local function now_ms()
+  if uv.now then
+    return uv.now()
+  end
+  return os.time() * 1000
+end
+
 local function sorted_values(map)
   local values = {}
   for _, value in pairs(map) do
@@ -861,6 +877,7 @@ local function render()
     return
   end
   set_panes(data)
+  state.last_scan_ms = now_ms()
   refresh_preview(state.preview_focus)
   render_cached()
 end
@@ -873,9 +890,12 @@ function M.refresh_preview()
   if state.input_active or state.preview_focus or not agent_board_is_current() then
     return
   end
-  local data = run_scan()
-  if data then
-    set_panes(data)
+  if not state.last_scan_ms or now_ms() - state.last_scan_ms >= scan_refresh_interval() then
+    local data = run_scan()
+    if data then
+      set_panes(data)
+      state.last_scan_ms = now_ms()
+    end
   end
   refresh_preview()
   render_cached()

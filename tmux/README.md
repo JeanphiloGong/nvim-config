@@ -30,7 +30,9 @@
 
 - Codex lifecycle hooks 主动把健康状态写到当前 tmux pane metadata / pane title：`blocked / error / stale / review-ready / working / done / idle / unknown`
 - 同一条记录还会写入工作阶段和管理字段：`phase`、`goal`、`message`、`need`、`outcome`。Codex 当前阶段主要是 `intake / inspecting / editing / testing / committing / waiting / reporting / complete / unknown`
-- `tmux-agent-scan` 再读取 pane 进程和屏幕文本，作为 hooks 不存在或过期时的补充判断
+- `tmux-agent-status` 同步维护本地状态表：`${XDG_STATE_HOME:-$HOME/.local/state}/agent-board/panes.json`
+- `tmux-agent-scan` 只用一次 `tmux list-panes` 读取 topology，并合并本地状态表；不再对每个 pane 高频 `show-option` / `capture-pane`
+- AgentBoard 默认每秒刷新右侧当前视图，每 5 秒重新扫描一次 topology / 状态表；可用 `vim.g.agent_board_scan_refresh_ms` 调整扫描间隔
 
 全局 Codex hook 配置在 `~/.codex/hooks.json`，需要 `~/.codex/config.toml`
 里的 `[features].codex_hooks = true`。新开的 Codex 会话会读取这份配置。
