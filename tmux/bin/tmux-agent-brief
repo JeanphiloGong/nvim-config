@@ -1,0 +1,548 @@
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+
+ATTENTION_STATES = {"blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown"}
+
+
+def state_root():
+    root = os.environ.get("AGENT_BOARD_STATE_ROOT")
+    if root:
+        return root
+    state_home = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(state_home, "agent-board")
+
+
+def state_file_path():
+    if os.environ.get("AGENT_BOARD_STATE_FILE"):
+        return os.environ["AGENT_BOARD_STATE_FILE"]
+    return os.path.join(state_root(), "panes.json")
+
+
+def pane_key(pane):
+    key = re.sub(r"[^A-Za-z0-9_.-]+", "_", pane or "unknown").strip("_")
+    return key or "unknown"
+
+
+def clean(value, limit=160):
+    if isinstance(value, (dict, list)):
+        value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if value is None:
+        return ""
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    text = re.sub(r"[\x00-\x1f\x7f]", "", text)
+    if len(text) > limit:
+        text = text[: max(0, limit - 1)].rstrip() + "..."
+    return text
+
+
+def pick(obj, *keys):
+    if not isinstance(obj, dict):
+        return ""
+    for key in keys:
+        if key in obj and obj[key] not in (None, ""):
+            return obj[key]
+    normalized = {str(key).replace("-", "_").lower(): value for key, value in obj.items()}
+    for key in keys:
+        value = normalized.get(str(key).replace("-", "_").lower())
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def message_text(value, limit=180):
+    if isinstance(value, dict):
+        value = pick(value, "content", "text", "message")
+    elif isinstance(value, list):
+        parts = [message_text(item, limit) for item in value]
+        value = " ".join(part for part in parts if part)
+    return clean(value, limit)
+
+
+def parse_payload(raw):
+    try:
+        data = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    tool_input = pick(data, "tool_input", "toolInput", "tool-input")
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+
+    return {
+        "event": clean(pick(data, "hook_event_name", "hookEventName", "hook-event-name"), 48),
+        "tool": clean(pick(data, "tool_name", "toolName", "tool-name"), 64),
+        "prompt": clean(pick(data, "prompt", "user_prompt", "userPrompt", "user-prompt"), 220),
+        "assistant_message": message_text(
+            pick(data, "last_assistant_message", "lastAssistantMessage", "last-assistant-message"),
+            220,
+        ),
+        "command": clean(pick(tool_input, "command", "cmd"), 220),
+        "description": clean(pick(tool_input, "description"), 180),
+        "path": clean(pick(tool_input, "file_path", "filePath", "path", "query", "pattern"), 120),
+    }
+
+
+def event_path(pane):
+    root = state_root()
+    path = os.path.join(root, "events", pane_key(pane) + ".jsonl")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
+
+
+def lock_file(path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return open(path, "w", encoding="utf-8")
+
+
+def append_event(args, raw):
+    facts = parse_payload(raw)
+    event_name = facts.get("event") or "Status"
+    event = {
+        "ts": int(time.time()),
+        "pane_id": args.pane,
+        "agent": args.agent,
+        "state": args.state,
+        "phase": args.phase,
+        "message": args.message,
+        "goal": args.goal or facts.get("prompt", ""),
+        "need": args.need,
+        "outcome": args.outcome,
+        "source": args.source,
+        **facts,
+    }
+    event["event"] = event_name
+
+    path = event_path(args.pane)
+    with lock_file(path + ".lock") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+            fh.write("\n")
+
+    request_summarize(args.pane)
+
+
+def request_summarize(pane):
+    if os.environ.get("AGENT_BOARD_SUMMARIZER") == "1":
+        return
+
+    root = state_root()
+    os.makedirs(os.path.join(root, "run"), exist_ok=True)
+    stamp = os.path.join(root, "run", pane_key(pane) + ".stamp")
+    with open(stamp, "a", encoding="utf-8"):
+        os.utime(stamp, None)
+
+    env = os.environ.copy()
+    env["AGENT_BOARD_SUMMARIZER"] = "1"
+    subprocess.Popen(
+        [sys.argv[0], "summarize", "--pane", pane],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+        start_new_session=True,
+    )
+
+
+def load_events(pane, limit=80):
+    path = event_path(pane)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()[-limit:]
+    except Exception:
+        return []
+
+    events = []
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def load_state_table():
+    path = state_file_path()
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return {}, False
+    if not isinstance(data, dict):
+        return {}, False
+    if isinstance(data.get("panes"), dict):
+        return data, True
+    return data, False
+
+
+def record_for(table, wrapped, pane):
+    panes = table["panes"] if wrapped else table
+    record = panes.get(pane)
+    if not isinstance(record, dict):
+        record = {}
+    return record
+
+
+def latest_value(events, key, fallback=""):
+    for event in reversed(events):
+        value = event.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return fallback or ""
+
+
+def goal_kind(goal):
+    text = goal.lower()
+    if any(word in text for word in ("commit", "stage", "git commit", "提交")):
+        return "commit"
+    if any(word in text for word in ("doc", "docs", "readme", "记录", "文档")):
+        return "docs"
+    return "general"
+
+
+def command_text(event):
+    return " ".join(
+        [
+            str(event.get("tool") or ""),
+            str(event.get("command") or ""),
+            str(event.get("description") or ""),
+            str(event.get("path") or ""),
+        ]
+    ).lower()
+
+
+def plan_template(kind):
+    if kind == "commit":
+        return [
+            ("understand", "确认提交目标"),
+            ("inspect", "检查工作区变更"),
+            ("verify", "运行必要验证"),
+            ("stage", "stage 相关文件"),
+            ("commit_message", "整理 commit message"),
+            ("commit", "执行 git commit"),
+            ("report", "汇报提交结果"),
+        ]
+    if kind == "docs":
+        return [
+            ("understand", "确认记录目标"),
+            ("inspect", "确认文档归属和现有上下文"),
+            ("edit", "编写或更新文档"),
+            ("verify", "检查文档 diff 和格式"),
+            ("report", "汇报记录结果"),
+        ]
+    return [
+        ("understand", "理解目标"),
+        ("inspect", "检查上下文"),
+        ("edit", "执行修改"),
+        ("verify", "验证结果"),
+        ("report", "汇报结果"),
+    ]
+
+
+def event_step(event, kind):
+    event_name = event.get("event") or ""
+    phase = event.get("phase") or ""
+    text = command_text(event)
+    if event_name == "UserPromptSubmit":
+        return "understand"
+    if event_name == "Stop":
+        return "report"
+    if phase == "inspecting":
+        return "inspect"
+    if phase == "editing":
+        return "edit"
+    if phase == "testing":
+        return "verify"
+    if phase == "committing":
+        if "git add" in text:
+            return "stage"
+        if "git commit" in text:
+            return "commit"
+        if kind == "commit":
+            return "commit_message"
+        return "verify"
+    return ""
+
+
+def completed_steps(events, kind):
+    done = set()
+    for event in events:
+        step = event_step(event, kind)
+        if not step:
+            continue
+        if event.get("event") == "PreToolUse":
+            continue
+        done.add(step)
+        if event.get("event") == "Stop":
+            text = " ".join([str(event.get("outcome") or ""), str(event.get("assistant_message") or "")]).lower()
+            if kind == "commit" and ("commit" in text or "提交" in text):
+                done.update({"stage", "commit_message", "commit"})
+            if kind == "docs" and any(word in text for word in ("doc", "docs", "readme", "文档", "记录")):
+                done.add("edit")
+    return done
+
+
+def latest_running_step(events, kind, state):
+    if state in {"review-ready", "done", "idle"}:
+        return ""
+    for event in reversed(events):
+        if event.get("event") == "PermissionRequest":
+            return ""
+        step = event_step(event, kind)
+        if step:
+            return step
+    return "understand" if state == "working" else ""
+
+
+def build_plan(events, kind, state):
+    done = completed_steps(events, kind)
+    running = latest_running_step(events, kind, state)
+    if state in {"review-ready", "done"}:
+        done.add("report")
+        running = ""
+
+    plan = []
+    template = plan_template(kind)
+    template_keys = {key for key, _ in template}
+    if running not in template_keys:
+        running = ""
+    last_done_index = -1
+    for index, (key, _) in enumerate(template):
+        if key in done:
+            last_done_index = index
+    for index, (key, _) in enumerate(template):
+        if index < last_done_index:
+            done.add(key)
+
+    for key, text in template:
+        status = "todo"
+        if key in done:
+            status = "done"
+        if key == running and status != "done":
+            status = "doing"
+        plan.append({"status": status, "text": text})
+
+    if running and not any(item["status"] == "doing" for item in plan):
+        for item in plan:
+            if item["status"] == "todo":
+                item["status"] = "doing"
+                break
+    return plan
+
+
+def action_text(event):
+    event_name = event.get("event") or "Status"
+    phase = event.get("phase") or ""
+    tool = event.get("tool") or ""
+    detail = event.get("description") or event.get("path") or event.get("command") or tool
+    if tool.lower() == "apply_patch" or str(detail).lstrip().startswith("*** Begin Patch"):
+        detail = "代码补丁"
+    detail = clean(detail, 80)
+
+    if event_name == "UserPromptSubmit":
+        return "正在理解任务并整理计划"
+    if event_name == "PermissionRequest":
+        return "等待人工确认：" + (event.get("need") or detail or "需要权限")
+    if event_name == "Stop":
+        return "已完成当前轮次，等待查看结果"
+    if event_name == "PreToolUse":
+        if phase == "testing":
+            return "正在运行验证：" + (detail or "测试")
+        if phase == "editing":
+            return "正在修改文件：" + (detail or "相关文件")
+        if phase == "committing":
+            return "正在处理提交：" + (detail or "git 操作")
+        if phase == "inspecting":
+            return "正在检查上下文：" + (detail or "相关信息")
+        return "正在执行：" + (detail or tool or "工具调用")
+    if event_name == "PostToolUse":
+        if phase == "testing":
+            return "刚完成验证：" + (detail or "测试")
+        if phase == "editing":
+            return "刚完成文件修改：" + (detail or "相关文件")
+        if phase == "committing":
+            return "刚完成提交相关操作：" + (detail or "git 操作")
+        if phase == "inspecting":
+            return "刚完成上下文检查：" + (detail or "相关信息")
+        return "刚完成：" + (detail or tool or "工具调用")
+    return event.get("message") or event.get("state") or "暂无活动"
+
+
+def evidence_text(events):
+    for event in reversed(events):
+        if event.get("event") == "PostToolUse":
+            return action_text(event)
+        if event.get("event") == "Stop" and event.get("assistant_message"):
+            return clean(event.get("assistant_message"), 120)
+    if any(event.get("phase") == "testing" for event in events):
+        return "已经进入验证阶段"
+    if any(event.get("phase") == "editing" for event in events):
+        return "已经产生编辑活动"
+    if any(event.get("phase") == "inspecting" for event in events):
+        return "已经检查相关上下文"
+    return "暂无足够证据"
+
+
+def next_text(plan, state):
+    if state == "blocked":
+        return "处理阻塞项后继续执行"
+    if state in {"review-ready", "done"}:
+        return "查看结果并决定是否继续"
+    seen_doing = False
+    for item in plan:
+        if item["status"] == "doing":
+            seen_doing = True
+            continue
+        if seen_doing and item["status"] == "todo":
+            return item["text"]
+    for item in plan:
+        if item["status"] == "todo":
+            return item["text"]
+    return "等待下一步输入"
+
+
+def summarize_pane(pane):
+    root = state_root()
+    os.makedirs(os.path.join(root, "locks"), exist_ok=True)
+    lock_path = os.path.join(root, "locks", pane_key(pane) + ".summary.lock")
+    with lock_file(lock_path) as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+
+        events = load_events(pane)
+        if not events:
+            return
+
+        table, wrapped = load_state_table()
+        if not isinstance(table, dict):
+            table = {"panes": {}} if wrapped else {}
+        record = record_for(table, wrapped, pane)
+        state = latest_value(events, "state", record.get("state", "unknown"))
+        if state not in ATTENTION_STATES:
+            state = "unknown"
+        goal = latest_value(events, "goal", record.get("goal", ""))
+        if not goal:
+            goal = latest_value(events, "prompt", "未记录目标")
+
+        kind = goal_kind(goal)
+        plan = build_plan(events, kind, state)
+        latest = events[-1]
+        current = action_text(latest)
+        blocked = "无"
+        if state == "blocked":
+            blocked = latest.get("need") or latest.get("description") or latest.get("message") or "等待人工处理"
+        outcome = latest_value(events, "outcome", record.get("outcome", ""))
+        if not outcome and state in {"review-ready", "done"}:
+            outcome = latest.get("assistant_message") or "当前轮次已完成，等待查看"
+        if not outcome:
+            outcome = "尚未完成"
+
+        headline = current
+        if state in {"review-ready", "done"} and outcome:
+            headline = "等待查看结果：" + clean(outcome, 80)
+        elif state == "blocked":
+            headline = "需要介入：" + clean(blocked, 80)
+
+        brief = {
+            "pane_id": pane,
+            "attention": state,
+            "goal": goal,
+            "headline": clean(headline, 120),
+            "plan": plan,
+            "current": clean(current, 140),
+            "evidence": evidence_text(events),
+            "next": clean(next_text(plan, state), 120),
+            "blocked": clean(blocked, 120),
+            "brief_outcome": clean(outcome, 160),
+            "brief_updated": int(time.time()),
+        }
+
+        write_brief(pane, brief)
+
+
+def write_brief(pane, brief):
+    path = state_file_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    lock_path = path + ".lock"
+
+    with lock_file(lock_path) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                table = json.load(fh)
+        except Exception:
+            table = {}
+        if not isinstance(table, dict):
+            table = {}
+
+        wrapped = isinstance(table.get("panes"), dict)
+        panes = table["panes"] if wrapped else table
+        record = panes.get(pane)
+        if not isinstance(record, dict):
+            record = {}
+        record.update(brief)
+        panes[pane] = record
+
+        tmp = path + ".tmp." + str(os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(table, fh, ensure_ascii=False, separators=(",", ":"))
+            fh.write("\n")
+        os.replace(tmp, path)
+
+
+def clear_pane(pane):
+    for path in (event_path(pane),):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Maintain AgentBoard natural-language briefs")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    event = subparsers.add_parser("event")
+    event.add_argument("--pane", required=True)
+    event.add_argument("--agent", default="agent")
+    event.add_argument("--state", default="unknown")
+    event.add_argument("--phase", default="")
+    event.add_argument("--message", default="")
+    event.add_argument("--goal", default="")
+    event.add_argument("--need", default="")
+    event.add_argument("--outcome", default="")
+    event.add_argument("--source", default="hook")
+
+    summarize = subparsers.add_parser("summarize")
+    summarize.add_argument("--pane", required=True)
+
+    clear = subparsers.add_parser("clear")
+    clear.add_argument("--pane", required=True)
+
+    args = parser.parse_args()
+    if args.command == "event":
+        append_event(args, sys.stdin.read())
+    elif args.command == "summarize":
+        summarize_pane(args.pane)
+    elif args.command == "clear":
+        clear_pane(args.pane)
+
+
+if __name__ == "__main__":
+    main()
