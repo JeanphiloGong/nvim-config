@@ -19,6 +19,9 @@ local state = {
   preview_focus = false,
   preview_top = nil,
   preview_col = 0,
+  restore = {},
+  restore_mode = false,
+  restore_log_keys = {},
   timer = nil,
   last_scan_ms = nil,
   input_active = false,
@@ -391,6 +394,115 @@ local function pane_outcome(pane)
   return ""
 end
 
+local function restore_items()
+  if type(state.restore) == "table" and type(state.restore.items) == "table" then
+    return state.restore.items
+  end
+  return {}
+end
+
+local function restore_item_for_pane(pane)
+  if not pane or not pane.pane_id then
+    return nil
+  end
+  for _, item in ipairs(restore_items()) do
+    if item.target_pane_id == pane.pane_id then
+      return item
+    end
+  end
+  return nil
+end
+
+local function restore_status_title(status)
+  return ({
+    ["restorable-existing-pane"] = "RESTORABLE",
+    ["already-running"] = "ALREADY RUNNING",
+    ["occupied-pane"] = "OCCUPIED",
+    ["missing-pane"] = "MISSING PANE",
+    ["missing-session-id"] = "MISSING SESSION ID",
+  })[status] or "UNKNOWN"
+end
+
+local function restore_count_summary()
+  local counts = type(state.restore) == "table" and state.restore.counts or {}
+  local order = { "restorable-existing-pane", "already-running", "occupied-pane", "missing-pane", "missing-session-id" }
+  local parts = {}
+  for _, name in ipairs(order) do
+    local count = tonumber(counts and counts[name]) or 0
+    if count > 0 then
+      table.insert(parts, name .. "=" .. count)
+    end
+  end
+  if #parts == 0 then
+    return "no saved Codex records"
+  end
+  return table.concat(parts, " ")
+end
+
+local function add_restore_item(lines, item)
+  local target = item.target_pane_id or ""
+  if target == "" then
+    target = item.last_target or item.last_pane_id or "-"
+  end
+  local headline = item.goal or item.reason or ""
+  table.insert(lines, string.format("- %-24s %s", truncate(target, 24), truncate(headline, 96)))
+  add_detail(lines, "Status", item.status)
+  add_detail(lines, "Reason", item.reason)
+  add_detail(lines, "Session", item.codex_session_id)
+  add_detail(lines, "Path", item.cwd)
+end
+
+local function restore_report_lines()
+  local selected = selected_pane()
+  local selected_item = restore_item_for_pane(selected)
+  local lines = {
+    "AGENT RESTORE",
+    string.rep("-", 64),
+    restore_count_summary(),
+    "",
+    "Actions",
+    "R refresh this report",
+    "Enter/Space resume the selected restorable pane",
+    "J jump to selected pane",
+    "",
+  }
+
+  if selected then
+    add_detail(lines, "Selected", pane_location(selected))
+    if selected_item then
+      add_detail(lines, "Restore", selected_item.status)
+      add_detail(lines, "Reason", selected_item.reason)
+    else
+      add_detail(lines, "Restore", "No saved Codex session matched this pane")
+    end
+    table.insert(lines, "")
+  end
+
+  local groups = { "restorable-existing-pane", "occupied-pane", "missing-session-id", "missing-pane", "already-running" }
+  local any = false
+  for _, status in ipairs(groups) do
+    local group = {}
+    for _, item in ipairs(restore_items()) do
+      if item.status == status then
+        table.insert(group, item)
+      end
+    end
+    if #group > 0 then
+      any = true
+      table.insert(lines, restore_status_title(status) .. " (" .. tostring(#group) .. ")")
+      for _, item in ipairs(group) do
+        add_restore_item(lines, item)
+      end
+      table.insert(lines, "")
+    end
+  end
+
+  if not any then
+    table.insert(lines, "No saved Codex records found.")
+  end
+  return lines
+end
+
 local function sorted_scope_panes(panes)
   local sorted = vim.deepcopy(panes or {})
   table.sort(sorted, function(a, b)
@@ -689,6 +801,7 @@ local function set_panes(data)
   local selected_id = selected_row() and selected_row().id
   state.panes = data.panes or {}
   state.counts = data.counts or {}
+  state.restore = data.restore or {}
   state.generated_at = data.generated_at
   state.tree_rows = build_tree_rows(state.panes)
   if selected_id then
@@ -704,6 +817,11 @@ local function set_panes(data)
 end
 
 local function refresh_preview(include_history)
+  if state.restore_mode then
+    state.preview_lines = restore_report_lines()
+    state.preview_top = nil
+    return
+  end
   local pane = selected_pane()
   if pane then
     if include_history or state.preview_focus then
@@ -781,6 +899,9 @@ local function render_cached()
   end
   local row = selected_row()
   local preview_header = workspace_pane and "AGENT INSPECTOR" or "SCOPE INSPECTOR"
+  if state.restore_mode then
+    preview_header = "RESTORE REPORT"
+  end
   if state.preview_focus and #preview_lines > 0 then
     preview_header = string.format(
       "PANE HISTORY %s-%s/%s",
@@ -866,8 +987,10 @@ local function render_cached()
 
   if state.preview_focus then
     table.insert(lines, "Preview: j/k/Up/Down scroll  C-u/C-d page  Esc/q list  i send  J jump  r rescan")
+  elseif state.restore_mode then
+    table.insert(lines, "Restore: Enter/Space resume selected  R refresh report  J jump  r rescan  q quit")
   else
-    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  gw working  gr review  gd done  i send  J jump  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  R restore  gw working  gr review  gd done  i send  J jump  r rescan  a all  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -990,9 +1113,110 @@ local function tmux(args)
   tmux_output(args)
 end
 
+local function restore_log_path()
+  local state_home = vim.env.XDG_STATE_HOME
+  if not state_home or state_home == "" then
+    state_home = (vim.env.HOME or "~") .. "/.local/state"
+  end
+  return state_home .. "/agent-board/restore/restore-log.jsonl"
+end
+
+local function append_restore_log(item, action, detail)
+  if type(item) ~= "table" then
+    return
+  end
+  local path = restore_log_path()
+  vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+  local record = {
+    ts = os.time(),
+    action = action,
+    detail = detail or "",
+    restore_id = item.restore_id or "",
+    status = item.status or "",
+    reason = item.reason or "",
+    last_target = item.last_target or "",
+    target_pane_id = item.target_pane_id or "",
+    codex_session_id = item.codex_session_id or "",
+    cwd = item.cwd or "",
+  }
+  vim.fn.writefile({ vim.fn.json_encode(record) }, path, "a")
+end
+
+local function log_unrestorable_items()
+  for _, item in ipairs(restore_items()) do
+    if item.status ~= "restorable-existing-pane" and item.status ~= "already-running" then
+      local key = table.concat({ item.restore_id or "", item.status or "", tostring(item.updated or "") }, "|")
+      if not state.restore_log_keys[key] then
+        state.restore_log_keys[key] = true
+        append_restore_log(item, "restore-unavailable", item.reason)
+      end
+    end
+  end
+end
+
+local function restore_command(item)
+  return "codex resume " .. vim.fn.shellescape(item.codex_session_id or "")
+end
+
+function M.open_restore_report()
+  local data = run_scan()
+  if not data then
+    return
+  end
+  set_panes(data)
+  state.restore_mode = true
+  state.preview_focus = false
+  log_unrestorable_items()
+  refresh_preview()
+  render_cached()
+end
+
+function M.resume_selected_restore()
+  local pane = selected_pane()
+  if not pane then
+    notify("Select an existing pane first", vim.log.levels.WARN)
+    return
+  end
+
+  local item = restore_item_for_pane(pane)
+  if not item then
+    notify("No restore record matched " .. pane_location(pane), vim.log.levels.WARN)
+    return
+  end
+  if item.status ~= "restorable-existing-pane" or not item.restorable then
+    append_restore_log(item, "resume-blocked", item.reason)
+    notify("Cannot resume: " .. (item.reason or item.status), vim.log.levels.WARN)
+    return
+  end
+  if not item.codex_session_id or item.codex_session_id == "" then
+    append_restore_log(item, "resume-blocked", "missing codex_session_id")
+    notify("Cannot resume: missing codex_session_id", vim.log.levels.WARN)
+    return
+  end
+
+  local cmd = restore_command(item)
+  if pane.pane_dead then
+    tmux({ "respawn-pane", "-k", "-t", pane.pane_id, cmd })
+  else
+    tmux({ "send-keys", "-t", pane.pane_id, "-l", cmd })
+    tmux({ "send-keys", "-t", pane.pane_id, "Enter" })
+  end
+  append_restore_log(item, "resume-sent", cmd)
+  notify("Sent codex resume to " .. pane_location(pane))
+  vim.defer_fn(function()
+    if agent_board_is_current() then
+      M.refresh()
+    end
+  end, 500)
+end
+
 function M.toggle_node()
   local row = selected_row()
   if not row then
+    return
+  end
+  if state.restore_mode and row.kind == "pane" then
+    M.resume_selected_restore()
     return
   end
   if row.kind == "pane" then
@@ -1066,6 +1290,13 @@ function M.enter_preview()
 end
 
 function M.leave_preview()
+  if state.restore_mode then
+    state.restore_mode = false
+    state.preview_top = nil
+    refresh_preview()
+    render_cached()
+    return
+  end
   if not state.preview_focus then
     return
   end
@@ -1178,6 +1409,7 @@ end
 local function attach_maps(buf)
   map(buf, "q", M.close_or_leave_preview, "Close AgentBoard or leave preview")
   map(buf, "r", M.refresh, "Refresh AgentBoard")
+  map(buf, "R", M.open_restore_report, "Open restore report")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
   map(buf, "gw", M.expand_working, "Expand working agents")
   map(buf, "gr", M.expand_review_ready, "Expand review-ready agents")
