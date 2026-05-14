@@ -34,6 +34,7 @@ esac
 status_bin="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-agent-status"
 [ -x "$status_bin" ] || finish
 brief_bin="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-agent-brief"
+codex_session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 
 metadata_from_payload() {
   command -v python3 >/dev/null 2>&1 || return 0
@@ -255,6 +256,9 @@ case "$state" in
     fi
     if [ -n "$outcome" ] || [ "$phase" = "intake" ] || [ "$phase" = "complete" ] || [ "$health_state" = "working" ]; then
       report_args+=(--outcome "$outcome")
+    fi
+    if [ -n "$codex_session_id" ]; then
+      report_args+=(--codex-session-id "$codex_session_id")
     fi
     "$status_bin" "${report_args[@]}" >/dev/null 2>&1 || true
     if [ -x "$brief_bin" ]; then
