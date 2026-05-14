@@ -112,7 +112,8 @@ tmux select-pane -t "$pane" -T "$activity" 2>/dev/null || true
 
 agent_status_bin="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-agent-status"
 if [ -x "$agent_status_bin" ]; then
-  "$agent_status_bin" report \
+  report_args=(
+    report
     --pane "$pane" \
     --agent codex \
     --state review-ready \
@@ -120,7 +121,12 @@ if [ -x "$agent_status_bin" ]; then
     --message "$activity" \
     --need "" \
     --outcome "$summary" \
-    --source codex-notify 2>/dev/null || true
+    --source codex-notify
+  )
+  if [ -n "$thread_id" ]; then
+    report_args+=(--codex-session-id "$thread_id")
+  fi
+  "$agent_status_bin" "${report_args[@]}" 2>/dev/null || true
 fi
 
 # Append to a simple history file so tmux can show a menu (latest first).

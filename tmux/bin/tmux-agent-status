@@ -24,7 +24,18 @@ update_state_file() {
   file="$(state_file_path)"
   mkdir -p "$(dirname "$file")" 2>/dev/null || return 0
 
-  python3 - "$file" "$pane" "$agent" "$state" "$phase" "$phase_set" "$message" "$goal" "$goal_set" "$need" "$need_set" "$outcome" "$outcome_set" "$source" <<'PY' 2>/dev/null || true
+  local session_name="" window_index="" window_name="" pane_index="" cwd="" command="" last_target=""
+  session_name="$(tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null || true)"
+  window_index="$(tmux display-message -p -t "$pane" '#{window_index}' 2>/dev/null || true)"
+  window_name="$(tmux display-message -p -t "$pane" '#{window_name}' 2>/dev/null || true)"
+  pane_index="$(tmux display-message -p -t "$pane" '#{pane_index}' 2>/dev/null || true)"
+  cwd="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
+  command="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
+  if [ -n "$session_name" ] && [ -n "$window_index" ] && [ -n "$pane_index" ]; then
+    last_target="${session_name}:${window_index}.${pane_index}"
+  fi
+
+  python3 - "$file" "$pane" "$agent" "$state" "$phase" "$phase_set" "$message" "$goal" "$goal_set" "$need" "$need_set" "$outcome" "$outcome_set" "$source" "$codex_session_id" "$codex_session_id_set" "$session_name" "$window_index" "$window_name" "$pane_index" "$cwd" "$command" "$last_target" <<'PY' 2>/dev/null || true
 import fcntl
 import json
 import os
@@ -46,7 +57,16 @@ import time
     outcome,
     outcome_set,
     source,
-) = sys.argv[1:15]
+    codex_session_id,
+    codex_session_id_set,
+    session_name,
+    window_index,
+    window_name,
+    pane_index,
+    cwd,
+    command,
+    last_target,
+) = sys.argv[1:24]
 
 lock_path = path + ".lock"
 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -83,6 +103,19 @@ with open(lock_path, "w", encoding="utf-8") as lock:
         record["need"] = need
     if outcome_set == "1":
         record["outcome"] = outcome
+    if codex_session_id_set == "1":
+        record["codex_session_id"] = codex_session_id
+    for key, value in (
+        ("session_name", session_name),
+        ("window_index", window_index),
+        ("window_name", window_name),
+        ("pane_index", pane_index),
+        ("cwd", cwd),
+        ("command", command),
+        ("last_target", last_target),
+    ):
+        if value:
+            record[key] = value
 
     table[pane] = record
     tmp = path + ".tmp." + str(os.getpid())
@@ -152,10 +185,12 @@ report_state() {
   local need=""
   local outcome=""
   local source="manual"
+  local codex_session_id=""
   local phase_set=0
   local goal_set=0
   local need_set=0
   local outcome_set=0
+  local codex_session_id_set=0
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -199,6 +234,11 @@ report_state() {
         source="${2:-}"
         shift 2
         ;;
+      --codex-session-id)
+        codex_session_id="${2:-}"
+        codex_session_id_set=1
+        shift 2
+        ;;
       --clear | --release)
         clear_report "$pane"
         exit 0
@@ -235,7 +275,7 @@ case "${1:-}" in
     clear_report "${1:-${TMUX_PANE:-}}"
     ;;
   *)
-    printf 'usage: tmux-agent-status report --pane PANE --agent NAME --state STATE [--phase PHASE] [--message TEXT]\n' >&2
+    printf 'usage: tmux-agent-status report --pane PANE --agent NAME --state STATE [--phase PHASE] [--message TEXT] [--codex-session-id ID]\n' >&2
     exit 2
     ;;
 esac
