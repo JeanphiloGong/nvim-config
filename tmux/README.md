@@ -16,6 +16,7 @@
   - `i` 给选中 pane 发送一行输入
   - 预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回树
   - `J` 跳转到选中 pane，并保留 `AgentBoard` window 供下次复用
+  - `R` 打开/刷新恢复报告；只对 tmux 已经恢复出的已有 pane 提供 `codex resume` 动作，不能恢复的记录写入 XDG state 下的 `agent-board/restore/restore-log.jsonl`
   - `q` 关闭 `AgentBoard` window
   - `r` 重新扫描 pane 列表
   - 鼠标单击选择，双击跳转

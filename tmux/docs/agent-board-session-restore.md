@@ -66,6 +66,7 @@ Proposed AgentBoard actions:
 ```text
 R  open restore report
 Enter / Space  resume selected restorable agent in its existing pane
+Esc  leave restore report
 ```
 
 ## Project Structure
@@ -130,7 +131,7 @@ Matching priority:
 3. Same session_name + window_name/index + pane_index + cwd.
 4. If the matched pane is already running Codex, do not send resume.
 5. If the matched pane is an idle shell or dead/restored pane, send
-   codex resume [SESSION_ID] --cd [cwd] --no-alt-screen.
+   codex resume [SESSION_ID].
 6. Otherwise log the record as unresumable with a reason.
 ```
 
@@ -145,7 +146,7 @@ Use state-file and tmux-pane smoke tests before adding UI behavior.
 - Restore dry-run test: verify generated `send-keys` commands without creating
   panes.
 - Restore live test: with a known Codex session id, create a pane and run
-  `codex resume <id> --cd <cwd> --no-alt-screen` in that existing pane.
+  `codex resume <id>` in that existing pane.
 - UI smoke test: open `:AgentBoard` headlessly and ensure restore view loads.
 
 ## Boundaries
@@ -168,7 +169,9 @@ Use state-file and tmux-pane smoke tests before adding UI behavior.
 - AgentBoard reports previous agents grouped as already running, restorable in an
   existing pane, missing pane, occupied pane, and missing resume id.
 - A matched existing pane with a recorded `codex_session_id` can be resumed with
-  `codex resume <session-id> --cd <cwd> --no-alt-screen`.
+  `codex resume <session-id>`.
+- Restore starts only after the user opens the restore report with `R` and
+  confirms a selected restorable pane with Enter or Space.
 - If the original pane still exists, restore does not start a duplicate agent.
 - If the original pane is gone, restore does not create a replacement pane and
   logs the exact missing target.
