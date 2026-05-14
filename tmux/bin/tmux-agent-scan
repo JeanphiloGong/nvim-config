@@ -26,6 +26,7 @@ AGENTS = {
 }
 
 VALID_STATES = ("blocked", "error", "stale", "review-ready", "working", "done", "idle", "unknown")
+SHELL_COMMANDS = ("bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "nu")
 
 
 def run(cmd, timeout=1.5):
@@ -111,6 +112,47 @@ def process_agents_by_tty():
     return {tty: value[1] for tty, value in by_tty.items()}
 
 
+def read_codex_session_from_pid(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            data = fh.read().split(b"\0")
+    except Exception:
+        return ""
+    thread_id = ""
+    for item in data:
+        try:
+            key, value = item.split(b"=", 1)
+        except ValueError:
+            continue
+        if key == b"CODEX_SESSION_ID" and value:
+            return value.decode("utf-8", errors="replace")
+        if key == b"CODEX_THREAD_ID" and value and not thread_id:
+            thread_id = value.decode("utf-8", errors="replace")
+    return thread_id
+
+
+def process_codex_sessions_by_tty():
+    out = run(["ps", "-eo", "tty=", "-o", "pid=", "-o", "comm=", "-o", "args="], timeout=2.0)
+    by_tty = {}
+    for line in out.splitlines():
+        parts = line.strip().split(None, 3)
+        if len(parts) < 3:
+            continue
+        tty = parts[0]
+        if tty == "?":
+            continue
+        pid = parts[1]
+        comm = parts[2]
+        args = parts[3] if len(parts) > 3 else ""
+        agent = agent_from_name(comm) or agent_from_args(args)
+        if agent != "codex":
+            continue
+        session_id = read_codex_session_from_pid(pid)
+        if session_id:
+            by_tty[tty] = session_id
+    return by_tty
+
+
 def detect_state(agent, hook_state="", hook_updated="", hook_ttl=3600):
     if hook_state in VALID_STATES:
         try:
@@ -141,6 +183,136 @@ def record_list(record, key):
     return []
 
 
+def restore_record_id(record, pane_id):
+    codex_session_id = record_value(record, "codex_session_id")
+    if codex_session_id:
+        return "codex:" + codex_session_id
+    return "pane:" + (record_value(record, "pane_id", pane_id) or "-")
+
+
+def is_shell_command(command):
+    return os.path.basename(command or "") in SHELL_COMMANDS
+
+
+def same_restore_location(record, pane):
+    record_session = record_value(record, "session_name")
+    record_window = record_value(record, "window_index")
+    record_window_name = record_value(record, "window_name")
+    record_pane = record_value(record, "pane_index")
+    record_cwd = record_value(record, "cwd")
+    if record_session and record_session != pane.get("session", ""):
+        return False
+    if record_pane and record_pane != pane.get("pane_index", ""):
+        return False
+    if record_cwd and record_cwd != pane.get("path", ""):
+        return False
+    if record_window and record_window == pane.get("window", ""):
+        return True
+    if record_window_name and record_window_name == pane.get("window_name", ""):
+        return True
+    return False
+
+
+def classify_restore_records(state_table, panes):
+    live_by_pane_id = {pane.get("pane_id", ""): pane for pane in panes if pane.get("pane_id")}
+    live_by_codex_session = {}
+    for pane in panes:
+        live_session_id = pane.get("live_codex_session_id") or ""
+        if live_session_id:
+            live_by_codex_session[live_session_id] = pane
+
+    items = []
+    for pane_key, record in state_table.items():
+        if not isinstance(record, dict):
+            continue
+        if record_value(record, "agent") != "codex" and not record_value(record, "codex_session_id"):
+            continue
+
+        codex_session_id = record_value(record, "codex_session_id")
+        old_pane_id = record_value(record, "pane_id", pane_key)
+        matched = None
+        match_reason = ""
+
+        if old_pane_id in live_by_pane_id and same_restore_location(record, live_by_pane_id[old_pane_id]):
+            matched = live_by_pane_id[old_pane_id]
+            match_reason = "same-pane-location"
+        if not matched and codex_session_id and codex_session_id in live_by_codex_session:
+            matched = live_by_codex_session[codex_session_id]
+            match_reason = "same-codex-session"
+        if not matched:
+            for pane in panes:
+                if same_restore_location(record, pane):
+                    matched = pane
+                    match_reason = "same-location"
+                    break
+
+        status = ""
+        reason = ""
+        restorable = False
+        target_pane_id = matched.get("pane_id", "") if matched else ""
+
+        if not codex_session_id:
+            status = "missing-session-id"
+            reason = "record has no codex_session_id"
+        elif not matched:
+            status = "missing-pane"
+            reason = "no existing tmux pane matches the saved location"
+        elif matched.get("live_agent") == "codex" or matched.get("live_codex_session_id"):
+            status = "already-running"
+            reason = "matched pane is already running Codex"
+        elif matched.get("pane_dead") or is_shell_command(matched.get("command")):
+            status = "restorable-existing-pane"
+            reason = "matched pane exists and can receive codex resume"
+            restorable = True
+        else:
+            status = "occupied-pane"
+            reason = "matched pane is running another command"
+
+        items.append(
+            {
+                "restore_id": restore_record_id(record, pane_key),
+                "status": status,
+                "reason": reason,
+                "restorable": restorable,
+                "match_reason": match_reason,
+                "target_pane_id": target_pane_id,
+                "codex_session_id": codex_session_id,
+                "last_pane_id": old_pane_id,
+                "last_target": record_value(record, "last_target"),
+                "session_name": record_value(record, "session_name"),
+                "window_index": record_value(record, "window_index"),
+                "window_name": record_value(record, "window_name"),
+                "pane_index": record_value(record, "pane_index"),
+                "cwd": record_value(record, "cwd"),
+                "command": record_value(record, "command"),
+                "goal": record_value(record, "goal"),
+                "updated": record_value(record, "updated"),
+            }
+        )
+
+    order = {
+        "restorable-existing-pane": 0,
+        "missing-session-id": 1,
+        "occupied-pane": 2,
+        "missing-pane": 3,
+        "already-running": 4,
+    }
+    items.sort(key=lambda item: (order.get(item["status"], 9), item.get("last_target", ""), item.get("restore_id", "")))
+    return {
+        "items": items,
+        "counts": {
+            status: sum(1 for item in items if item["status"] == status)
+            for status in (
+                "already-running",
+                "restorable-existing-pane",
+                "missing-pane",
+                "occupied-pane",
+                "missing-session-id",
+            )
+        },
+    }
+
+
 def scan(show_all=False):
     fmt = "\t".join(
         [
@@ -155,6 +327,7 @@ def scan(show_all=False):
             "#{pane_current_path}",
             "#{pane_title}",
             "#{pane_tty}",
+            "#{pane_dead}",
             "#{@user_pane_title}",
             "#{@agent_status_agent}",
             "#{@agent_status_state}",
@@ -165,6 +338,7 @@ def scan(show_all=False):
             "#{@agent_status_outcome}",
             "#{@agent_status_updated}",
             "#{@agent_status_source}",
+            "#{@codex_pane_thread_id}",
             "#{@codex_pane_activity}",
             "#{@codex_pane_summary}",
         ]
@@ -172,6 +346,7 @@ def scan(show_all=False):
     out = tmux("list-panes", "-a", "-F", fmt, timeout=2.0)
     state_table = load_state_table()
     tty_agents = process_agents_by_tty()
+    tty_codex_sessions = process_codex_sessions_by_tty()
     hook_ttl_raw = tmux("show", "-gv", "@agent_status_hook_ttl").strip()
     try:
         hook_ttl = int(hook_ttl_raw or "3600")
@@ -181,7 +356,7 @@ def scan(show_all=False):
     panes = []
     for line in out.splitlines():
         fields = line.split("\t")
-        if len(fields) != 23:
+        if len(fields) != 25:
             continue
         (
             session,
@@ -195,6 +370,7 @@ def scan(show_all=False):
             path,
             title,
             tty,
+            pane_dead,
             user_title,
             opt_agent,
             opt_state,
@@ -205,6 +381,7 @@ def scan(show_all=False):
             opt_outcome,
             opt_updated,
             opt_source,
+            opt_codex_thread_id,
             opt_activity,
             opt_summary,
         ) = fields
@@ -224,6 +401,8 @@ def scan(show_all=False):
         blocked = record_value(record, "blocked")
         brief_outcome = record_value(record, "brief_outcome")
         brief_updated = record_value(record, "brief_updated")
+        codex_session_id = record_value(record, "codex_session_id", opt_codex_thread_id)
+        live_codex_session_id = opt_codex_thread_id or tty_codex_sessions.get(tty.removeprefix("/dev/"), "")
         attention = record_value(record, "attention")
         plan = record_list(record, "plan")
         hook_updated = record_value(record, "updated", opt_updated)
@@ -231,12 +410,12 @@ def scan(show_all=False):
         activity = headline or current or opt_activity or hook_message
         summary = opt_summary
 
-        agent = (
-            hook_agent
-            or agent_from_name(command)
+        live_agent = (
+            agent_from_name(command)
             or tty_agents.get(tty.removeprefix("/dev/"))
             or agent_from_args(title)
         )
+        agent = hook_agent or live_agent
         if not agent and not show_all:
             continue
 
@@ -261,7 +440,9 @@ def scan(show_all=False):
                 "path": path,
                 "title": title,
                 "tty": tty,
+                "pane_dead": pane_dead == "1",
                 "agent": agent or "-",
+                "live_agent": live_agent or "-",
                 "state": state,
                 "source": source,
                 "report_source": hook_source,
@@ -283,6 +464,8 @@ def scan(show_all=False):
                 "blocked": blocked,
                 "brief_outcome": brief_outcome,
                 "brief_updated": brief_updated,
+                "codex_session_id": codex_session_id,
+                "live_codex_session_id": live_codex_session_id,
             }
         )
 
@@ -308,6 +491,7 @@ def scan(show_all=False):
         "generated_at": int(time.time()),
         "show_all": show_all,
         "panes": panes,
+        "restore": classify_restore_records(state_table, panes),
         "counts": {
             state: sum(1 for pane in panes if pane["state"] == state)
             for state in VALID_STATES
