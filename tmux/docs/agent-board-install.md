@@ -11,6 +11,64 @@ AgentBoard 本身不需要后台 daemon。它依赖：
 - Codex hook 负责在 agent 有动作时写入状态
 - XDG state 目录保存本机状态
 
+## 快速开始
+
+把仓库同步到服务器：
+
+```sh
+git clone <repo-url> ~/.config/nvim
+```
+
+如果服务器上已经有这个目录：
+
+```sh
+cd ~/.config/nvim
+git pull
+```
+
+运行安装入口：
+
+```sh
+~/.config/nvim/tmux/bin/agentboard install
+~/.config/nvim/tmux/bin/agentboard doctor
+```
+
+然后启动 tmux：
+
+```sh
+tmux
+```
+
+在 tmux 里按：
+
+```text
+Ctrl-a I  安装 tmux 插件
+Ctrl-a C  打开 AgentBoard
+```
+
+`agentboard install` 会完成两件事：
+
+- 链接 `~/.tmux.conf` 到本仓库的 `tmux/.tmux.conf`
+- 安装 Codex notify / lifecycle hook 文件
+
+如果 `~/.codex/hooks.json` 已存在，安装器会先备份为：
+
+```text
+~/.codex/hooks.json.agentboard.bak.<timestamp>
+```
+
+Codex 仍然需要你确认 `~/.codex/config.toml` 的全局区域包含：
+
+```toml
+notify = ["/home/<you>/.local/bin/codex-tmux-notify"]
+
+[features]
+hooks = true
+```
+
+`agentboard install` 会尽量自动写入这两项。只有你已经配置了其他 `notify = [...]`
+时，它会保留现有配置并提示你手动合并。修改后重启 Codex CLI。
+
 ## 依赖
 
 最小依赖：
@@ -38,7 +96,12 @@ npm
 - Codex CLI 需要已经登录，并且新开的 Codex 会话会读取该服务器上的
   `~/.codex/config.toml` 和 `~/.codex/hooks.json`。
 
-## 放置配置
+## 手动安装细节
+
+下面是 `agentboard install` 背后做的事。正常情况下先用快速开始；只有需要排查或自定义
+路径时再看本节。
+
+### 放置配置
 
 把仓库同步到服务器的标准位置：
 
@@ -61,7 +124,7 @@ nvim
 # :Lazy sync
 ```
 
-## 启用 tmux 配置
+### 启用 tmux 配置
 
 安装 TPM：
 
@@ -90,12 +153,12 @@ tmux source ~/.tmux.conf
 
 安装 tmux 插件。当前配置的 prefix 是 `Ctrl-a`。
 
-## 配置 Codex 状态 hook
+### 配置 Codex 状态 hook
 
 AgentBoard 可以扫描 tmux pane，但要获得 Codex 的任务状态、目标、完成摘要和
 恢复用 session id，需要配置 Codex hook。
 
-### notify hook
+#### notify hook
 
 先把 notify 脚本放到固定路径：
 
@@ -111,7 +174,7 @@ chmod +x ~/.local/bin/codex-tmux-notify
 notify = ["/home/<you>/.local/bin/codex-tmux-notify"]
 
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 注意：
@@ -120,7 +183,7 @@ codex_hooks = true
 - `notify = [...]` 不要写进某个 `[projects."..."]` 下面。
 - 修改后需要重启 Codex CLI，新启动的 Codex 才会读取配置。
 
-### lifecycle hooks
+#### lifecycle hooks
 
 创建 `~/.codex/hooks.json`：
 
@@ -318,7 +381,7 @@ cat ~/.codex/config.toml
 cat ~/.codex/hooks.json
 ```
 
-确认 `codex_hooks = true`、`notify = [...]` 和 hooks 里的命令都指向服务器上的
+确认 `hooks = true`、`notify = [...]` 和 hooks 里的命令都指向服务器上的
 真实路径。修改后重启 Codex CLI。
 
 ### 恢复报告里没有可恢复项

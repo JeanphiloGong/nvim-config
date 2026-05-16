@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+tmux_dir="$config_home/tmux"
+tmux_bin="$tmux_dir/bin"
+
+usage() {
+  cat <<'EOF'
+usage: agentboard <command>
+
+Commands:
+  install tmux     Link ~/.tmux.conf and ensure TPM is present
+  install codex    Install AgentBoard Codex hooks
+  install          Run tmux and codex installers
+  doctor           Check required tools and config files
+  scan             Print AgentBoard scan JSON
+  open             Open AgentBoard in nvim
+EOF
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+ok() {
+  printf 'ok: %s\n' "$1"
+}
+
+warn() {
+  printf 'warn: %s\n' "$1" >&2
+}
+
+info() {
+  printf 'info: %s\n' "$1"
+}
+
+fail() {
+  printf 'error: %s\n' "$1" >&2
+  exit 1
+}
+
+require_repo() {
+  [ -d "$tmux_dir" ] || fail "missing $tmux_dir"
+  [ -x "$tmux_bin/tmux-agent-scan" ] || fail "missing $tmux_bin/tmux-agent-scan"
+}
+
+install_tmux() {
+  require_repo
+  mkdir -p "$HOME/.tmux/plugins" "$HOME/.local/bin"
+  ln -sf "$tmux_bin/agentboard" "$HOME/.local/bin/agentboard"
+  ok "linked ~/.local/bin/agentboard"
+
+  if [ ! -d "$HOME/.tmux/plugins/tpm/.git" ]; then
+    if have git; then
+      git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
+    else
+      warn "git not found; install TPM manually at ~/.tmux/plugins/tpm"
+    fi
+  else
+    ok "TPM already installed"
+  fi
+
+  ln -sf "$tmux_dir/.tmux.conf" "$HOME/.tmux.conf"
+  ok "linked ~/.tmux.conf -> $tmux_dir/.tmux.conf"
+
+  if have tmux && [ -n "${TMUX:-}" ]; then
+    tmux source "$HOME/.tmux.conf"
+    ok "reloaded tmux config"
+  else
+    warn "start tmux and run: tmux source ~/.tmux.conf"
+  fi
+}
+
+ensure_codex_config() {
+  local config="$HOME/.codex/config.toml"
+  local notify_path="$HOME/.local/bin/codex-tmux-notify"
+
+  if [ ! -f "$config" ]; then
+    cat >"$config" <<EOF
+notify = ["$notify_path"]
+
+[features]
+hooks = true
+EOF
+    ok "created ~/.codex/config.toml"
+    return
+  fi
+
+  if grep -q 'notify *= *\[' "$config"; then
+    if grep -q 'codex-tmux-notify' "$config"; then
+      ok "Codex notify hook already configured"
+    else
+      warn "custom Codex notify exists; add $notify_path manually if needed"
+    fi
+  else
+    local tmp
+    tmp="$(mktemp "${TMPDIR:-/tmp}/agentboard-config.XXXXXX")"
+    {
+      printf 'notify = ["%s"]\n\n' "$notify_path"
+      cat "$config"
+    } >"$tmp"
+    mv "$tmp" "$config"
+    ok "added Codex notify hook to ~/.codex/config.toml"
+  fi
+
+  if grep -Eq '(hooks|codex_hooks) *= *true' "$config"; then
+    ok "Codex hooks already enabled"
+    return
+  fi
+
+  python3 - "$config" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+if re.search(r"(?m)^hooks\s*=", text):
+    text = re.sub(r"(?m)^hooks\s*=\s*false\b", "hooks = true", text, count=1)
+elif re.search(r"(?m)^\[features\]\s*$", text):
+    text = re.sub(r"(?m)^(\[features\]\s*)$", r"\1\nhooks = true", text, count=1)
+else:
+    text = text.rstrip() + "\n\n[features]\nhooks = true\n"
+path.write_text(text, encoding="utf-8")
+PY
+  ok "enabled Codex hooks in ~/.codex/config.toml"
+}
+
+install_codex() {
+  require_repo
+  mkdir -p "$HOME/.local/bin" "$HOME/.codex"
+  ln -sf "$tmux_bin/codex-tmux-notify" "$HOME/.local/bin/codex-tmux-notify"
+  chmod +x "$HOME/.local/bin/codex-tmux-notify" 2>/dev/null || true
+  ok "linked ~/.local/bin/codex-tmux-notify"
+
+  local hook="$tmux_bin/codex-agent-status-hook"
+  local hooks_file="$HOME/.codex/hooks.json"
+  if [ -f "$hooks_file" ]; then
+    local backup="$hooks_file.agentboard.bak.$(date +%Y%m%d%H%M%S)"
+    cp "$hooks_file" "$backup"
+    info "backed up existing hooks.json to $backup"
+  fi
+  cat >"$hooks_file" <<EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$hook idle",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$hook working",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$hook working",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$hook working",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$hook blocked",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$hook done --stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+  ok "wrote ~/.codex/hooks.json"
+
+  ensure_codex_config
+  warn "restart Codex after changing config.toml"
+}
+
+doctor() {
+  local failed=0
+  for tool in tmux nvim python3 codex; do
+    if have "$tool"; then
+      ok "$tool found"
+    else
+      warn "$tool not found"
+      failed=1
+    fi
+  done
+
+  [ -f "$HOME/.tmux.conf" ] && ok "~/.tmux.conf exists" || { warn "~/.tmux.conf missing"; failed=1; }
+  [ -f "$HOME/.codex/hooks.json" ] && ok "~/.codex/hooks.json exists" || warn "~/.codex/hooks.json missing"
+  [ -f "$HOME/.codex/config.toml" ] && ok "~/.codex/config.toml exists" || warn "~/.codex/config.toml missing"
+  [ -x "$tmux_bin/tmux-agent-scan" ] && ok "tmux-agent-scan executable" || { warn "tmux-agent-scan missing"; failed=1; }
+  if [ -f "$HOME/.codex/config.toml" ]; then
+    grep -Eq '(hooks|codex_hooks) *= *true' "$HOME/.codex/config.toml" \
+      && ok "Codex hooks enabled" \
+      || { warn "hooks not found in ~/.codex/config.toml"; failed=1; }
+    grep -q 'codex-tmux-notify' "$HOME/.codex/config.toml" \
+      && ok "Codex notify hook configured" \
+      || { warn "Codex notify hook not found in ~/.codex/config.toml"; failed=1; }
+  fi
+  if [ -f "$HOME/.codex/hooks.json" ]; then
+    grep -q 'codex-agent-status-hook' "$HOME/.codex/hooks.json" \
+      && ok "Codex lifecycle hooks configured" \
+      || { warn "Codex lifecycle hooks not found in ~/.codex/hooks.json"; failed=1; }
+  fi
+
+  if have tmux; then
+    if tmux list-keys 2>/dev/null | grep -q 'agent-board'; then
+      ok "tmux AgentBoard binding found"
+    else
+      warn "tmux AgentBoard binding not found; run: tmux source ~/.tmux.conf"
+    fi
+  fi
+
+  return "$failed"
+}
+
+scan() {
+  require_repo
+  "$tmux_bin/tmux-agent-scan" --pretty
+}
+
+open_board() {
+  require_repo
+  nvim -c "AgentBoard"
+}
+
+case "${1:-}" in
+  install)
+    case "${2:-}" in
+      tmux) install_tmux ;;
+      codex) install_codex ;;
+      "") install_tmux; install_codex ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  doctor)
+    doctor
+    ;;
+  scan)
+    scan
+    ;;
+  open)
+    open_board
+    ;;
+  -h | --help | help | "")
+    usage
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
