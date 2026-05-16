@@ -4,6 +4,11 @@
 
 ## Quick Access
 
+- 新服务器安装：
+  ```sh
+  ~/.config/nvim/tmux/bin/agentboard install
+  ~/.config/nvim/tmux/bin/agentboard doctor
+  ```
 - `<prefix> + C`：打开/复用 nvim `AgentBoard` 控制面板
   - 面板会在专用 nvim tab 中全屏打开，底部快捷键提示固定在窗口底部
   - 左侧是可折叠 workspace tree：session -> window -> pane
@@ -44,7 +49,7 @@
 - AgentBoard 新服务器安装指南见 [docs/agent-board-install.md](docs/agent-board-install.md)，按步骤配置 tmux、Codex hook、可选 LLM 简报和验证命令
 
 全局 Codex hook 配置在 `~/.codex/hooks.json`，需要 `~/.codex/config.toml`
-里的 `[features].codex_hooks = true`。新开的 Codex 会话会读取这份配置。
+里的 `[features].hooks = true`。新开的 Codex 会话会读取这份配置。
 
 ## Skill Layers
 
