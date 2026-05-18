@@ -45,6 +45,7 @@
 - AgentBoard 默认每秒刷新右侧当前视图，每 5 秒重新扫描一次 topology / 状态表；可用 `vim.g.agent_board_scan_refresh_ms` 调整扫描间隔
 - AgentBoard 管理视图方案见 [docs/agent-board-manager-brief.md](docs/agent-board-manager-brief.md)，右侧优先展示自然语言的目标、计划、当前进展、下一步和阻塞点
 - AgentBoard 后续编排控制台方向见 [docs/agent-board-orchestration-console.md](docs/agent-board-orchestration-console.md)，目标是把 development lifecycle skills 变成右侧可操作的 agent 调度语义
+- AgentBoard / ApiaryDeck 产品哲学和命名决定见 [docs/agent-board-product-philosophy.md](docs/agent-board-product-philosophy.md)，记录以人为核心、可观测、可介入的 agent 集群控制台方向
 - AgentBoard 异常中断后的 agent 会话恢复规格见 [docs/agent-board-session-restore.md](docs/agent-board-session-restore.md)，目标是记录 Codex session id、pane 位置和 cwd，并在 tmux 已恢复出的 pane 中显式执行 `codex resume`
 - AgentBoard 新服务器安装指南见 [docs/agent-board-install.md](docs/agent-board-install.md)，按步骤配置 tmux、Codex hook、可选 LLM 简报和验证命令
 
