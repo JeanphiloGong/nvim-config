@@ -85,6 +85,16 @@ def write_plan(window_id, data):
     os.replace(tmp, path)
 
 
+def find_task(data, task_id):
+    tasks = data.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+    for task in tasks:
+        if isinstance(task, dict) and task.get("id") == task_id:
+            return task
+    return None
+
+
 TASK_HEADING_RE = re.compile(r"^\s*#{2,5}\s*Task\s+(\d+)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE)
 TASK_CHECKBOX_RE = re.compile(r"^\s*[-*]\s*\[[ xX]\]\s*Task\s+(\d+)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE)
 FIELD_RE = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?([A-Za-z][A-Za-z /_-]*|验收标准|验证方式|依赖|描述)\s*[:：](?:\*\*)?\s*(.*)$")
@@ -253,6 +263,38 @@ def cmd_import(args):
     output(data, args.pretty)
 
 
+def cmd_assign(args):
+    window_id = args.window_id or current_window_id()
+    if not window_id:
+        raise SystemExit("--window-id is required outside tmux")
+    data = load_plan(window_id)
+    task = find_task(data, args.task_id)
+    if not task:
+        raise SystemExit("task not found: " + args.task_id)
+
+    assignments = task.get("assignments")
+    if not isinstance(assignments, list):
+        assignments = []
+    assignment = {
+        "role": args.role,
+        "skill": args.skill,
+        "pane_id": args.pane_id,
+        "status": "active",
+        "assigned_at": int(time.time()),
+    }
+    assignments = [
+        item for item in assignments
+        if not (isinstance(item, dict) and item.get("role") == args.role and item.get("pane_id") == args.pane_id)
+    ]
+    assignments.append(assignment)
+    task["assignments"] = assignments
+    if task.get("status") in ("", "todo", None):
+        task["status"] = "doing"
+    data["updated_at"] = int(time.time())
+    write_plan(window_id, data)
+    output(data, args.pretty)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Manage AgentBoard window plan state")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -270,6 +312,15 @@ def main():
     import_cmd.add_argument("--replace", action="store_true")
     import_cmd.add_argument("--pretty", action="store_true")
     import_cmd.set_defaults(func=cmd_import)
+
+    assign = sub.add_parser("assign", help="attach an agent pane assignment to a task")
+    assign.add_argument("--window-id", default="")
+    assign.add_argument("--task-id", required=True)
+    assign.add_argument("--role", required=True)
+    assign.add_argument("--skill", required=True)
+    assign.add_argument("--pane-id", required=True)
+    assign.add_argument("--pretty", action="store_true")
+    assign.set_defaults(func=cmd_assign)
 
     args = parser.parse_args()
     args.func(args)

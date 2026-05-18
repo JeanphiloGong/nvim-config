@@ -201,7 +201,17 @@ PlanBoard 的职责是把 `workflow-plan` 输出变成可操作的任务板：
 - `P`: 打开当前 window 的 PlanBoard
 - `I`: 从选中 pane 的 capture history 导入 `workflow-plan` 任务
 - `j/k`: 在 PlanBoard 中选择任务
+- `b`: 为选中任务派遣 `$workflow-build` agent
+- `t`: 为选中任务派遣 `$workflow-test` agent
+- `f`: 为选中任务派遣 `$workflow-simplify` agent
+- `v`: 为选中任务派遣 `$workflow-review` agent
+- `s`: 为选中任务派遣 `$workflow-ship` agent
+- `J`: 跳转到选中任务最近绑定的 agent pane
 - `Esc`: 返回普通 AgentBoard
+
+派遣动作会复用当前 window 中已有的 Codex session，通过 `tmux-dispatch-lane`
+创建新 pane，然后把对应 lifecycle skill prompt 发给新 pane。每次派遣前都需要用户
+输入 `yes` 确认。`ship` 只发送 `$workflow-ship` 发布准备 prompt，不自动发布。
 
 Plan state 放在 XDG state 目录：
 
@@ -235,6 +245,7 @@ agent inspector。
 
 - `lua/agent_board.lua`: 右侧编排 UI、keymaps、动作选择
 - `tmux/bin/tmux-agent-plan`: 读写 window 级 PlanBoard state，并从 pane history 导入 workflow-plan 任务
+- `tmux/bin/tmux-dispatch-lane`: 为 PlanBoard 的 build/test/simplify/review/ship 动作创建新 agent lane
 - `tmux/bin/tmux-agent-scan`: 读取 tmux topology 和 cached state
 - `tmux/bin/tmux-agent-brief`: 生成 management brief 和 recommended action 字段
 - `tmux/bin/tmux-task-lane-bootstrap`: 创建新 agent lane 的底层入口

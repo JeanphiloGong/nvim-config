@@ -18,6 +18,7 @@
   - 选中 pane 时，右侧是单 agent inspector，上方是结构化状态卡片，分开显示 route target / stage / goal / need / outcome，下方是当前 pane 画面，默认每秒自动刷新
   - 在面板里用 `j/k` 或 `Ctrl-h/j/k/l` 移动，`Enter` / `Space` 展开 session/window；在 pane 上进入预览
   - `P` 打开当前 window 的 PlanBoard；`I` 从选中 pane 的 `workflow-plan` 输出导入任务
+  - PlanBoard 中 `b/t/f/v/s` 分别派遣 build/test/simplify/review/ship agent；每次派遣前需要输入 `yes` 确认
   - `gw` 展开所有 working agent；`gr` 展开所有 review-ready agent；`gd` 展开所有 done agent
   - `i` 给选中 pane 发送一行输入
   - 预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回树

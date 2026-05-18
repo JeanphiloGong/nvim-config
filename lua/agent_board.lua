@@ -48,6 +48,10 @@ local function planner_path()
   return config_path("tmux", "bin", "tmux-agent-plan")
 end
 
+local function dispatcher_path()
+  return config_path("tmux", "bin", "tmux-dispatch-lane")
+end
+
 local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "AgentBoard" })
 end
@@ -674,6 +678,31 @@ local function assignment_summary(task)
   return table.concat(parts, " ")
 end
 
+local function pane_by_id(pane_id)
+  for _, pane in ipairs(state.panes or {}) do
+    if pane.pane_id == pane_id then
+      return pane
+    end
+  end
+  return nil
+end
+
+local function assignment_panes(task)
+  local panes = {}
+  if type(task) ~= "table" or type(task.assignments) ~= "table" then
+    return panes
+  end
+  for _, assignment in ipairs(task.assignments) do
+    if type(assignment) == "table" then
+      local pane = pane_by_id(assignment.pane_id)
+      if pane then
+        table.insert(panes, { assignment = assignment, pane = pane })
+      end
+    end
+  end
+  return panes
+end
+
 local function plan_board_lines()
   local plan = plan_for_window(state.plan_window_id)
   local tasks = plan_tasks()
@@ -728,12 +757,36 @@ local function plan_board_lines()
         table.insert(lines, "    - " .. item)
       end
     end
+    local assigned = assignment_panes(task)
+    if #assigned > 0 then
+      table.insert(lines, "  Agents:")
+      for _, item in ipairs(assigned) do
+        local pane = item.pane
+        local assignment = item.assignment
+        table.insert(
+          lines,
+          string.format(
+            "    - %s %s %s",
+            assignment.role or "agent",
+            pane.pane_id or "-",
+            truncate(pane_activity(pane), 72)
+          )
+        )
+        add_detail(lines, "Goal", pane.goal)
+        add_detail(lines, "Now", pane.current or pane_activity(pane))
+        add_detail(lines, "Evidence", pane.evidence)
+        add_detail(lines, "Blocked", pane_blocked(pane))
+        add_detail(lines, "Outcome", pane_outcome(pane))
+      end
+    end
   end
 
   table.insert(lines, "")
   table.insert(lines, "Actions")
   table.insert(lines, "j/k select task")
   table.insert(lines, "I import workflow-plan from selected pane")
+  table.insert(lines, "b build  t test  f simplify  v review  s ship")
+  table.insert(lines, "J jump to latest assigned pane")
   table.insert(lines, "Esc return to AgentBoard")
   return lines
 end
@@ -1123,7 +1176,7 @@ local function render_cached()
   elseif state.restore_mode then
     table.insert(lines, "Restore: Enter/Space resume selected  R refresh report  J jump  r rescan  q quit")
   else
-    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  P plan  I import plan  R restore  gw/gr/gd expand  i send  J jump  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  P plan  I import plan  b/t/f/v/s dispatch  R restore  i send  J jump  r rescan  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -1431,7 +1484,226 @@ function M.import_plan_from_selected()
   notify("Imported " .. count .. " plan tasks")
 end
 
+local workflow_actions = {
+  build = {
+    role = "coder",
+    skill = "$workflow-build",
+    label = "build agent",
+    key = "b",
+  },
+  test = {
+    role = "reviewer",
+    skill = "$workflow-test",
+    label = "test agent",
+    key = "t",
+  },
+  simplify = {
+    role = "coder",
+    skill = "$workflow-simplify",
+    label = "simplify agent",
+    key = "f",
+  },
+  review = {
+    role = "reviewer",
+    skill = "$workflow-review",
+    label = "review agent",
+    key = "v",
+  },
+  ship = {
+    role = "reviewer",
+    skill = "$workflow-ship",
+    label = "ship planning agent",
+    key = "s",
+  },
+}
+
+local function selected_window_panes()
+  local panes = {}
+  for _, pane in ipairs(state.panes or {}) do
+    if pane.window_id == state.plan_window_id then
+      table.insert(panes, pane)
+    end
+  end
+  return panes
+end
+
+local function dispatch_source_pane()
+  local selected = selected_pane()
+  if selected and selected.window_id == state.plan_window_id and selected.codex_session_id and selected.codex_session_id ~= "" then
+    return selected
+  end
+  for _, pane in ipairs(selected_window_panes()) do
+    if pane.codex_session_id and pane.codex_session_id ~= "" then
+      return pane
+    end
+  end
+  return nil
+end
+
+local function task_context(task)
+  local lines = {
+    "Task: " .. (task.title or task.id or "selected PlanBoard task"),
+  }
+  if task.description and task.description ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "Description:")
+    table.insert(lines, task.description)
+  end
+  if type(task.acceptance) == "table" and not vim.tbl_isempty(task.acceptance) then
+    table.insert(lines, "")
+    table.insert(lines, "Acceptance criteria:")
+    for _, item in ipairs(task.acceptance) do
+      table.insert(lines, "- " .. item)
+    end
+  end
+  if type(task.verification) == "table" and not vim.tbl_isempty(task.verification) then
+    table.insert(lines, "")
+    table.insert(lines, "Verification:")
+    for _, item in ipairs(task.verification) do
+      table.insert(lines, "- " .. item)
+    end
+  end
+  if task.dependencies and task.dependencies ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "Dependencies: " .. task.dependencies)
+  end
+  return table.concat(lines, "\n")
+end
+
+local function workflow_prompt(action, task)
+  return table.concat({
+    action.skill,
+    "",
+    "You are working on one PlanBoard task selected by the human operator.",
+    "Keep the scope limited to this task. Do not start unrelated work.",
+    "",
+    task_context(task),
+    "",
+    "Report back with:",
+    "- Goal",
+    "- Current progress",
+    "- Evidence",
+    "- Blockers",
+    "- Outcome",
+  }, "\n")
+end
+
+local function parse_lane_pane_id(output)
+  return tostring(output or ""):match("%- pane_id:%s*(%%[%w]+)")
+end
+
+local function send_multiline_to_pane(pane_id, text)
+  tmux({ "send-keys", "-t", pane_id, "-l", text })
+  tmux({ "send-keys", "-t", pane_id, "Enter" })
+  vim.defer_fn(function()
+    tmux({ "send-keys", "-t", pane_id, "Enter" })
+  end, 500)
+end
+
+function M.dispatch_plan_task(kind)
+  if not state.plan_mode then
+    notify("Open PlanBoard first", vim.log.levels.WARN)
+    return
+  end
+  local action = workflow_actions[kind]
+  if not action then
+    notify("Unknown PlanBoard action: " .. tostring(kind), vim.log.levels.ERROR)
+    return
+  end
+  local task = selected_plan_task()
+  if not task then
+    notify("Select a PlanBoard task first", vim.log.levels.WARN)
+    return
+  end
+  local source = dispatch_source_pane()
+  if not source then
+    notify("No Codex session found in this window for lane dispatch", vim.log.levels.WARN)
+    return
+  end
+
+  local title = task.title or task.id or "selected task"
+  state.input_active = true
+  vim.ui.input({ prompt = "Dispatch " .. action.label .. " for '" .. title .. "'? type yes: " }, function(input)
+    state.input_active = false
+    if input ~= "yes" then
+      notify("Dispatch cancelled")
+      return
+    end
+
+    local context = task_context(task)
+    local dispatch_cmd = {
+      dispatcher_path(),
+      "--role",
+      action.role,
+      "--task-context",
+      context,
+      "--window-id",
+      state.plan_window_id,
+      "--orchestrator-pane-id",
+      source.pane_id,
+      "--target-pane",
+      source.pane_id,
+      "--worktree-path",
+      source.path or "",
+      "--session-id",
+      source.codex_session_id,
+    }
+    local output = vim.fn.system(dispatch_cmd)
+    if vim.v.shell_error ~= 0 then
+      notify("tmux-dispatch-lane failed", vim.log.levels.ERROR)
+      return
+    end
+    local pane_id = parse_lane_pane_id(output)
+    if not pane_id then
+      notify("Could not find dispatched pane id", vim.log.levels.ERROR)
+      return
+    end
+
+    vim.defer_fn(function()
+      send_multiline_to_pane(pane_id, workflow_prompt(action, task))
+      local assign_cmd = {
+        planner_path(),
+        "assign",
+        "--window-id",
+        state.plan_window_id,
+        "--task-id",
+        task.id,
+        "--role",
+        kind,
+        "--skill",
+        action.skill,
+        "--pane-id",
+        pane_id,
+      }
+      local plan_output = vim.fn.system(assign_cmd)
+      if vim.v.shell_error == 0 then
+        local ok, plan = pcall(decode_json, plan_output)
+        if ok and type(plan) == "table" then
+          state.plans[state.plan_window_id] = plan
+        end
+      end
+      notify("Dispatched " .. action.label .. " to " .. pane_id)
+      M.refresh()
+    end, 800)
+  end)
+end
+
 function M.jump()
+  if state.plan_mode then
+    local task = selected_plan_task()
+    local assigned = assignment_panes(task)
+    if #assigned == 0 then
+      notify("Selected task has no assigned pane", vim.log.levels.WARN)
+      return
+    end
+    local pane = assigned[#assigned].pane
+    tmux({ "switch-client", "-t", pane.session })
+    tmux({ "select-window", "-t", pane.session .. ":" .. pane.window })
+    tmux({ "select-pane", "-t", pane.pane_id })
+    notify("Jumped to task pane " .. pane_location(pane))
+    return
+  end
+
   local pane = selected_pane()
   if not pane then
     return
@@ -1619,6 +1891,21 @@ local function attach_maps(buf)
   map(buf, "R", M.open_restore_report, "Open restore report")
   map(buf, "P", M.open_plan_board, "Open PlanBoard")
   map(buf, "I", M.import_plan_from_selected, "Import workflow-plan from selected pane")
+  map(buf, "b", function()
+    M.dispatch_plan_task("build")
+  end, "Dispatch workflow-build for selected PlanBoard task")
+  map(buf, "t", function()
+    M.dispatch_plan_task("test")
+  end, "Dispatch workflow-test for selected PlanBoard task")
+  map(buf, "f", function()
+    M.dispatch_plan_task("simplify")
+  end, "Dispatch workflow-simplify for selected PlanBoard task")
+  map(buf, "v", function()
+    M.dispatch_plan_task("review")
+  end, "Dispatch workflow-review for selected PlanBoard task")
+  map(buf, "s", function()
+    M.dispatch_plan_task("ship")
+  end, "Dispatch workflow-ship for selected PlanBoard task")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
   map(buf, "gw", M.expand_working, "Expand working agents")
   map(buf, "gr", M.expand_review_ready, "Expand review-ready agents")
