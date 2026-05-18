@@ -54,6 +54,18 @@ def state_file_path():
     return os.path.join(state_home, "agent-board", "panes.json")
 
 
+def agent_board_state_root():
+    if os.environ.get("AGENT_BOARD_STATE_HOME"):
+        return os.environ["AGENT_BOARD_STATE_HOME"]
+    state_home = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(state_home, "agent-board")
+
+
+def safe_window_id(window_id):
+    cleaned = re.sub(r"[^A-Za-z0-9_.@-]+", "_", window_id or "")
+    return cleaned or "unknown"
+
+
 def load_state_table():
     try:
         with open(state_file_path(), "r", encoding="utf-8") as fh:
@@ -66,6 +78,20 @@ def load_state_table():
     if isinstance(panes, dict):
         return panes
     return data
+
+
+def load_plan_table(window_ids):
+    plans = {}
+    for window_id in window_ids:
+        path = os.path.join(agent_board_state_root(), "plans", safe_window_id(window_id) + ".json")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            plans[window_id] = data
+    return plans
 
 
 def agent_from_name(name):
@@ -487,10 +513,12 @@ def scan(show_all=False):
             int(pane["pane_index"]),
         )
     )
+    plans = load_plan_table({pane["window_id"] for pane in panes if pane.get("window_id")})
     return {
         "generated_at": int(time.time()),
         "show_all": show_all,
         "panes": panes,
+        "plans": plans,
         "restore": classify_restore_records(state_table, panes),
         "counts": {
             state: sum(1 for pane in panes if pane["state"] == state)

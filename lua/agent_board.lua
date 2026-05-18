@@ -22,6 +22,10 @@ local state = {
   restore = {},
   restore_mode = false,
   restore_log_keys = {},
+  plans = {},
+  plan_mode = false,
+  plan_window_id = nil,
+  plan_selected = 1,
   timer = nil,
   last_scan_ms = nil,
   input_active = false,
@@ -38,6 +42,10 @@ end
 
 local function scanner_path()
   return config_path("tmux", "bin", "tmux-agent-scan")
+end
+
+local function planner_path()
+  return config_path("tmux", "bin", "tmux-agent-plan")
 end
 
 local function notify(message, level)
@@ -213,6 +221,20 @@ local function selected_pane()
   local row = selected_row()
   if row and row.kind == "pane" then
     return row.pane
+  end
+  return nil
+end
+
+local function selected_window_id()
+  local row = selected_row()
+  if not row then
+    return nil
+  end
+  if row.kind == "window" then
+    return row.window_id
+  end
+  if row.kind == "pane" and row.pane then
+    return row.pane.window_id
   end
   return nil
 end
@@ -617,6 +639,105 @@ local function node_workspace_lines(row)
   return lines
 end
 
+local function plan_for_window(window_id)
+  if not window_id then
+    return nil
+  end
+  return state.plans and state.plans[window_id] or nil
+end
+
+local function plan_tasks()
+  local plan = plan_for_window(state.plan_window_id)
+  if type(plan) == "table" and type(plan.tasks) == "table" then
+    return plan.tasks
+  end
+  return {}
+end
+
+local function selected_plan_task()
+  local tasks = plan_tasks()
+  return tasks[state.plan_selected]
+end
+
+local function assignment_summary(task)
+  if type(task) ~= "table" or type(task.assignments) ~= "table" or vim.tbl_isempty(task.assignments) then
+    return "unassigned"
+  end
+  local parts = {}
+  for _, assignment in ipairs(task.assignments) do
+    if type(assignment) == "table" then
+      local role = assignment.role or "agent"
+      local pane = assignment.pane_id or "-"
+      table.insert(parts, role .. "=" .. pane)
+    end
+  end
+  return table.concat(parts, " ")
+end
+
+local function plan_board_lines()
+  local plan = plan_for_window(state.plan_window_id)
+  local tasks = plan_tasks()
+  local lines = {
+    "PLANBOARD",
+    string.rep("-", 64),
+  }
+  add_detail(lines, "Window", state.plan_window_id)
+  if not plan then
+    add_detail(lines, "Status", "No workflow-plan imported for this window")
+    table.insert(lines, "")
+    table.insert(lines, "Actions")
+    table.insert(lines, "I import workflow-plan from the selected pane")
+    table.insert(lines, "Esc return to AgentBoard")
+    return lines
+  end
+
+  add_detail(lines, "Tasks", tostring(#tasks))
+  add_detail(lines, "Updated", relative_time(plan.updated_at))
+  if plan.parse_error and plan.parse_error ~= "" then
+    add_detail(lines, "Import", plan.parse_error)
+  end
+  table.insert(lines, "")
+  table.insert(lines, "TASKS")
+  for index, task in ipairs(tasks) do
+    local marker = index == state.plan_selected and ">" or " "
+    local status = task.status or "todo"
+    local title = task.title or ("Task " .. tostring(index))
+    table.insert(lines, string.format("%s %2d. %-8s %s", marker, index, status, title))
+  end
+
+  local task = selected_plan_task()
+  table.insert(lines, "")
+  table.insert(lines, "DETAIL")
+  if not task then
+    table.insert(lines, "No task selected.")
+  else
+    add_detail(lines, "Title", task.title)
+    add_detail(lines, "Status", task.status)
+    add_detail(lines, "Assigned", assignment_summary(task))
+    add_detail(lines, "Depends", task.dependencies)
+    add_detail(lines, "Summary", task.description)
+    if type(task.acceptance) == "table" and not vim.tbl_isempty(task.acceptance) then
+      table.insert(lines, "  Acceptance:")
+      for _, item in ipairs(task.acceptance) do
+        table.insert(lines, "    - " .. item)
+      end
+    end
+    if type(task.verification) == "table" and not vim.tbl_isempty(task.verification) then
+      table.insert(lines, "  Verification:")
+      for _, item in ipairs(task.verification) do
+        table.insert(lines, "    - " .. item)
+      end
+    end
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, "Actions")
+  table.insert(lines, "j/k select task")
+  table.insert(lines, "I import workflow-plan from selected pane")
+  table.insert(lines, "Esc return to AgentBoard")
+  return lines
+end
+
 local function agent_workspace_lines(pane)
   local lines = {
     pane_location(pane),
@@ -771,6 +892,7 @@ local function build_tree_rows(panes)
           kind = "window",
           id = window.id,
           title = window.name,
+          window_id = window.id:gsub("^window:", ""),
           depth = 1,
           counts = window.counts,
           status = node_status(window.counts),
@@ -802,6 +924,7 @@ local function set_panes(data)
   state.panes = data.panes or {}
   state.counts = data.counts or {}
   state.restore = data.restore or {}
+  state.plans = data.plans or {}
   state.generated_at = data.generated_at
   state.tree_rows = build_tree_rows(state.panes)
   if selected_id then
@@ -817,6 +940,11 @@ local function set_panes(data)
 end
 
 local function refresh_preview(include_history)
+  if state.plan_mode then
+    state.preview_lines = plan_board_lines()
+    state.preview_top = nil
+    return
+  end
   if state.restore_mode then
     state.preview_lines = restore_report_lines()
     state.preview_top = nil
@@ -899,6 +1027,9 @@ local function render_cached()
   end
   local row = selected_row()
   local preview_header = workspace_pane and "AGENT INSPECTOR" or "SCOPE INSPECTOR"
+  if state.plan_mode then
+    preview_header = "PLANBOARD"
+  end
   if state.restore_mode then
     preview_header = "RESTORE REPORT"
   end
@@ -985,12 +1116,14 @@ local function render_cached()
     )
   end
 
-  if state.preview_focus then
+  if state.plan_mode then
+    table.insert(lines, "PlanBoard: j/k select task  I import selected pane  Esc/q return  r rescan")
+  elseif state.preview_focus then
     table.insert(lines, "Preview: j/k/Up/Down scroll  C-u/C-d page  Esc/q list  i send  J jump  r rescan")
   elseif state.restore_mode then
     table.insert(lines, "Restore: Enter/Space resume selected  R refresh report  J jump  r rescan  q quit")
   else
-    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  R restore  gw working  gr review  gd done  i send  J jump  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  P plan  I import plan  R restore  gw/gr/gd expand  i send  J jump  r rescan  a all  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -1078,6 +1211,16 @@ function M.refresh_preview()
 end
 
 function M.move(delta)
+  if state.plan_mode then
+    local count = #plan_tasks()
+    if count == 0 then
+      return
+    end
+    state.plan_selected = math.max(1, math.min(count, state.plan_selected + delta))
+    refresh_preview()
+    render_cached()
+    return
+  end
   if #state.tree_rows == 0 then
     return
   end
@@ -1164,6 +1307,7 @@ function M.open_restore_report()
     return
   end
   set_panes(data)
+  state.plan_mode = false
   state.restore_mode = true
   state.preview_focus = false
   log_unrestorable_items()
@@ -1231,6 +1375,62 @@ function M.toggle_node()
   render_cached()
 end
 
+function M.open_plan_board()
+  local window_id = selected_window_id()
+  if not window_id then
+    notify("Select a window or pane first", vim.log.levels.WARN)
+    return
+  end
+  state.plan_window_id = window_id
+  state.plan_mode = true
+  state.restore_mode = false
+  state.preview_focus = false
+  local tasks = plan_tasks()
+  if #tasks == 0 then
+    state.plan_selected = 1
+  elseif state.plan_selected > #tasks then
+    state.plan_selected = #tasks
+  end
+  refresh_preview()
+  render_cached()
+end
+
+function M.import_plan_from_selected()
+  local pane = selected_pane()
+  if not pane then
+    notify("Select a pane that contains workflow-plan output", vim.log.levels.WARN)
+    return
+  end
+  local cmd = {
+    planner_path(),
+    "import",
+    "--window-id",
+    pane.window_id,
+    "--source-pane",
+    pane.pane_id,
+  }
+  local output = vim.fn.system(cmd)
+  if vim.v.shell_error ~= 0 then
+    notify("tmux-agent-plan import failed", vim.log.levels.ERROR)
+    return
+  end
+  local ok, plan = pcall(decode_json, output)
+  if not ok or type(plan) ~= "table" then
+    notify("Invalid tmux-agent-plan output", vim.log.levels.ERROR)
+    return
+  end
+  state.plans[pane.window_id] = plan
+  state.plan_window_id = pane.window_id
+  state.plan_mode = true
+  state.restore_mode = false
+  state.preview_focus = false
+  state.plan_selected = 1
+  refresh_preview()
+  render_cached()
+  local count = tostring(plan.task_count or #(plan.tasks or {}))
+  notify("Imported " .. count .. " plan tasks")
+end
+
 function M.jump()
   local pane = selected_pane()
   if not pane then
@@ -1290,6 +1490,13 @@ function M.enter_preview()
 end
 
 function M.leave_preview()
+  if state.plan_mode then
+    state.plan_mode = false
+    state.preview_top = nil
+    refresh_preview()
+    render_cached()
+    return
+  end
   if state.restore_mode then
     state.restore_mode = false
     state.preview_top = nil
@@ -1307,7 +1514,7 @@ function M.leave_preview()
 end
 
 function M.close_or_leave_preview()
-  if state.preview_focus then
+  if state.plan_mode or state.preview_focus then
     M.leave_preview()
     return
   end
@@ -1410,6 +1617,8 @@ local function attach_maps(buf)
   map(buf, "q", M.close_or_leave_preview, "Close AgentBoard or leave preview")
   map(buf, "r", M.refresh, "Refresh AgentBoard")
   map(buf, "R", M.open_restore_report, "Open restore report")
+  map(buf, "P", M.open_plan_board, "Open PlanBoard")
+  map(buf, "I", M.import_plan_from_selected, "Import workflow-plan from selected pane")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
   map(buf, "gw", M.expand_working, "Expand working agents")
   map(buf, "gr", M.expand_review_ready, "Expand review-ready agents")

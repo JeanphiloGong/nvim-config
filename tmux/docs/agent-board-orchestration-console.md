@@ -185,11 +185,56 @@ prefix + C
 
 破坏性或高成本动作需要确认，例如创建新 agent、commit、ship、调用长耗时总结。
 
+## PlanBoard MVP
+
+第一版先把编排控制台落成 window 级 PlanBoard，而不是全自动调度器。
+
+PlanBoard 的职责是把 `workflow-plan` 输出变成可操作的任务板：
+
+- 当前 tmux window 拥有一个 plan state
+- 用户从某个 pane 的 `workflow-plan` 输出导入任务
+- AgentBoard 显示任务列表、任务详情、验收项和后续 agent assignment
+- 用户仍然决定何时派 worker、tester、simplifier、reviewer 或 ship agent
+
+第一版入口：
+
+- `P`: 打开当前 window 的 PlanBoard
+- `I`: 从选中 pane 的 capture history 导入 `workflow-plan` 任务
+- `j/k`: 在 PlanBoard 中选择任务
+- `Esc`: 返回普通 AgentBoard
+
+Plan state 放在 XDG state 目录：
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/agent-board/plans/<window-id>.json
+```
+
+这个状态文件不是仓库文件。没有 plan 时，AgentBoard 继续显示原来的 scope /
+agent inspector。
+
+第一版 import 只支持稳定的 `workflow-plan` markdown 结构，例如：
+
+```text
+## Task 1: Add PlanBoard state
+
+**Description:** ...
+
+**Acceptance criteria:**
+- [ ] ...
+
+**Verification:**
+- [ ] ...
+```
+
+解析失败时保留 raw text，并在 PlanBoard 中显示 import 状态。任意格式计划和 LLM
+自动重写不属于 MVP。
+
 ## 项目结构
 
 相关实现位置预计仍然在 `tmux/` 节点内：
 
 - `lua/agent_board.lua`: 右侧编排 UI、keymaps、动作选择
+- `tmux/bin/tmux-agent-plan`: 读写 window 级 PlanBoard state，并从 pane history 导入 workflow-plan 任务
 - `tmux/bin/tmux-agent-scan`: 读取 tmux topology 和 cached state
 - `tmux/bin/tmux-agent-brief`: 生成 management brief 和 recommended action 字段
 - `tmux/bin/tmux-task-lane-bootstrap`: 创建新 agent lane 的底层入口
