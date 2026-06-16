@@ -21,6 +21,8 @@
   - `i` 给选中 pane 发送一行输入
   - 预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回树
   - `J` 跳转到选中 pane，并保留 `AgentBoard` window 供下次复用
+  - `O` 从 AgentBoard 启动一个编排目标；当前 MVP 会加载 Mini Kanban 任务流
+  - `T` 派发下一个 ready task；没有空闲匹配角色时会在 worker window 中创建 worker pane
   - `R` 打开/刷新恢复报告；只对 tmux 已经恢复出的已有 pane 提供 `codex resume` 动作，不能恢复的记录写入 XDG state 下的 `agent-board/restore/restore-log.jsonl`
   - `q` 关闭 `AgentBoard` window
   - `r` 重新扫描 pane 列表
@@ -45,6 +47,7 @@
 - AgentBoard 默认每秒刷新右侧当前视图，每 5 秒重新扫描一次 topology / 状态表；可用 `vim.g.agent_board_scan_refresh_ms` 调整扫描间隔
 - AgentBoard 管理视图方案见 [docs/agent-board-manager-brief.md](docs/agent-board-manager-brief.md)，右侧优先展示自然语言的目标、计划、当前进展、下一步和阻塞点
 - AgentBoard 后续编排控制台方向见 [docs/agent-board-orchestration-console.md](docs/agent-board-orchestration-console.md)，目标是把 development lifecycle skills 变成右侧可操作的 agent 调度语义
+- AgentBoard 编排试点见 [docs/agent-orch-mini-kanban-pilot.md](docs/agent-orch-mini-kanban-pilot.md)，右侧 scope inspector 会展示任务板、agent assignment、waiting/blocker/handoff 摘要
 - AgentBoard / ApiaryDeck 产品哲学和命名决定见 [docs/agent-board-product-philosophy.md](docs/agent-board-product-philosophy.md)，记录以人为核心、可观测、可介入的 agent 集群控制台方向
 - AgentBoard 异常中断后的 agent 会话恢复规格见 [docs/agent-board-session-restore.md](docs/agent-board-session-restore.md)，目标是记录 Codex session id、pane 位置和 cwd，并在 tmux 已恢复出的 pane 中显式执行 `codex resume`
 - AgentBoard 新服务器安装指南见 [docs/agent-board-install.md](docs/agent-board-install.md)，按步骤配置 tmux、Codex hook、可选 LLM 简报和验证命令
@@ -239,6 +242,48 @@ brew install jq
 ```sh
 jq --version
 ```
+
+## Agent Orchestration Pilot
+
+`$tmux_bin/tmux-agent-orch` 是 #39 的编排试点状态机，用来验证
+agent 身份、task DAG、依赖等待、blocker routing、handoff 和 `tick`
+调度闭环。AgentBoard 是默认控制面；CLI 仍保留为 fallback 和 smoke
+测试入口。worker window 只承载执行 agent，编排状态保存在 XDG state，
+不需要在 worker window 中放一个长期 orchestrator pane。
+
+AgentBoard 用法：
+
+1. `<prefix> + C` 或 `:AgentBoard` 打开控制面板。
+2. 选中 session/window scope。
+3. 按 `O` 输入目标，初始化编排状态并加载 Mini Kanban 任务流。
+4. 按 `T` 派发下一个 ready task；必要时自动创建 worker pane。
+5. 右侧任务板观察 ready/running/waiting/blocked/done、agent assignment、blocker 和 handoff。
+
+CLI fallback：
+
+```sh
+export AGENT_ORCH_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/agent-orch/mini-kanban"
+"$tmux_bin/tmux-agent-orch" start --goal "validate Mini Kanban orchestration" --example mini-kanban
+"$tmux_bin/tmux-agent-orch" ensure-agent --role builder
+"$tmux_bin/tmux-agent-orch" tick --auto-create
+"$tmux_bin/tmux-agent-orch" status --json
+```
+
+手工注册已有 pane 也仍然支持：
+
+```sh
+"$tmux_bin/tmux-agent-orch" register-agent --agent-id builder-1 --role builder --pane %12
+"$tmux_bin/tmux-agent-orch" register-agent --agent-id tester-1 --role tester --pane %13
+"$tmux_bin/tmux-agent-orch" register-agent --agent-id reviewer-1 --role reviewer --pane %14
+```
+
+可重复 smoke test：
+
+```sh
+tmux/test/tmux-agent-orch-smoke.sh
+```
+
+试点说明见 [docs/agent-orch-mini-kanban-pilot.md](docs/agent-orch-mini-kanban-pilot.md)。
 
 快速入口：
 

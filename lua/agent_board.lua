@@ -22,6 +22,7 @@ local state = {
   restore = {},
   restore_mode = false,
   restore_log_keys = {},
+  orchestration = nil,
   timer = nil,
   last_scan_ms = nil,
   input_active = false,
@@ -38,6 +39,10 @@ end
 
 local function scanner_path()
   return config_path("tmux", "bin", "tmux-agent-scan")
+end
+
+local function orchestrator_path()
+  return config_path("tmux", "bin", "tmux-agent-orch")
 end
 
 local function notify(message, level)
@@ -76,6 +81,30 @@ local function tmux_output(args)
   local cmd = { "tmux" }
   vim.list_extend(cmd, args)
   return vim.fn.system(cmd)
+end
+
+local function run_orchestrator(args)
+  local cmd = { orchestrator_path() }
+  vim.list_extend(cmd, args)
+  local output = vim.fn.system(cmd)
+  if vim.v.shell_error ~= 0 then
+    notify("tmux-agent-orch failed", vim.log.levels.ERROR)
+    return nil
+  end
+  return output
+end
+
+local function load_orchestration()
+  local output = run_orchestrator({ "status", "--json" })
+  if not output then
+    return nil
+  end
+  local ok, data = pcall(decode_json, output)
+  if not ok or type(data) ~= "table" then
+    notify("Invalid tmux-agent-orch output", vim.log.levels.ERROR)
+    return nil
+  end
+  return data
 end
 
 local function ensure_highlights()
@@ -226,6 +255,23 @@ local function selected_workspace_title()
     return pane_location(row.pane)
   end
   return row.title or "Workspace"
+end
+
+local function selected_session_name()
+  local row = selected_row()
+  if not row then
+    return ""
+  end
+  if row.kind == "session" then
+    return row.title or ""
+  end
+  if row.kind == "pane" and row.pane then
+    return row.pane.session or ""
+  end
+  if type(row.panes) == "table" and row.panes[1] then
+    return row.panes[1].session or ""
+  end
+  return ""
 end
 
 local function row_workspace_title(row)
@@ -577,6 +623,135 @@ local function add_scope_group(lines, title, panes, states, limit)
   end
 end
 
+local function count_value(counts, name)
+  if type(counts) ~= "table" then
+    return 0
+  end
+  return tonumber(counts[name]) or 0
+end
+
+local function add_orch_count_line(lines, label, counts, names)
+  local parts = {}
+  for _, name in ipairs(names) do
+    local count = count_value(counts, name)
+    if count > 0 then
+      table.insert(parts, name .. "=" .. tostring(count))
+    end
+  end
+  if #parts == 0 then
+    table.insert(lines, label .. ": none")
+  else
+    table.insert(lines, label .. ": " .. table.concat(parts, " "))
+  end
+end
+
+local function add_task_line(lines, task)
+  local agent = ""
+  if task.assigned_agent_id and task.assigned_agent_id ~= "" then
+    agent = " -> " .. task.assigned_agent_id
+  end
+  local waits = ""
+  if type(task.waiting_on) == "table" and #task.waiting_on > 0 then
+    waits = " waits=" .. table.concat(task.waiting_on, ",")
+  end
+  table.insert(
+    lines,
+    string.format(
+      "- %-4s %-8s %-8s %s%s%s",
+      task.task_id or "-",
+      task.status or "-",
+      task.owner_role or "-",
+      truncate(task.title or "", 62),
+      agent,
+      waits
+    )
+  )
+  if type(task.blocker) == "table" and task.blocker.body and task.blocker.body ~= "" then
+    add_detail(lines, "Blocker", string.format("%s -> %s: %s", task.blocker.from or "-", task.blocker.to or "-", task.blocker.body))
+  end
+  local outputs = task.outputs
+  if type(outputs) == "table" and #outputs > 0 then
+    local latest = outputs[#outputs]
+    add_detail(lines, "Output", string.format("%s %s", latest.from or "-", latest.status or "-"))
+  end
+end
+
+local function add_orch_task_group(lines, title, tasks, limit)
+  if type(tasks) ~= "table" or #tasks == 0 then
+    return
+  end
+  table.insert(lines, "")
+  table.insert(lines, title .. " (" .. tostring(#tasks) .. ")")
+  for index, task in ipairs(tasks) do
+    if index > limit then
+      table.insert(lines, string.format("... %s more", #tasks - limit))
+      break
+    end
+    add_task_line(lines, task)
+  end
+end
+
+local function orchestration_lines()
+  local orch = state.orchestration
+  if type(orch) ~= "table" then
+    return {
+      "ORCHESTRATION",
+      string.rep("-", 64),
+      "No orchestration state loaded.",
+      "",
+      "Actions",
+      "O start a goal",
+      "T dispatch next ready task",
+      "",
+    }
+  end
+
+  local board = type(orch.board) == "table" and orch.board or {}
+  local meta = type(orch.meta) == "table" and orch.meta or {}
+  local groups = type(board.tasks_by_status) == "table" and board.tasks_by_status or {}
+  local lines = {
+    "ORCHESTRATION",
+    string.rep("-", 64),
+    "Goal: " .. (meta.goal and meta.goal ~= "" and meta.goal or "-"),
+    "Root: " .. (orch.root or "-"),
+  }
+  add_orch_count_line(lines, "Tasks", board.task_counts, { "ready", "running", "waiting", "blocked", "done" })
+  add_orch_count_line(lines, "Agents", board.agent_counts, { "idle", "busy", "waiting", "blocked", "done" })
+
+  add_orch_task_group(lines, "BLOCKED", groups.blocked, 4)
+  add_orch_task_group(lines, "RUNNING", groups.running, 6)
+  add_orch_task_group(lines, "READY", groups.ready, 6)
+  add_orch_task_group(lines, "WAITING", groups.waiting, 6)
+  add_orch_task_group(lines, "DONE", groups.done, 4)
+
+  if type(orch.recent_messages) == "table" and #orch.recent_messages > 0 then
+    table.insert(lines, "")
+    table.insert(lines, "MESSAGES")
+    local start = math.max(1, #orch.recent_messages - 3)
+    for index = start, #orch.recent_messages do
+      local message = orch.recent_messages[index]
+      table.insert(
+        lines,
+        string.format(
+          "- %-10s %s -> %s %s",
+          message.type or "-",
+          message.from or "-",
+          message.to or "-",
+          truncate(message.task_id or message.body or "", 54)
+        )
+      )
+    end
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, "Actions")
+  table.insert(lines, "O start/reset orchestration goal")
+  table.insert(lines, "T dispatch next ready task, auto-creating a worker if needed")
+  table.insert(lines, "J jumps only when a pane row is selected")
+  table.insert(lines, "")
+  return lines
+end
+
 local function node_workspace_lines(row)
   if not row or row.kind == "pane" then
     return {}
@@ -596,6 +771,8 @@ local function node_workspace_lines(row)
     "Health: " .. (count_summary(row.counts) ~= "" and count_summary(row.counts) or "empty"),
     "",
   }
+
+  vim.list_extend(lines, orchestration_lines())
 
   if #panes == 0 then
     table.insert(lines, "No agent panes in this scope.")
@@ -990,7 +1167,7 @@ local function render_cached()
   elseif state.restore_mode then
     table.insert(lines, "Restore: Enter/Space resume selected  R refresh report  J jump  r rescan  q quit")
   else
-    table.insert(lines, "Keys: j/k move  Enter/Space expand/preview  R restore  gw working  gr review  gd done  i send  J jump  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  O start  T tick  Enter/Space expand/preview  R restore  gw/gr/gd expand  i send  J jump  r rescan  a all  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -1053,6 +1230,7 @@ local function render()
     return
   end
   set_panes(data)
+  state.orchestration = load_orchestration()
   state.last_scan_ms = now_ms()
   refresh_preview(state.preview_focus)
   render_cached()
@@ -1070,6 +1248,7 @@ function M.refresh_preview()
     local data = run_scan()
     if data then
       set_panes(data)
+      state.orchestration = load_orchestration()
       state.last_scan_ms = now_ms()
     end
   end
@@ -1275,6 +1454,45 @@ function M.send_to_selected()
   end)
 end
 
+function M.start_orchestration()
+  state.input_active = true
+  vim.ui.input({ prompt = "Orchestration goal: " }, function(input)
+    state.input_active = false
+    if not input or input == "" then
+      return
+    end
+    local args = { "start", "--goal", input, "--example", "mini-kanban", "--workdir", vim.fn.getcwd() }
+    local session = selected_session_name()
+    if session ~= "" then
+      vim.list_extend(args, { "--session", session })
+    end
+    local output = run_orchestrator(args)
+    if not output then
+      return
+    end
+    notify(vim.trim(output))
+    state.orchestration = load_orchestration()
+    refresh_preview(false)
+    render_cached()
+  end)
+end
+
+function M.tick_orchestration()
+  local args = { "tick", "--auto-create", "--workdir", vim.fn.getcwd() }
+  local session = selected_session_name()
+  if session ~= "" then
+    vim.list_extend(args, { "--session", session })
+  end
+  local output = run_orchestrator(args)
+  if not output then
+    return
+  end
+  notify(vim.trim(output))
+  state.orchestration = load_orchestration()
+  refresh_preview(false)
+  render_cached()
+end
+
 function M.enter_preview()
   if not selected_pane() then
     return
@@ -1410,6 +1628,8 @@ local function attach_maps(buf)
   map(buf, "q", M.close_or_leave_preview, "Close AgentBoard or leave preview")
   map(buf, "r", M.refresh, "Refresh AgentBoard")
   map(buf, "R", M.open_restore_report, "Open restore report")
+  map(buf, "O", M.start_orchestration, "Start orchestration goal")
+  map(buf, "T", M.tick_orchestration, "Dispatch next orchestration task")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
   map(buf, "gw", M.expand_working, "Expand working agents")
   map(buf, "gr", M.expand_review_ready, "Expand review-ready agents")
