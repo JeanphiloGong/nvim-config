@@ -1,2 +1,4 @@
 lazy-lock.json
 *.nvimlog
+__pycache__/
+*.pyc
