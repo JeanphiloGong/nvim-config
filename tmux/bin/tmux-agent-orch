@@ -716,7 +716,14 @@ def cmd_tick(args):
         agent, agents, created = ensure_agent_for_role(store, owner_role, args, agents)
         candidates = [agent]
         if created:
-            print(f"Auto-created {agent['agent_id']} for role {owner_role}")
+            print(
+                "Auto-created {agent_id} role={role} pane={pane_id} window={window}".format(
+                    agent_id=agent["agent_id"],
+                    role=owner_role,
+                    pane_id=agent["pane_id"],
+                    window=agent.get("worker_window_name") or worker_window_name(args),
+                )
+            )
     if not candidates:
         store.write_json(store.tasks_file, tasks)
         print(f"No idle agent for role {owner_role}")
@@ -744,6 +751,8 @@ def cmd_tick(args):
             "task_id": task["task_id"],
             "agent_id": agent["agent_id"],
             "pane_id": agent["pane_id"],
+            "session": agent.get("session") or tmux_session(args),
+            "worker_window_name": agent.get("worker_window_name") or worker_window_name(args),
             "delivery": delivery,
         }
     )
@@ -762,7 +771,15 @@ def cmd_tick(args):
             "delivery": delivery,
         }
     )
-    print(f"Dispatched {task['task_id']} to {agent['agent_id']} ({delivery})")
+    print(
+        "Dispatched {task_id} to {agent_id} pane={pane_id} window={window} ({delivery})".format(
+            task_id=task["task_id"],
+            agent_id=agent["agent_id"],
+            pane_id=agent["pane_id"],
+            window=agent.get("worker_window_name") or worker_window_name(args),
+            delivery=delivery,
+        )
+    )
 
 
 def cmd_load_example(args):

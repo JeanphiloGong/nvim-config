@@ -56,7 +56,8 @@ jq -e 'length == 6' "$AGENT_ORCH_ROOT/tasks.json" >/dev/null
 "$orch" ensure-agent --role builder --dry-run --workdir "$repo_root"
 jq -e '.[] | select(.agent_id == "builder-1" and .role == "builder" and .pane_id == "%dry-builder-1")' "$AGENT_ORCH_ROOT/agents.json" >/dev/null
 
-"$orch" tick --auto-create --dry-run --workdir "$repo_root"
+tick_output="$("$orch" tick --auto-create --dry-run --workdir "$repo_root")"
+printf '%s\n' "$tick_output" | grep -F 'pane=%dry-builder-1' >/dev/null
 jq -e '.[] | select(.task_id == "T0" and .status == "running" and .assigned_agent_id == "builder-1")' "$AGENT_ORCH_ROOT/tasks.json" >/dev/null
 
 "$orch" handoff --task-id T0 --from builder-1 --status done --output-json '{"changed_files":[],"checks":["dry-run"],"risks":[]}'

@@ -21,7 +21,7 @@
   - `i` 给选中 pane 发送一行输入
   - 预览模式下 `j/k` 或上下键滚动历史，`Esc/q` 返回树
   - `J` 跳转到选中 pane，并保留 `AgentBoard` window 供下次复用
-  - `O` 从 AgentBoard 启动一个编排目标；当前 MVP 会加载 Mini Kanban 任务流
+  - `O` 或 `0` 从 AgentBoard 启动一个编排目标；当前 MVP 会加载 Mini Kanban 任务流
   - `T` 派发下一个 ready task；没有空闲匹配角色时会在 worker window 中创建 worker pane
   - `R` 打开/刷新恢复报告；只对 tmux 已经恢复出的已有 pane 提供 `codex resume` 动作，不能恢复的记录写入 XDG state 下的 `agent-board/restore/restore-log.jsonl`
   - `q` 关闭 `AgentBoard` window
@@ -255,7 +255,7 @@ AgentBoard 用法：
 
 1. `<prefix> + C` 或 `:AgentBoard` 打开控制面板。
 2. 选中 session/window scope。
-3. 按 `O` 输入目标，初始化编排状态并加载 Mini Kanban 任务流。
+3. 按 `O` 或 `0` 输入目标，初始化编排状态并加载 Mini Kanban 任务流。
 4. 按 `T` 派发下一个 ready task；必要时自动创建 worker pane。
 5. 右侧任务板观察 ready/running/waiting/blocked/done、agent assignment、blocker 和 handoff。
 

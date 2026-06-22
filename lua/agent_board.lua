@@ -648,7 +648,18 @@ end
 local function add_task_line(lines, task)
   local agent = ""
   if task.assigned_agent_id and task.assigned_agent_id ~= "" then
-    agent = " -> " .. task.assigned_agent_id
+    local assigned = type(task.assigned_agent) == "table" and task.assigned_agent or {}
+    local location = assigned.pane_id or ""
+    if location == "" then
+      location = assigned.worker_window_name or ""
+    elseif assigned.worker_window_name and assigned.worker_window_name ~= "" then
+      location = location .. " " .. assigned.worker_window_name
+    end
+    if location ~= "" then
+      agent = " -> " .. task.assigned_agent_id .. "@" .. location
+    else
+      agent = " -> " .. task.assigned_agent_id
+    end
   end
   local waits = ""
   if type(task.waiting_on) == "table" and #task.waiting_on > 0 then
@@ -700,7 +711,7 @@ local function orchestration_lines()
       "No orchestration state loaded.",
       "",
       "Actions",
-      "O start a goal",
+      "O/0 start a goal",
       "T dispatch next ready task",
       "",
     }
@@ -745,7 +756,7 @@ local function orchestration_lines()
 
   table.insert(lines, "")
   table.insert(lines, "Actions")
-  table.insert(lines, "O start/reset orchestration goal")
+  table.insert(lines, "O/0 start/reset orchestration goal")
   table.insert(lines, "T dispatch next ready task, auto-creating a worker if needed")
   table.insert(lines, "J jumps only when a pane row is selected")
   table.insert(lines, "")
@@ -1167,7 +1178,7 @@ local function render_cached()
   elseif state.restore_mode then
     table.insert(lines, "Restore: Enter/Space resume selected  R refresh report  J jump  r rescan  q quit")
   else
-    table.insert(lines, "Keys: j/k move  O start  T tick  Enter/Space expand/preview  R restore  gw/gr/gd expand  i send  J jump  r rescan  a all  q quit")
+    table.insert(lines, "Keys: j/k move  O/0 start  T tick  Enter/Space expand/preview  R restore  gw/gr/gd expand  i send  J jump  r rescan  a all  q quit")
   end
   table.insert(lines, "* means state came from an agent report hook.")
 
@@ -1488,9 +1499,8 @@ function M.tick_orchestration()
     return
   end
   notify(vim.trim(output))
-  state.orchestration = load_orchestration()
-  refresh_preview(false)
-  render_cached()
+  state.preview_focus = false
+  render()
 end
 
 function M.enter_preview()
@@ -1629,6 +1639,7 @@ local function attach_maps(buf)
   map(buf, "r", M.refresh, "Refresh AgentBoard")
   map(buf, "R", M.open_restore_report, "Open restore report")
   map(buf, "O", M.start_orchestration, "Start orchestration goal")
+  map(buf, "0", M.start_orchestration, "Start orchestration goal")
   map(buf, "T", M.tick_orchestration, "Dispatch next orchestration task")
   map(buf, "a", M.toggle_all, "Toggle all tmux panes")
   map(buf, "gw", M.expand_working, "Expand working agents")
