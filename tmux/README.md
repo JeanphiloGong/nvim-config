@@ -285,6 +285,31 @@ tmux/test/tmux-agent-orch-smoke.sh
 
 试点说明见 [docs/agent-orch-mini-kanban-pilot.md](docs/agent-orch-mini-kanban-pilot.md)。
 
+## ApiaryDeck SDK Runtime
+
+`$tmux_bin/apiarydeck` 是 ApiaryDeck core 的最小本地入口。长期设计里，
+ApiaryDeck core 以 Codex SDK thread / turn 作为 agent 身份和执行记录，
+tmux 只作为可选 connector，用来展示、跳转或人工接管。
+
+当前 MVP 先提供 `sdk-run` dry-run，用来验证 agent record、task payload、
+skill payload 和 event log，不要求本机已经安装 Python Codex SDK：
+
+```sh
+export APIARYDECK_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/apiarydeck/demo"
+"$tmux_bin/apiarydeck" sdk-run \
+  --agent-id crown-1 \
+  --role crown \
+  --task-id T1 \
+  --task "plan the next implementation slice" \
+  --skill workflow-plan:/path/to/workflow-plan/SKILL.md \
+  --dry-run
+"$tmux_bin/apiarydeck" status
+```
+
+非 dry-run 会调用 Python `openai_codex` SDK，并把 `--skill name:path`
+转换成 SDK `SkillInput`。如果 SDK 或登录态不可用，继续使用 dry-run
+验证状态模型，或使用现有 tmux connector 流程。
+
 快速入口：
 
 ```sh

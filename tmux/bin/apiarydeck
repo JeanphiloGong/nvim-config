@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import sys
+import tempfile
+from datetime import datetime, timezone
+
+
+def now():
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def fail(message):
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def slug(value):
+    value = value or "manual"
+    value = re.sub(r"[/\s:]+", "_", value)
+    value = re.sub(r"[^A-Za-z0-9._-]", "", value)
+    return value or "manual"
+
+
+def default_root():
+    if os.environ.get("APIARYDECK_STATE_ROOT"):
+        return os.environ["APIARYDECK_STATE_ROOT"]
+    state_home = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(state_home, "apiarydeck", slug(os.getcwd()))
+
+
+class Store:
+    def __init__(self, root):
+        self.root = root
+        self.meta_file = os.path.join(root, "meta.json")
+        self.agents_file = os.path.join(root, "agents.json")
+        self.events_file = os.path.join(root, "events.jsonl")
+
+    def ensure(self):
+        os.makedirs(self.root, exist_ok=True)
+        if not os.path.exists(self.meta_file):
+            self.write_json(
+                self.meta_file,
+                {
+                    "product": "ApiaryDeck",
+                    "created_at": now(),
+                    "updated_at": now(),
+                },
+            )
+        if not os.path.exists(self.agents_file):
+            self.write_json(self.agents_file, [])
+        if not os.path.exists(self.events_file):
+            with open(self.events_file, "a", encoding="utf-8"):
+                pass
+
+    def read_json(self, path, default):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:
+            return default
+        return data
+
+    def write_json(self, path, data):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".tmp.", dir=os.path.dirname(path), text=True)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, path)
+
+    def append_event(self, event):
+        os.makedirs(os.path.dirname(self.events_file), exist_ok=True)
+        with open(self.events_file, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+            fh.write("\n")
+
+    def agents(self):
+        data = self.read_json(self.agents_file, [])
+        return data if isinstance(data, list) else []
+
+    def events(self):
+        events = []
+        try:
+            with open(self.events_file, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(event, dict):
+                        events.append(event)
+        except FileNotFoundError:
+            pass
+        return events
+
+
+def upsert(items, key, value, record):
+    output = [item for item in items if item.get(key) != value]
+    output.append(record)
+    output.sort(key=lambda item: item.get(key, ""))
+    return output
+
+
+def parse_skill(value):
+    name, sep, path = value.partition(":")
+    if not sep:
+        name, sep, path = value.partition("=")
+    if not sep or not name.strip() or not path.strip():
+        fail("--skill must use name:path or name=path")
+    return {"name": name.strip(), "path": os.path.abspath(os.path.expanduser(path.strip()))}
+
+
+def sdk_input_payload(task, skills):
+    payload = [{"type": "text", "text": task}]
+    for skill in skills:
+        payload.append({"type": "skill", "name": skill["name"], "path": skill["path"]})
+    return payload
+
+
+def sandbox_value(name):
+    if not name:
+        return None
+    try:
+        from openai_codex import Sandbox
+    except ImportError as exc:
+        raise RuntimeError("openai_codex is required for non-dry-run execution") from exc
+    values = {
+        "read-only": Sandbox.read_only,
+        "workspace-write": Sandbox.workspace_write,
+        "full-access": Sandbox.full_access,
+    }
+    return values.get(name)
+
+
+def run_sdk_turn(args, skills, workdir):
+    try:
+        from openai_codex import Codex, SkillInput, TextInput
+    except ImportError as exc:
+        raise RuntimeError("openai_codex is required for non-dry-run execution") from exc
+
+    inputs = [TextInput(args.task)]
+    inputs.extend(SkillInput(skill["name"], skill["path"]) for skill in skills)
+
+    with Codex() as codex:
+        sandbox = sandbox_value(args.sandbox)
+        if args.thread_id:
+            thread = codex.thread_resume(args.thread_id, cwd=workdir, sandbox=sandbox)
+        else:
+            thread = codex.thread_start(cwd=workdir, sandbox=sandbox)
+        turn = thread.turn(inputs)
+        result = turn.run()
+        return {
+            "thread_id": thread.id,
+            "turn_id": turn.id,
+            "status": "done",
+            "final_response": result.final_response,
+            "item_count": len(result.items),
+        }
+
+
+def cmd_sdk_run(args):
+    store = Store(args.root)
+    store.ensure()
+    skills = [parse_skill(value) for value in args.skill]
+    workdir = os.path.abspath(os.path.expanduser(args.workdir))
+    input_payload = sdk_input_payload(args.task, skills)
+
+    if args.dry_run:
+        run_result = {
+            "thread_id": args.thread_id or f"dry-thread-{args.agent_id}",
+            "turn_id": f"dry-turn-{args.task_id or 'manual'}",
+            "status": "dry-run",
+            "final_response": "",
+            "item_count": 0,
+        }
+    else:
+        run_result = run_sdk_turn(args, skills, workdir)
+
+    record = {
+        "agent_id": args.agent_id,
+        "role": args.role,
+        "connector": "codex-sdk",
+        "state": run_result["status"],
+        "thread_id": run_result["thread_id"],
+        "turn_id": run_result["turn_id"],
+        "current_task_id": args.task_id,
+        "workdir": workdir,
+        "skills": skills,
+        "updated_at": now(),
+    }
+    agents = upsert(store.agents(), "agent_id", args.agent_id, record)
+    store.write_json(store.agents_file, agents)
+
+    event = {
+        "ts": now(),
+        "type": "sdk_turn",
+        "agent_id": args.agent_id,
+        "role": args.role,
+        "connector": "codex-sdk",
+        "task_id": args.task_id,
+        "workdir": workdir,
+        "input": input_payload,
+        **run_result,
+    }
+    store.append_event(event)
+    print(json.dumps({"root": store.root, "agent": record, "event": event}, ensure_ascii=False, indent=2))
+
+
+def cmd_status(args):
+    store = Store(args.root)
+    store.ensure()
+    events = store.events()
+    payload = {
+        "root": store.root,
+        "agents": store.agents(),
+        "events": events[-args.limit :],
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="ApiaryDeck local control helper")
+    parser.add_argument("--root", default=default_root(), help="ApiaryDeck state root")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sdk_run = sub.add_parser("sdk-run", help="Run or dry-run a Codex SDK agent turn")
+    sdk_run.add_argument("--agent-id", required=True)
+    sdk_run.add_argument("--role", default="worker")
+    sdk_run.add_argument("--task-id", default="")
+    sdk_run.add_argument("--task", required=True)
+    sdk_run.add_argument("--workdir", default=os.getcwd())
+    sdk_run.add_argument("--thread-id", default="")
+    sdk_run.add_argument("--skill", action="append", default=[], help="Skill as name:path or name=path")
+    sdk_run.add_argument("--sandbox", choices=["read-only", "workspace-write", "full-access"], default="workspace-write")
+    sdk_run.add_argument("--dry-run", action="store_true")
+    sdk_run.set_defaults(func=cmd_sdk_run)
+
+    status = sub.add_parser("status", help="Print ApiaryDeck state")
+    status.add_argument("--limit", type=int, default=20)
+    status.set_defaults(func=cmd_status)
+
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
+    try:
+        args.func(args)
+    except RuntimeError as exc:
+        fail(str(exc))
+
+
+if __name__ == "__main__":
+    main()
