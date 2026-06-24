@@ -428,7 +428,7 @@ chmod 600 ~/.config/tmux-language-rewrite/language.env
 ```sh
 export TMUX_LANG_API_BASE_URL="https://api.openai.com/v1"
 export TMUX_LANG_API_KEY="..."
-export TMUX_LANG_API_MODEL="gpt-5.2-chat-latest"
+export TMUX_LANG_API_MODEL="gpt-5.5-mini"
 export TMUX_LANG_API_TIMEOUT="30"
 ```
 
