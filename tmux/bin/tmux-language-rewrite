@@ -17,6 +17,7 @@ context="${TMUX_LANG_CONTEXT:-}"
 api_base_url=""
 api_key=""
 api_model=""
+api_reasoning_effort=""
 api_timeout=""
 record_backend="api"
 english_translation=""
@@ -87,6 +88,7 @@ load_language_config() {
   api_base_url="$(trim_value "${TMUX_LANG_API_BASE_URL:-}")"
   api_key="$(trim_value "${TMUX_LANG_API_KEY:-}")"
   api_model="$(trim_value "${TMUX_LANG_API_MODEL:-}")"
+  api_reasoning_effort="$(trim_value "${TMUX_LANG_API_REASONING_EFFORT:-low}")"
   api_timeout="$(trim_value "${TMUX_LANG_API_TIMEOUT:-30}")"
 
   if [ -z "$api_base_url" ]; then
@@ -100,6 +102,9 @@ load_language_config() {
   fi
   if [ -z "$api_timeout" ]; then
     api_timeout="30"
+  fi
+  if [ -z "$api_reasoning_effort" ]; then
+    api_reasoning_effort="low"
   fi
 }
 
@@ -190,6 +195,7 @@ rewrite_with_api() {
     TMUX_LANG_API_BASE_URL="$api_base_url" \
     TMUX_LANG_API_KEY="$api_key" \
     TMUX_LANG_API_MODEL="$api_model" \
+    TMUX_LANG_API_REASONING_EFFORT="$api_reasoning_effort" \
     TMUX_LANG_API_TIMEOUT="$api_timeout" \
     python3 - <<'PY' >"$output_file" 2>"$error_file"; then
 import json
@@ -262,6 +268,7 @@ def message_content(response):
 base_url = os.environ["TMUX_LANG_API_BASE_URL"].rstrip("/")
 api_key = os.environ["TMUX_LANG_API_KEY"]
 model = os.environ["TMUX_LANG_API_MODEL"]
+reasoning_effort = os.environ.get("TMUX_LANG_API_REASONING_EFFORT", "low") or "low"
 input_text = os.environ.get("TMUX_LANG_INPUT", "")
 context_text = os.environ.get("TMUX_LANG_CONTEXT_VALUE", "")
 
@@ -304,6 +311,7 @@ Rules:
 
 body = {
     "model": model,
+    "reasoning_effort": reasoning_effort,
     "messages": [
         {
             "role": "system",

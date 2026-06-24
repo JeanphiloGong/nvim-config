@@ -103,7 +103,8 @@ mkdir -p "$XDG_CONFIG_HOME/tmux-language-rewrite"
 cat >"$XDG_CONFIG_HOME/tmux-language-rewrite/language.env" <<EOF
 export TMUX_LANG_API_BASE_URL="http://127.0.0.1:$port/v1"
 export TMUX_LANG_API_KEY="test-key"
-export TMUX_LANG_API_MODEL="fake-language-model"
+export TMUX_LANG_API_MODEL="gpt-5.5"
+export TMUX_LANG_API_REASONING_EFFORT="low"
 export TMUX_LANG_API_TIMEOUT="5"
 EOF
 export TMUX_LANG_HISTORY_FILE="$tmp_root/history"
@@ -118,7 +119,8 @@ grep -F "Make this clearer." "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F "Could you make this clearer?" "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F "Use a polite request." "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F "For teammate review:" "$TMUX_LANG_HISTORY_FILE" >/dev/null
-grep -F '"model": "fake-language-model"' "$request_file" >/dev/null
+grep -F '"model": "gpt-5.5"' "$request_file" >/dev/null
+grep -F '"reasoning_effort": "low"' "$request_file" >/dev/null
 grep -F 'teammate review' "$request_file" >/dev/null
 
 printf 'tmux-language-rewrite smoke: OK\n'
