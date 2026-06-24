@@ -88,10 +88,30 @@ jq -e '.[] | select(.task_id == "T2" and .status == "blocked" and .blocker.reque
 "$apiarydeck" --root "$tmp_root/loop-state" loop --once --dry-run >/dev/null
 jq -e '.[] | select(.task_id == "T2" and .status == "running" and .assigned_agent_id == "builder-1")' "$tmp_root/loop-state/tasks.json" >/dev/null
 
+"$apiarydeck" --root "$tmp_root/watch-state" orchestrate \
+  --goal "Run watch loop." \
+  --dry-run >/dev/null
+"$apiarydeck" --root "$tmp_root/watch-state" loop --watch --max-iterations 1 --interval 0 --dry-run >/dev/null
+jq -e '.[] | select(.task_id == "T2" and .status == "running" and .assigned_agent_id == "builder-1")' "$tmp_root/watch-state/tasks.json" >/dev/null
+
 dashboard_path="$tmp_root/orch-state/dashboard.html"
 "$apiarydeck" --root "$tmp_root/orch-state" dashboard --output "$dashboard_path" >/dev/null
 test -f "$dashboard_path"
 grep -F '<h1>ApiaryDeck</h1>' "$dashboard_path" >/dev/null
 grep -F 'builder-1' "$dashboard_path" >/dev/null
+
+serve_log="$tmp_root/serve.log"
+"$apiarydeck" --root "$tmp_root/orch-state" serve --port 0 >"$serve_log" 2>&1 &
+serve_pid=$!
+for _ in 1 2 3 4 5; do
+  if test -s "$serve_log"; then
+    break
+  fi
+  sleep 0.2
+done
+serve_url="$(sed -n '1p' "$serve_log")"
+curl -fsS "$serve_url" | grep -F '<h1>ApiaryDeck</h1>' >/dev/null
+kill "$serve_pid"
+wait "$serve_pid" 2>/dev/null || true
 
 printf 'apiarydeck smoke: OK\n'

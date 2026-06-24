@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 
 
@@ -641,7 +642,7 @@ def cmd_blocker(args):
     print(json.dumps({"root": store.root, "task": task, "event": event}, ensure_ascii=False, indent=2))
 
 
-def cmd_loop(args):
+def run_loop_once(args):
     store = Store(args.root)
     store.ensure()
     tasks = store.tasks()
@@ -671,7 +672,32 @@ def cmd_loop(args):
     cmd_dispatch(dispatch_args)
 
 
-def render_dashboard(payload):
+def cmd_loop(args):
+    if args.once and args.watch:
+        fail("--once and --watch are mutually exclusive")
+    if not args.watch:
+        run_loop_once(args)
+        return
+
+    iterations = 0
+    while True:
+        run_loop_once(args)
+        iterations += 1
+        if args.max_iterations and iterations >= args.max_iterations:
+            return
+        time.sleep(args.interval)
+
+
+def load_dashboard_payload(store):
+    return {
+        "root": store.root,
+        "agents": store.agents(),
+        "tasks": store.tasks(),
+        "events": store.events(),
+    }
+
+
+def render_dashboard(payload, refresh_seconds=0):
     counts = {}
     for task in payload["tasks"]:
         status = task.get("status") or "unknown"
@@ -704,11 +730,15 @@ def render_dashboard(payload):
         )
         for event in payload["events"][-20:]
     )
+    refresh_tag = ""
+    if refresh_seconds:
+        refresh_tag = f'  <meta http-equiv="refresh" content="{int(refresh_seconds)}">\n'
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+{refresh_tag}  <meta name="robots" content="noindex">
   <title>ApiaryDeck</title>
   <style>
     body {{ margin: 0; font: 14px/1.45 system-ui, sans-serif; color: #202124; background: #f7f8fa; }}
@@ -725,7 +755,7 @@ def render_dashboard(payload):
 <body>
   <header>
     <h1>ApiaryDeck</h1>
-    <div class="meta">{html.escape(payload["root"])} · {count_text}</div>
+    <div class="meta">{html.escape(payload["root"])} | {count_text}</div>
   </header>
   <main>
     <section>
@@ -747,17 +777,43 @@ def render_dashboard(payload):
 def cmd_dashboard(args):
     store = Store(args.root)
     store.ensure()
-    payload = {
-        "root": store.root,
-        "agents": store.agents(),
-        "tasks": store.tasks(),
-        "events": store.events(),
-    }
+    payload = load_dashboard_payload(store)
     output = os.path.abspath(os.path.expanduser(args.output or os.path.join(store.root, "dashboard.html")))
     os.makedirs(os.path.dirname(output), exist_ok=True)
     with open(output, "w", encoding="utf-8") as fh:
         fh.write(render_dashboard(payload))
     print(output)
+
+
+def cmd_serve(args):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import urlparse
+
+    store = Store(args.root)
+    store.ensure()
+
+    class DashboardHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            path = urlparse(self.path).path
+            if path not in ("/", "/index.html"):
+                self.send_error(404)
+                return
+            body = render_dashboard(load_dashboard_payload(store), args.refresh_seconds).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, message, *values):
+            if args.verbose:
+                super().log_message(message, *values)
+
+    server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
+    host, port = server.server_address
+    print(f"http://{host}:{port}/", flush=True)
+    server.serve_forever()
 
 
 def cmd_status(args):
@@ -829,6 +885,9 @@ def build_parser():
 
     loop = sub.add_parser("loop", help="Run one Crown scheduling loop")
     loop.add_argument("--once", action="store_true", help="Run one loop iteration")
+    loop.add_argument("--watch", action="store_true", help="Keep scanning for ready tasks")
+    loop.add_argument("--interval", type=float, default=5.0, help="Seconds between watch iterations")
+    loop.add_argument("--max-iterations", type=int, default=0, help="Stop watch mode after N iterations")
     loop.add_argument("--connector", choices=["codex-sdk", "tmux-pane"], default="codex-sdk")
     loop.add_argument("--workdir", default=os.getcwd())
     loop.add_argument("--pane-id", default="")
@@ -840,6 +899,13 @@ def build_parser():
     dashboard = sub.add_parser("dashboard", help="Write a local HTML dashboard")
     dashboard.add_argument("--output", default="")
     dashboard.set_defaults(func=cmd_dashboard)
+
+    serve = sub.add_parser("serve", help="Serve the local HTML dashboard")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=0)
+    serve.add_argument("--refresh-seconds", type=int, default=2)
+    serve.add_argument("--verbose", action="store_true")
+    serve.set_defaults(func=cmd_serve)
 
     status = sub.add_parser("status", help="Print ApiaryDeck state")
     status.add_argument("--limit", type=int, default=20)
