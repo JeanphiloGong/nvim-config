@@ -306,6 +306,18 @@ export APIARYDECK_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/apiarydeck/d
 "$tmux_bin/apiarydeck" status
 ```
 
+`orchestrate` 会启动或 dry-run 一个 Crown 编排 agent。这个 agent 的
+role prompt 会明确说明它负责 goal、task graph、worker dispatch、
+blocker、handoff 和 final review；dry-run 会先写入最小 task graph，
+用于验证后续 Web dashboard 和 dispatcher 的状态输入：
+
+```sh
+"$tmux_bin/apiarydeck" orchestrate \
+  --goal "ship a tiny SDK orchestration MVP" \
+  --skill workflow-plan:/path/to/workflow-plan/SKILL.md \
+  --dry-run
+```
+
 非 dry-run 会调用 Python `openai_codex` SDK，并把 `--skill name:path`
 转换成 SDK `SkillInput`。如果 SDK 或登录态不可用，继续使用 dry-run
 验证状态模型，或使用现有 tmux connector 流程。

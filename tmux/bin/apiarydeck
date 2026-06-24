@@ -36,6 +36,7 @@ class Store:
         self.root = root
         self.meta_file = os.path.join(root, "meta.json")
         self.agents_file = os.path.join(root, "agents.json")
+        self.tasks_file = os.path.join(root, "tasks.json")
         self.events_file = os.path.join(root, "events.jsonl")
 
     def ensure(self):
@@ -51,6 +52,8 @@ class Store:
             )
         if not os.path.exists(self.agents_file):
             self.write_json(self.agents_file, [])
+        if not os.path.exists(self.tasks_file):
+            self.write_json(self.tasks_file, [])
         if not os.path.exists(self.events_file):
             with open(self.events_file, "a", encoding="utf-8"):
                 pass
@@ -79,6 +82,10 @@ class Store:
 
     def agents(self):
         data = self.read_json(self.agents_file, [])
+        return data if isinstance(data, list) else []
+
+    def tasks(self):
+        data = self.read_json(self.tasks_file, [])
         return data if isinstance(data, list) else []
 
     def events(self):
@@ -121,6 +128,44 @@ def sdk_input_payload(task, skills):
     for skill in skills:
         payload.append({"type": "skill", "name": skill["name"], "path": skill["path"]})
     return payload
+
+
+def crown_role_prompt(goal):
+    return "\n".join(
+        [
+            "You are the ApiaryDeck crown orchestration agent.",
+            "Role: crown.",
+            "You own the plan, task graph, worker dispatch decisions, blockers, handoffs, and final review loop.",
+            "Do not do worker implementation directly unless explicitly assigned.",
+            "When planning, produce tasks with ids, owner roles, dependencies, acceptance, and verification.",
+            f"Goal: {goal}",
+        ]
+    )
+
+
+def default_plan_tasks(goal):
+    return [
+        {
+            "task_id": "T1",
+            "title": "Plan task graph",
+            "owner_role": "crown",
+            "depends_on": [],
+            "status": "done",
+            "goal": goal,
+            "acceptance": "Task graph exists with owner roles, dependencies, and verification.",
+            "verification": "apiarydeck status shows planned tasks.",
+        },
+        {
+            "task_id": "T2",
+            "title": "Dispatch first worker slice",
+            "owner_role": "builder",
+            "depends_on": ["T1"],
+            "status": "ready",
+            "goal": goal,
+            "acceptance": "A worker-ready task is available for dispatch.",
+            "verification": "apiarydeck status shows T2 ready and assigned owner_role builder.",
+        },
+    ]
 
 
 def sandbox_value(name):
@@ -212,6 +257,75 @@ def cmd_sdk_run(args):
     print(json.dumps({"root": store.root, "agent": record, "event": event}, ensure_ascii=False, indent=2))
 
 
+def cmd_orchestrate(args):
+    store = Store(args.root)
+    store.ensure()
+    skills = [parse_skill(value) for value in args.skill]
+    workdir = os.path.abspath(os.path.expanduser(args.workdir))
+    task_prompt = crown_role_prompt(args.goal)
+    input_payload = sdk_input_payload(task_prompt, skills)
+
+    if args.dry_run:
+        run_result = {
+            "thread_id": args.thread_id or f"dry-thread-{args.agent_id}",
+            "turn_id": "dry-turn-orchestrate",
+            "status": "dry-run",
+            "final_response": "",
+            "item_count": 0,
+        }
+    else:
+        run_args = argparse.Namespace(
+            task=task_prompt,
+            sandbox=args.sandbox,
+            thread_id=args.thread_id,
+        )
+        run_result = run_sdk_turn(run_args, skills, workdir)
+
+    record = {
+        "agent_id": args.agent_id,
+        "role": "crown",
+        "connector": "codex-sdk",
+        "state": run_result["status"],
+        "thread_id": run_result["thread_id"],
+        "turn_id": run_result["turn_id"],
+        "current_goal": args.goal,
+        "workdir": workdir,
+        "skills": skills,
+        "updated_at": now(),
+    }
+    agents = upsert(store.agents(), "agent_id", args.agent_id, record)
+    store.write_json(store.agents_file, agents)
+
+    tasks = store.tasks()
+    existing_task_ids = {task.get("task_id") for task in tasks}
+    planned = [task for task in default_plan_tasks(args.goal) if task["task_id"] not in existing_task_ids]
+    if planned:
+        tasks.extend(planned)
+        tasks.sort(key=lambda task: task.get("task_id", ""))
+        store.write_json(store.tasks_file, tasks)
+
+    event = {
+        "ts": now(),
+        "type": "orchestration_plan",
+        "agent_id": args.agent_id,
+        "role": "crown",
+        "connector": "codex-sdk",
+        "goal": args.goal,
+        "workdir": workdir,
+        "input": input_payload,
+        "planned_task_ids": [task["task_id"] for task in planned],
+        **run_result,
+    }
+    store.append_event(event)
+    print(
+        json.dumps(
+            {"root": store.root, "orchestrator": record, "planned_tasks": planned, "event": event},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def cmd_status(args):
     store = Store(args.root)
     store.ensure()
@@ -219,6 +333,7 @@ def cmd_status(args):
     payload = {
         "root": store.root,
         "agents": store.agents(),
+        "tasks": store.tasks(),
         "events": events[-args.limit :],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -240,6 +355,16 @@ def build_parser():
     sdk_run.add_argument("--sandbox", choices=["read-only", "workspace-write", "full-access"], default="workspace-write")
     sdk_run.add_argument("--dry-run", action="store_true")
     sdk_run.set_defaults(func=cmd_sdk_run)
+
+    orchestrate = sub.add_parser("orchestrate", help="Start or dry-run a Crown orchestration turn")
+    orchestrate.add_argument("--agent-id", default="crown-1")
+    orchestrate.add_argument("--goal", required=True)
+    orchestrate.add_argument("--workdir", default=os.getcwd())
+    orchestrate.add_argument("--thread-id", default="")
+    orchestrate.add_argument("--skill", action="append", default=[], help="Skill as name:path or name=path")
+    orchestrate.add_argument("--sandbox", choices=["read-only", "workspace-write", "full-access"], default="workspace-write")
+    orchestrate.add_argument("--dry-run", action="store_true")
+    orchestrate.set_defaults(func=cmd_orchestrate)
 
     status = sub.add_parser("status", help="Print ApiaryDeck state")
     status.add_argument("--limit", type=int, default=20)
