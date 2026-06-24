@@ -3,51 +3,27 @@ set +v
 set +x
 set -u
 
-script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "${BASH_SOURCE[0]}")"
-
 input="${1-}"
 auto_paste="${TMUX_LANG_AUTOPASTE-0}"
 target_pane="${TMUX_LANG_TARGET-}"
 history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
 log_file="${TMUX_LANG_LOG_FILE:-$HOME/.tmux-language.log}"
-backend="${TMUX_LANG_BACKEND:-}"
-codex_model="${TMUX_LANG_CODEX_MODEL:-gpt-5.4-mini}"
-codex_effort="${TMUX_LANG_CODEX_EFFORT:-low}"
-codex_cwd="${TMUX_LANG_CODEX_CWD:-$HOME}"
-codex_bin="${TMUX_LANG_CODEX_BIN:-}"
-workflow_mode="${TMUX_LANG_WORKFLOW_MODE:-foreground}"
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/tmux-language-rewrite/language.env"
 request_id="${TMUX_LANG_REQUEST_ID:-}"
 only_if_active="${TMUX_LANG_ONLY_IF_ACTIVE:-0}"
 allow_paste="${TMUX_LANG_ALLOW_PASTE:-$auto_paste}"
-history_backend_override="${TMUX_LANG_HISTORY_BACKEND:-}"
-status_backend_override="${TMUX_LANG_STATUS_BACKEND:-}"
-trans_draft="${TMUX_LANG_TRANS_DRAFT:-}"
 context="${TMUX_LANG_CONTEXT:-}"
-context_compact=""
 
-if [ -z "$input" ]; then
-  printf "Input (zh/en): "
-  IFS= read -r input || exit 0
-fi
-
-input="$(printf '%s' "$input" | sed 's/[[:space:]]\+$//')"
-context="$(printf '%s' "$context" | sed 's/[[:space:]]\+$//')"
-if [ -z "$input" ]; then
-  tmux display-message "Language: empty input"
-  exit 0
-fi
-
-if [ -z "$request_id" ]; then
-  request_id="lang-$(date +%s)-$$-$RANDOM"
-fi
-
-record_backend="trans"
+api_base_url=""
+api_key=""
+api_model=""
+api_timeout=""
+record_backend="api"
 english_translation=""
 polished_english=""
 teacher_note=""
 grammar_tip=""
 context_line=""
-fallback_reason=""
 history_en=""
 history_best=""
 history_note=""
@@ -56,24 +32,15 @@ history_context=""
 result=""
 copy_ok=0
 copy_via="tmux-buffer"
-existing_ts=""
-existing_request_id=""
-existing_backend=""
-existing_input=""
-existing_en=""
-existing_best=""
-existing_note=""
-existing_tip=""
-existing_context=""
+api_error_reason=""
+api_error_detail=""
 
 normalize_line() {
   printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
 }
 
-context_compact="$(normalize_line "$context")"
-
-is_default_backend() {
-  [ -z "$backend" ] || [ "$backend" = "auto" ] || [ "$backend" = "default" ]
+trim_value() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
 append_log() {
@@ -81,20 +48,59 @@ append_log() {
   reason="$(normalize_line "$1")"
   detail="$(normalize_line "${2-}")"
   mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
-  printf '%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\n' \
     "$ts" \
     "$reason" \
     "$(normalize_line "$input")" \
-    "$(normalize_line "${codex_bin:-missing}")" \
     "$detail" >> "$log_file" 2>/dev/null || true
 }
 
-resolve_codex_bin() {
-  if [ -n "$codex_bin" ]; then
-    return 0
+tmux_notice() {
+  message="$1"
+  if command -v tmux >/dev/null 2>&1; then
+    tmux display-message "$message" >/dev/null 2>&1 || true
+    tmux set -gq @shared_status_msg "$message" >/dev/null 2>&1 || true
+    tmux refresh-client -S >/dev/null 2>&1 || true
   fi
-  codex_bin="$(command -v codex 2>/dev/null || true)"
-  [ -n "$codex_bin" ]
+}
+
+fail_language() {
+  message="$1"
+  reason="${2:-error}"
+  detail="${3:-}"
+  append_log "$reason" "$detail"
+  tmux_notice "$message"
+  printf '%s\n' "$message" >&2
+  exit 1
+}
+
+load_language_config() {
+  if [ ! -r "$config_file" ]; then
+    fail_language "Language: missing config: $config_file" "config_missing" "$config_file"
+  fi
+
+  set +u
+  # shellcheck disable=SC1090
+  . "$config_file"
+  set -u
+
+  api_base_url="$(trim_value "${TMUX_LANG_API_BASE_URL:-}")"
+  api_key="$(trim_value "${TMUX_LANG_API_KEY:-}")"
+  api_model="$(trim_value "${TMUX_LANG_API_MODEL:-}")"
+  api_timeout="$(trim_value "${TMUX_LANG_API_TIMEOUT:-30}")"
+
+  if [ -z "$api_base_url" ]; then
+    fail_language "Language: missing TMUX_LANG_API_BASE_URL in $config_file" "config_missing_base_url" "$config_file"
+  fi
+  if [ -z "$api_key" ]; then
+    fail_language "Language: missing TMUX_LANG_API_KEY in $config_file" "config_missing_api_key" "$config_file"
+  fi
+  if [ -z "$api_model" ]; then
+    fail_language "Language: missing TMUX_LANG_API_MODEL in $config_file" "config_missing_model" "$config_file"
+  fi
+  if [ -z "$api_timeout" ]; then
+    api_timeout="30"
+  fi
 }
 
 ensure_history_file() {
@@ -156,98 +162,6 @@ history_upsert() {
   history_with_lock history_upsert_impl "$@"
 }
 
-history_merge_auto_impl() {
-  stage="$1"
-  req="$2"
-  ts="$3"
-  in_text="$4"
-  en_text="$5"
-  best_text="$6"
-  note_text="$7"
-  tip_text="$8"
-  context_text="$9"
-  tmp="${history_file}.tmp.$$"
-
-  awk -F '\t' -v OFS='\t' \
-    -v stage="$stage" \
-    -v req="$req" \
-    -v ts="$ts" \
-    -v in_text="$in_text" \
-    -v en_text="$en_text" \
-    -v best_text="$best_text" \
-    -v note_text="$note_text" \
-    -v tip_text="$tip_text" \
-    -v context_text="$context_text" '
-    function print_trans_record() {
-      merged_best = $6
-      merged_note = $7
-      merged_tip = $8
-      merged_context = (NF >= 9 ? $9 : "")
-      if (merged_best == "" && merged_note == "" && merged_tip == "") {
-        merged_note = "Waiting for Codex refinement."
-      }
-      print ts, req, "default", in_text, en_text, merged_best, merged_note, merged_tip, merged_context
-    }
-    function print_codex_record() {
-      merged_en = ($5 != "" ? $5 : en_text)
-      merged_context = context_text
-      if (merged_context == "" && NF >= 9) {
-        merged_context = $9
-      }
-      print ts, req, "default", in_text, merged_en, best_text, note_text, tip_text, merged_context
-    }
-    BEGIN {
-      found = 0
-    }
-    NF >= 8 && $2 == req {
-      if (stage == "trans") {
-        print_trans_record()
-      } else {
-        print_codex_record()
-      }
-      found = 1
-      next
-    }
-    {
-      print $0
-    }
-    END {
-      if (!found) {
-        if (stage == "trans") {
-          print ts, req, "default", in_text, en_text, "", "Waiting for Codex refinement.", "", ""
-        } else {
-          print ts, req, "default", in_text, en_text, best_text, note_text, tip_text, context_text
-        }
-      }
-    }
-  ' "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
-}
-
-history_merge_auto() {
-  history_with_lock history_merge_auto_impl "$@"
-}
-
-history_load() {
-  existing_ts=""
-  existing_request_id=""
-  existing_backend=""
-  existing_input=""
-  existing_en=""
-  existing_best=""
-  existing_note=""
-  existing_tip=""
-  existing_context=""
-
-  ensure_history_file
-  line="$(awk -F '\t' -v req="$1" 'NF >= 8 && $2 == req { line = $0 } END { print line }' "$history_file" 2>/dev/null || true)"
-  [ -n "$line" ] || return 1
-
-  IFS=$'\t' read -r existing_ts existing_request_id existing_backend existing_input existing_en existing_best existing_note existing_tip existing_context <<EOF
-$line
-EOF
-  return 0
-}
-
 is_active_request() {
   if [ "$only_if_active" != "1" ]; then
     return 0
@@ -256,116 +170,223 @@ is_active_request() {
   [ -n "$active_request_id" ] && [ "$active_request_id" = "$request_id" ]
 }
 
-rewrite_with_codex() {
-  if ! resolve_codex_bin; then
-    fallback_reason="codex_missing"
-    append_log "codex_missing" "PATH=$PATH"
-    return 1
-  fi
-  if ! command -v jq >/dev/null 2>&1; then
-    fallback_reason="jq_missing"
-    append_log "jq_missing" "PATH=$PATH"
+rewrite_with_api() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    api_error_reason="python3_missing"
+    api_error_detail="PATH=$PATH"
     return 1
   fi
 
   tmp_dir="$(mktemp -d 2>/dev/null)" || {
-    fallback_reason="mktemp_failed"
-    append_log "mktemp_failed" ""
+    api_error_reason="mktemp_failed"
+    api_error_detail=""
     return 1
   }
-  schema_file="$tmp_dir/schema.json"
-  output_file="$tmp_dir/output.json"
-  exec_log="$tmp_dir/codex-exec.log"
-  trap 'rm -rf "$tmp_dir"' RETURN
+  output_file="$tmp_dir/output.txt"
+  error_file="$tmp_dir/error.txt"
 
-  cat >"$schema_file" <<'EOF'
-{
-  "type": "object",
-  "properties": {
-    "original_text": { "type": "string" },
-      "english_translation": { "type": "string" },
-      "polished_english": { "type": "string" },
-      "teacher_note_zh": { "type": "string" },
-      "grammar_tip_zh": { "type": "string" },
-      "context_line": { "type": "string" }
-    },
-    "required": [
-      "original_text",
-      "english_translation",
-      "polished_english",
-      "teacher_note_zh",
-      "grammar_tip_zh",
-      "context_line"
-    ],
-    "additionalProperties": false
-  }
-EOF
+  if ! TMUX_LANG_INPUT="$input" \
+    TMUX_LANG_CONTEXT_VALUE="$context" \
+    TMUX_LANG_API_BASE_URL="$api_base_url" \
+    TMUX_LANG_API_KEY="$api_key" \
+    TMUX_LANG_API_MODEL="$api_model" \
+    TMUX_LANG_API_TIMEOUT="$api_timeout" \
+    python3 - <<'PY' >"$output_file" 2>"$error_file"; then
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
 
-  prompt_extra=""
-  if [ -n "$trans_draft" ]; then
-    prompt_extra="$(cat <<EOF
-Fast translation draft from trans:
-$trans_draft
 
-Use this draft as a first pass. Keep it if it is already accurate, but improve wording or correct it when needed.
+def clean(value):
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        value = str(value)
+    return re.sub(r"\s+", " ", value).strip()
 
-EOF
-)"
-  fi
 
-  if [ -n "$context_compact" ]; then
-    prompt_extra="${prompt_extra}$(cat <<EOF
-Additional context from the user:
-$context
+def abort(message):
+    print(clean(message), file=sys.stderr)
+    raise SystemExit(1)
 
-Use this context to resolve tone, relationship, situation, and intended meaning.
-context_line must be a short Chinese lead-in derived from the context so it reads naturally right before polished_english.
-Do not output a dialogue.
-Do not output only a bare scene label.
-Do not copy the user's context verbatim.
 
-EOF
-)"
-  fi
+def extract_json_object(text):
+    text = text.strip()
+    if not text:
+        abort("empty response content")
+    try:
+        value = json.loads(text)
+        if isinstance(value, dict):
+            return value
+    except json.JSONDecodeError:
+        pass
 
-  if ! cat <<EOF | "$codex_bin" exec \
-    --skip-git-repo-check \
-    --ephemeral \
-    -C "$codex_cwd" \
-    -m "$codex_model" \
-    -c "model_reasoning_effort=\"$codex_effort\"" \
-    -c 'service_tier="fast"' \
-    --output-schema "$schema_file" \
-    -o "$output_file" \
-    - >"$exec_log" 2>&1; then
-You are an English teacher and translator.
-Return JSON only and follow the provided schema exactly.
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        abort("response content did not contain JSON")
+    try:
+        value = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        abort("response content did not contain valid JSON")
+    if not isinstance(value, dict):
+        abort("response JSON was not an object")
+    return value
+
+
+def message_content(response):
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        abort("API response did not include choices")
+    first = choices[0]
+    if not isinstance(first, dict):
+        abort("API choice was not an object")
+    message = first.get("message")
+    if not isinstance(message, dict):
+        abort("API choice did not include a message")
+    content = message.get("content", "")
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text") or item.get("content") or ""))
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(content)
+
+
+base_url = os.environ["TMUX_LANG_API_BASE_URL"].rstrip("/")
+api_key = os.environ["TMUX_LANG_API_KEY"]
+model = os.environ["TMUX_LANG_API_MODEL"]
+input_text = os.environ.get("TMUX_LANG_INPUT", "")
+context_text = os.environ.get("TMUX_LANG_CONTEXT_VALUE", "")
+
+try:
+    timeout = float(os.environ.get("TMUX_LANG_API_TIMEOUT", "30") or "30")
+except ValueError:
+    timeout = 30.0
+if timeout <= 0:
+    timeout = 30.0
+
+context_rule = (
+    "No additional context was supplied. context_line must be empty."
+    if not context_text.strip()
+    else "Additional context was supplied. context_line must be a concise Chinese lead-in derived from that context, not a copy of it."
+)
+
+prompt = f"""Original input:
+{input_text}
+
+Additional context:
+{context_text}
+
+Return one JSON object with exactly these fields:
+- original_text
+- english_translation
+- polished_english
+- teacher_note_zh
+- grammar_tip_zh
+- context_line
 
 Rules:
-- Keep original_text exactly the same as the user input.
+- Keep original_text exactly the same as the original input.
 - english_translation must be a faithful English translation of the input.
-- polished_english must be the most natural English sentence you would actually recommend the learner use.
+- polished_english must be the most natural English sentence you recommend the learner use.
 - teacher_note_zh must be a short Chinese explanation of what was improved or corrected.
 - grammar_tip_zh must be a short Chinese usage or grammar tip.
-- context_line must be empty when no additional context was supplied.
-- context_line must be a concise Chinese contextual lead-in when additional context was supplied.
-- Keep each field concise and practical.
+- {context_rule}
+- Keep every field concise and practical.
+"""
 
-$prompt_extra
+body = {
+    "model": model,
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are an English teacher and translator. Return only valid JSON. Do not use markdown.",
+        },
+        {
+            "role": "user",
+            "content": prompt,
+        },
+    ],
+    "response_format": {"type": "json_object"},
+}
 
-User input:
-$input
-EOF
-    fallback_reason="codex_exec_failed"
-    append_log "codex_exec_failed" "$(sed -n '1,20p' "$exec_log" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+request = urllib.request.Request(
+    base_url + "/chat/completions",
+    data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+    headers={
+        "Authorization": "Bearer " + api_key,
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+
+try:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8", errors="replace")
+except urllib.error.HTTPError as exc:
+    abort(f"HTTP {exc.code}")
+except urllib.error.URLError as exc:
+    abort("request failed")
+
+try:
+    response = json.loads(raw)
+except json.JSONDecodeError:
+    abort("API response was not valid JSON")
+content = message_content(response)
+data = extract_json_object(content)
+
+fields = [
+    "original_text",
+    "english_translation",
+    "polished_english",
+    "teacher_note_zh",
+    "grammar_tip_zh",
+    "context_line",
+]
+missing = [field for field in fields if field not in data]
+if missing:
+    abort("response JSON missed fields: " + ", ".join(missing))
+
+original_text = data.get("original_text")
+if original_text != input_text:
+    data["original_text"] = input_text
+
+english_translation = clean(data.get("english_translation"))
+if not english_translation:
+    abort("response JSON had empty english_translation")
+
+values = [
+    english_translation,
+    clean(data.get("polished_english")) or english_translation,
+    clean(data.get("teacher_note_zh")),
+    clean(data.get("grammar_tip_zh")),
+    clean(data.get("context_line")),
+]
+for value in values:
+    print(value)
+PY
+    api_error_reason="api_request_failed"
+    api_error_detail="$(sed -n '1p' "$error_file" 2>/dev/null | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    rm -rf "$tmp_dir"
     return 1
   fi
 
-  english_translation="$(jq -r '.english_translation // empty' "$output_file" 2>/dev/null || true)"
-  polished_english="$(jq -r '.polished_english // empty' "$output_file" 2>/dev/null || true)"
-  teacher_note="$(jq -r '.teacher_note_zh // empty' "$output_file" 2>/dev/null || true)"
-  grammar_tip="$(jq -r '.grammar_tip_zh // empty' "$output_file" 2>/dev/null || true)"
-  context_line="$(jq -r '.context_line // empty' "$output_file" 2>/dev/null || true)"
+  {
+    IFS= read -r english_translation || english_translation=""
+    IFS= read -r polished_english || polished_english=""
+    IFS= read -r teacher_note || teacher_note=""
+    IFS= read -r grammar_tip || grammar_tip=""
+    IFS= read -r context_line || context_line=""
+  } <"$output_file"
+
+  rm -rf "$tmp_dir"
 
   english_translation="$(normalize_line "$english_translation")"
   polished_english="$(normalize_line "$polished_english")"
@@ -374,60 +395,13 @@ EOF
   context_line="$(normalize_line "$context_line")"
 
   if [ -z "$english_translation" ]; then
-    fallback_reason="codex_output_invalid"
-    append_log "codex_output_invalid" "$(cat "$output_file" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    api_error_reason="api_output_invalid"
+    api_error_detail="empty english_translation"
     return 1
   fi
   [ -n "$polished_english" ] || polished_english="$english_translation"
-  record_backend="codex"
+  record_backend="api"
   return 0
-}
-
-rewrite_with_trans() {
-  if command -v trans >/dev/null 2>&1; then
-    if printf '%s' "$input" | LC_ALL=C grep -q '[^ -~]'; then
-      english_translation="$(trans -b zh:en "$input" 2>/dev/null || true)"
-    else
-      english_translation="$(trans -b :en "$input" 2>/dev/null || true)"
-    fi
-  fi
-
-  english_translation="$(normalize_line "$english_translation")"
-  [ -n "$english_translation" ] || english_translation="$input"
-  polished_english="$english_translation"
-  if [ -n "$fallback_reason" ]; then
-    teacher_note="Fallback backend used (${fallback_reason}). See ${log_file}."
-  else
-    teacher_note="Fallback backend used. No coaching note available."
-  fi
-  grammar_tip=""
-  record_backend="trans"
-}
-
-spawn_codex_refine_worker() {
-  worker_trans_draft="$1"
-  printf -v cmd \
-    'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_TARGET=%q TMUX_LANG_HISTORY_FILE=%q TMUX_LANG_LOG_FILE=%q TMUX_LANG_BACKEND=%q TMUX_LANG_CODEX_MODEL=%q TMUX_LANG_CODEX_EFFORT=%q TMUX_LANG_CODEX_CWD=%q TMUX_LANG_CODEX_BIN=%q TMUX_LANG_WORKFLOW_MODE=%q TMUX_LANG_REQUEST_ID=%q TMUX_LANG_ONLY_IF_ACTIVE=%q TMUX_LANG_ALLOW_PASTE=%q TMUX_LANG_HISTORY_BACKEND=%q TMUX_LANG_STATUS_BACKEND=%q TMUX_LANG_TRANS_DRAFT=%q TMUX_LANG_CONTEXT=%q bash %q %q' \
-    "$auto_paste" \
-    "$target_pane" \
-    "$history_file" \
-    "$log_file" \
-    "codex" \
-    "$codex_model" \
-    "$codex_effort" \
-    "$codex_cwd" \
-    "$codex_bin" \
-    "background" \
-    "$request_id" \
-    "1" \
-    "0" \
-    "" \
-    "BEST" \
-    "$worker_trans_draft" \
-    "$context" \
-    "$script_path" \
-    "$input"
-  tmux run-shell -b "$cmd"
 }
 
 copy_result() {
@@ -520,68 +494,26 @@ paste_back() {
   tmux paste-buffer >/dev/null 2>&1 || true
 }
 
-history_backend_final="$history_backend_override"
-status_backend_final="$status_backend_override"
-codex_ok=0
+if [ -z "$input" ]; then
+  printf "Input (zh/en): "
+  IFS= read -r input || exit 0
+fi
 
-if is_default_backend && [ "$workflow_mode" = "foreground" ] && [ ! -t 1 ] && [ -n "${TMUX-}" ]; then
-  tmux set -gq @tmux_lang_active_request_id "$request_id" >/dev/null 2>&1 || true
-  rewrite_with_trans
-
-  history_en="$(normalize_line "$english_translation")"
-  history_best=""
-  history_note=""
-  history_tip=""
-  history_context=""
-  result="$history_en"
-  status_backend_final="EN"
-
-  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
-  in_text="$(normalize_line "$input")"
-  history_merge_auto \
-    "trans" \
-    "$request_id" \
-    "$ts" \
-    "$in_text" \
-    "$history_en" \
-    "$history_best" \
-    "$history_note" \
-    "$history_tip" \
-    "$history_context"
-  copy_result "$result" "$status_backend_final"
-  paste_back
-  spawn_codex_refine_worker "$history_en"
+input="$(printf '%s' "$input" | sed 's/[[:space:]]\+$//')"
+context="$(printf '%s' "$context" | sed 's/[[:space:]]\+$//')"
+if [ -z "$input" ]; then
+  tmux_notice "Language: empty input"
   exit 0
 fi
 
-case "$backend" in
-  codex)
-    if rewrite_with_codex; then
-      codex_ok=1
-    elif [ "$workflow_mode" = "background" ]; then
-      teacher_note="Codex refinement failed (${fallback_reason:-unknown}). See ${log_file}."
-      grammar_tip=""
-      polished_english=""
-      record_backend="codex"
-    else
-      rewrite_with_trans
-    fi
-    ;;
-  trans)
-    rewrite_with_trans
-    ;;
-  *)
-    rewrite_with_codex || rewrite_with_trans
-    ;;
-esac
+if [ -z "$request_id" ]; then
+  request_id="lang-$(date +%s)-$$-$RANDOM"
+fi
 
-[ -n "$history_backend_final" ] || history_backend_final="$record_backend"
-if [ -z "$status_backend_final" ]; then
-  if [ "$record_backend" = "codex" ]; then
-    status_backend_final="BEST"
-  else
-    status_backend_final="EN"
-  fi
+load_language_config
+
+if ! rewrite_with_api; then
+  fail_language "Language: API request failed (${api_error_reason:-unknown}). See ${log_file}." "api_failed" "$api_error_detail"
 fi
 
 history_en="$(normalize_line "$english_translation")"
@@ -596,44 +528,18 @@ result="$polished_english"
 ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
 in_text="$(normalize_line "$input")"
 
-if [ "$workflow_mode" = "background" ]; then
-  history_merge_auto \
-    "$backend" \
-    "$request_id" \
-    "$ts" \
-    "$in_text" \
-    "$history_en" \
-    "$history_best" \
-    "$history_note" \
-    "$history_tip" \
-    "$history_context"
+history_upsert \
+  "$request_id" \
+  "$ts" \
+  "$record_backend" \
+  "$in_text" \
+  "$history_en" \
+  "$history_best" \
+  "$history_note" \
+  "$history_tip" \
+  "$history_context"
 
-  history_load "$request_id" || true
-  history_en="$existing_en"
-  history_best="$existing_best"
-  history_note="$existing_note"
-  history_tip="$existing_tip"
-  history_context="$existing_context"
-
-  if [ "$backend" = "codex" ] && [ "$codex_ok" -eq 1 ]; then
-    result="$history_best"
-  else
-    result=""
-  fi
-else
-  history_upsert \
-    "$request_id" \
-    "$ts" \
-    "$history_backend_final" \
-    "$in_text" \
-    "$history_en" \
-    "$history_best" \
-    "$history_note" \
-    "$history_tip" \
-    "$history_context"
-fi
-
-copy_result "$result" "$status_backend_final"
+copy_result "$result" "BEST"
 
 if [ -t 1 ]; then
   printf "\nOriginal:\n%s\n\n" "$input"

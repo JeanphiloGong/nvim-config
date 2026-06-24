@@ -402,8 +402,8 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - `<prefix> + >`：当前 window 右移一位，并切换到交换后的目标位置
 - `<prefix> + G`：在当前 pane 路径打开 popup shell（用于临时执行 `git status/log/push` 等）
 - `<prefix> + b`：复制当前 pane 路径对应仓库的 Git 分支名到剪贴板（至少会写入 tmux buffer）
-- `<prefix> + e`：打开一个小 popup 输入一句中文/英文，先用 `trans` 快速生成可粘贴英文并立即复制；如果 Codex 可用，再异步补一版更自然的英文并覆盖剪贴板/状态消息
-- `<prefix> + E`：打开可编辑 popup，支持多行输入正文和可选上下文；Codex 会把上下文整理成一行 `CONTEXT` 放在最终 `BEST(codex)` 前面
+- `<prefix> + e`：打开一个小 popup 输入一句中文/英文，通过 OpenAI-compatible API 生成可直接粘贴的推荐英文
+- `<prefix> + E`：打开可编辑 popup，支持多行输入正文和可选上下文；API 会把上下文整理成一行 `CONTEXT` 放在最终 `BEST` 前面
 - `<prefix> + H`：打开 Language Coach 只读历史；默认落在最新一页，支持 `j/k` 翻页、`q` 关闭
 - `<prefix> + f`：右侧分屏，在新 pane 执行 `codex fork <session_id>`
 - `<prefix> + F`：下方分屏，在新 pane 执行 `codex fork <session_id>`
@@ -412,25 +412,34 @@ Windows Terminal + WSL 的中文复制问题与配置要点见：
 - 如果状态栏频繁闪烁，通常是 `status-interval` 太短或 status-right 命令太重：
   - 可以把 `status-interval` 调大（例如 5/10 秒）
 
-Language Coach 依赖（可选）：
-- tmux 内默认走双阶段：先同步运行 `trans`，立即写入 `EN` 到状态栏/历史；然后异步启动 `codex exec` 做结构化润色。
-- 优先使用 `codex exec` 做结构化语言教练输出；推荐已经登录可用的 Codex CLI。
-- Codex 阶段会把 `trans` 的结果作为 first-pass draft 带进 prompt，再生成 `BEST(codex)`、`NOTE`、`TIP`。
-- 如果通过 `<prefix> + E` 提供了额外上下文，Codex 还会生成一行整理过的 `CONTEXT`，放在 `BEST(codex)` 前面，帮助理解最终表达该怎么用；`E` 的 popup 支持多行上下文和多行正文。
-- 历史里会保留：原句、快速 `EN(trans)`、Codex 的 `NOTE/TIP`、可选的 `CONTEXT`、以及最终推荐的 `BEST(codex)`；`NOTE/TIP/CONTEXT` 会显示在 `EN` 和 `BEST` 之间。
-- 提交后状态栏会先显示 `Language: translating...` 或 `Language: translating with context...`，`trans` 返回后更新成 `EN: ...`，Codex 完成后再更新成 `BEST: ...`。
+Language Coach 依赖：
+- Language Coach 只使用 OpenAI-compatible `/chat/completions` API，不再调用 `codex exec` 或 `trans`。
+- 真实配置文件固定放在 `~/.config/tmux-language-rewrite/language.env`；仓库只提供模板 `tmux/.env.example`。
+- 新机器初始化：
+
+```sh
+mkdir -p ~/.config/tmux-language-rewrite
+cp ~/.config/nvim/tmux/.env.example ~/.config/tmux-language-rewrite/language.env
+chmod 600 ~/.config/tmux-language-rewrite/language.env
+```
+
+- `language.env` 必填：
+
+```sh
+export TMUX_LANG_API_BASE_URL="https://api.openai.com/v1"
+export TMUX_LANG_API_KEY="..."
+export TMUX_LANG_API_MODEL="gpt-5.2-chat-latest"
+export TMUX_LANG_API_TIMEOUT="30"
+```
+
+- 缺少配置文件、`TMUX_LANG_API_BASE_URL`、`TMUX_LANG_API_KEY` 或 `TMUX_LANG_API_MODEL` 时会直接报错，不会回退到其他后端。
+- 如果通过 `<prefix> + E` 提供了额外上下文，API 会生成一行整理过的 `CONTEXT`，放在 `BEST` 前面，帮助理解最终表达该怎么用；`E` 的 popup 支持多行上下文和多行正文。
+- 历史里会保留：原句、`EN`、`NOTE/TIP`、可选的 `CONTEXT`、以及最终推荐的 `BEST`；`NOTE/TIP/CONTEXT` 会显示在 `EN` 和 `BEST` 之间。
+- 提交后状态栏会先显示 `Language: translating...` 或 `Language: translating with context...`，API 完成后更新成 `BEST: ...`。
 - 剪贴板 / tmux buffer 中只放“推荐使用的更自然英文”，保持原来的粘贴习惯。
-- `translate-shell`（命令 `trans`）作为兜底后端；Codex 不可用或失败时会自动回退。
-- 可用环境变量：
-  - `TMUX_LANG_BACKEND=codex|trans`：仅在你想强制单后端时使用；留空就是默认的“先 `trans`、后 Codex”流程
-  - `TMUX_LANG_CODEX_MODEL`（默认 `gpt-5.4-mini`）
-  - `TMUX_LANG_CODEX_EFFORT`（默认 `low`）
-  - `TMUX_LANG_CODEX_SERVICE_TIER` 暂未开放；默认固定走 `fast`
-  - `TMUX_LANG_CODEX_CWD`（默认 `$HOME`）
-  - `TMUX_LANG_CODEX_BIN`（可选；显式指定可用的 `codex` 可执行文件）
 - 脚本优先使用 `@clipboard`，其次尝试 `pbcopy/wl-copy/xclip/xsel/win32yank.exe/clip.exe`。
 - 历史文件默认保存在 `~/.tmux-language-history`（本地文件，不入库）。
-- Codex 失败时会把原因写到 `~/.tmux-language.log`；fallback 记录的 `NOTE` 也会带失败原因。
+- API 配置或请求失败时会把非敏感原因写到 `~/.tmux-language.log`。
 - `<prefix> + H` 会显示历史中的 `IN / EN / NOTE / TIP / CONTEXT / BEST`；默认打开最新一页，支持 `j/k` 翻页、`q` 关闭，旧记录仍可读取。
 - 输入提示固定在状态栏第 2 行（`message-line=1`）。
 

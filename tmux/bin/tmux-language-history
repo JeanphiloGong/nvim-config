@@ -38,7 +38,7 @@ else
       context_txt = $9
       printf "%2d. %s\n", idx, ts
       printf "  IN        : %s\n", in_txt
-      printf "  EN(trans) : %s\n", en_txt
+      printf "  EN        : %s\n", en_txt
       if (note_txt != "") {
         printf "  NOTE      : %s\n", note_txt
       }
@@ -50,7 +50,7 @@ else
       }
       if (best_txt != "") {
         printf "\n"
-        printf "  BEST(codex): %s\n", best_txt
+        printf "  BEST      : %s\n", best_txt
       }
       printf "\f\n"
     } else if (NF >= 7) {
@@ -61,7 +61,7 @@ else
       tip_txt = $7
       printf "%2d. %s\n", idx, ts
       printf "  IN        : %s\n", in_txt
-      printf "  EN(trans) : %s\n", en_txt
+      printf "  EN        : %s\n", en_txt
       if (note_txt != "") {
         printf "  NOTE      : %s\n", note_txt
       }
@@ -70,7 +70,7 @@ else
       }
       if (best_txt != "") {
         printf "\n"
-        printf "  BEST(codex): %s\n", best_txt
+        printf "  BEST      : %s\n", best_txt
       }
       printf "\f\n"
     } else {
