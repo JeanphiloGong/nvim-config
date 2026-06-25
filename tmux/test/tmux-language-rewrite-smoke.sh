@@ -28,12 +28,13 @@ printf '%s\n' "$missing_output" | grep -F "missing config" >/dev/null
 
 port_file="$tmp_root/port"
 request_file="$tmp_root/request.jsonl"
-python3 - "$port_file" "$request_file" <<'PY' &
+counter_file="$tmp_root/count"
+python3 - "$port_file" "$request_file" "$counter_file" <<'PY' &
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-port_file, request_file = sys.argv[1], sys.argv[2]
+port_file, request_file, counter_file = sys.argv[1], sys.argv[2], sys.argv[3]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -44,6 +45,15 @@ class Handler(BaseHTTPRequestHandler):
             handle.write(body)
             handle.write("\n")
 
+        try:
+            with open(counter_file, "r", encoding="utf-8") as handle:
+                count = int(handle.read().strip() or "0")
+        except FileNotFoundError:
+            count = 0
+        count += 1
+        with open(counter_file, "w", encoding="utf-8") as handle:
+            handle.write(str(count))
+
         if self.path != "/v1/chat/completions":
             self.send_response(404)
             self.end_headers()
@@ -51,6 +61,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") != "Bearer test-key":
             self.send_response(401)
             self.end_headers()
+            return
+
+        if count <= 4:
+            response = b'{"error":"temporary upstream failure"}'
+            self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
             return
 
         content = {
@@ -86,8 +105,8 @@ class Handler(BaseHTTPRequestHandler):
 server = HTTPServer(("127.0.0.1", 0), Handler)
 with open(port_file, "w", encoding="utf-8") as handle:
     handle.write(str(server.server_port))
-server.handle_request()
-server.handle_request()
+for _ in range(6):
+    server.handle_request()
 PY
 server_pid="$!"
 
@@ -122,5 +141,6 @@ grep -F "For teammate review:" "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F '"model": "gpt-5.5"' "$request_file" >/dev/null
 grep -F '"reasoning_effort": "low"' "$request_file" >/dev/null
 grep -F 'teammate review' "$request_file" >/dev/null
+test "$(wc -l <"$request_file" | tr -d ' ')" -eq 6
 
 printf 'tmux-language-rewrite smoke: OK\n'
