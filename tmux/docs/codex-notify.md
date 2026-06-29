@@ -50,16 +50,6 @@ notify = ["/home/<you>/.local/bin/codex-tmux-notify"]
 Codex does not expand `~` or `$HOME` in TOML, so use an absolute path. Restart
 Codex CLI after editing the config.
 
-AgentBoard lifecycle status also requires hooks to be enabled:
-
-```toml
-[features]
-hooks = true
-```
-
-The `agentboard install` command can write the standard hook files for this
-repository. See [agent-board-install.md](agent-board-install.md).
-
 ## Verify
 
 1. Start Codex in tmux.
@@ -116,5 +106,4 @@ Fork attempts are logged to `~/.tmux-codex-fork.log` by default. Set
 
 ## Related Docs
 
-- AgentBoard install: [agent-board-install.md](agent-board-install.md)
 - tmux entrypoint: [../README.md](../README.md)

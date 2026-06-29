@@ -181,10 +181,8 @@ tmux/bin/orch status
 
 From tmux, the default Linux quick entry is the `<prefix> + M` menu. That menu
 includes an `Orch dashboard` item which opens a popup view for the current
-session.
-
-The WSL config still binds the Codex / Orch menu to `<prefix> + C`, while the
-default Linux config uses `<prefix> + C` for AgentBoard.
+session. The WSL config still binds the same Codex / Orch menu to
+`<prefix> + C`.
 
 Validate cheap invariants:
 

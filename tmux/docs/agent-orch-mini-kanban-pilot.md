@@ -1,8 +1,8 @@
 # Agent Orchestration Mini Kanban Pilot
 
-This pilot tracks issue #39. Its goal is to validate a small autonomous
-orchestration loop through AgentBoard while keeping tmux panes as execution
-workers.
+This legacy pilot tracks issue #39. It validates a small autonomous
+orchestration loop while keeping tmux panes as execution workers. The main
+product control plane has moved to the standalone ApiaryDeck project.
 
 ## Model
 
@@ -12,18 +12,6 @@ The runtime separates identity from terminal placement:
 - `pane_id` is the current tmux delivery target.
 - `task_id` is the unit of work in the window or session task flow.
 - `messages.jsonl` is the request and handoff trail.
-
-AgentBoard is the control plane:
-
-1. Open `:AgentBoard`.
-2. Select a session or window scope.
-3. Press `O` and enter the goal.
-4. Press `T` to dispatch the next ready task.
-5. Watch the right-side task board for ready/running/waiting/blocked/done,
-   current assignment, blockers, recent messages, and handoffs.
-
-Worker windows should contain worker agents only. The orchestration state is
-stored by `tmux-agent-orch`; AgentBoard reads it and triggers safe actions.
 
 The CLI remains available as a fallback:
 
@@ -107,11 +95,11 @@ tmux/test/tmux-agent-orch-smoke.sh
 
 Manual pilot loop inside tmux:
 
-1. Start from AgentBoard with `O`, or use `start --example mini-kanban`.
+1. Start with `start --example mini-kanban`.
 2. Ensure one or more worker panes exist, or let `tick --auto-create` create them.
-3. Run `T` in AgentBoard or `tick --auto-create` to dispatch the first ready task.
+3. Run `tick --auto-create` to dispatch the first ready task.
 4. Send a `handoff` or `blocker`.
-5. Run `T` again and confirm dependencies advance.
+5. Run `tick --auto-create` again and confirm dependencies advance.
 
 The pilot succeeds when the Mini Kanban task flow can move from plan to final
 review with durable task state, routed blockers, and explicit handoffs.

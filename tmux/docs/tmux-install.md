@@ -71,5 +71,4 @@ Make sure `$HOME/local/bin` appears before the older system tmux in `PATH`.
 
 ## Related Docs
 
-- AgentBoard install: [agent-board-install.md](agent-board-install.md)
 - tmux entrypoint: [../README.md](../README.md)

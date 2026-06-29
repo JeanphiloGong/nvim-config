@@ -137,18 +137,8 @@ Send a project handoff:
 machine. It validates agent identity, task DAGs, dependency waiting, blocker
 routing, handoffs, and `tick` dispatch.
 
-AgentBoard is the default control surface. Worker windows should contain
-worker agents only; orchestration state is stored in XDG state, not in a
-long-running worker-window orchestrator pane.
-
-AgentBoard flow:
-
-1. Open `<prefix> + C` or `:AgentBoard`.
-2. Select a session or window scope.
-3. Press `O` or `0` and enter the goal.
-4. Press `T` to dispatch the next ready task.
-5. Watch the right-side task board for ready, running, waiting, blocked, done,
-   assignment, blockers, and handoffs.
+This pilot remains as a CLI fallback. The product control plane and Web
+dashboard live in the standalone ApiaryDeck project.
 
 CLI fallback:
 
@@ -178,5 +168,4 @@ tmux/test/tmux-agent-orch-smoke.sh
 
 - tmux-orch state layer: [tmux-orch.md](tmux-orch.md)
 - Mini Kanban pilot: [agent-orch-mini-kanban-pilot.md](agent-orch-mini-kanban-pilot.md)
-- AgentBoard orchestration console: [agent-board-orchestration-console.md](agent-board-orchestration-console.md)
-- ApiaryDeck runtime: [apiarydeck.md](apiarydeck.md)
+- ApiaryDeck runtime: standalone ApiaryDeck checkout
