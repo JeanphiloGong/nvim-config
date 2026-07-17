@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -877,7 +878,12 @@ def build_parser():
 def main():
     parser = build_parser()
     args = parser.parse_args()
-    args.func(args)
+    root = args.root or default_root()
+    os.makedirs(root, exist_ok=True)
+    with open(os.path.join(root, ".lock"), "a", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        args.root = root
+        args.func(args)
 
 
 if __name__ == "__main__":

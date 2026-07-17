@@ -66,4 +66,23 @@ jq -e '.[] | select(.task_id == "T1" and .status == "running" and .assigned_agen
 
 status_json="$("$orch" status --json)"
 printf '%s\n' "$status_json" | jq -e '.board.running[0].assigned_agent.agent_id == "builder-1" and .board.agent_counts.busy == 1' >/dev/null
+
+export AGENT_ORCH_ROOT="$tmp_root/concurrent-state"
+"$orch" init --goal "concurrent handoff state"
+for iteration in $(seq 1 20); do
+  first_task="C${iteration}a"
+  second_task="C${iteration}b"
+  "$orch" add-task --task-id "$first_task" --title "Concurrent first $iteration"
+  "$orch" add-task --task-id "$second_task" --title "Concurrent second $iteration"
+  "$orch" handoff --task-id "$first_task" --from builder-1 --status done --output-json '{}' &
+  first_pid="$!"
+  "$orch" handoff --task-id "$second_task" --from builder-2 --status done --output-json '{}' &
+  second_pid="$!"
+  wait "$first_pid" "$second_pid"
+  jq -e --arg first "$first_task" --arg second "$second_task" '
+    (.[] | select(.task_id == $first).status) == "done" and
+    (.[] | select(.task_id == $second).status) == "done"
+  ' "$AGENT_ORCH_ROOT/tasks.json" >/dev/null
+done
+
 printf 'tmux-agent-orch smoke: OK\n'

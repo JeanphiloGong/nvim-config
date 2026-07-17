@@ -38,6 +38,9 @@ worktrees:
 export AGENT_ORCH_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/agent-orch/mini-kanban"
 ```
 
+Each command holds `$AGENT_ORCH_ROOT/.lock` for its full state transaction so
+concurrent worker handoffs cannot overwrite one another.
+
 ## Example Task DAG
 
 `load-example mini-kanban` creates this task flow:
