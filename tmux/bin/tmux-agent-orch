@@ -1,0 +1,890 @@
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+
+
+ROUTES = {
+    "missing_requirement": "session-orchestrator",
+    "issue_needed": "issue",
+    "implementation_question": "window-orchestrator",
+    "test_failure": "builder",
+    "review_finding": "builder",
+    "merge_conflict": "session-orchestrator",
+    "policy_decision": "human",
+}
+
+TASK_STATUSES = ["ready", "running", "waiting", "blocked", "done", "pending"]
+AGENT_STATES = ["idle", "busy", "waiting", "blocked", "done", "unknown"]
+
+
+def now():
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def fail(message):
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def run(cmd, input_text=None, timeout=2.0):
+    try:
+        return subprocess.run(
+            cmd,
+            input=input_text,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as exc:
+        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
+
+
+def tmux(*args, input_text=None, timeout=2.0):
+    return run(["tmux", *args], input_text=input_text, timeout=timeout)
+
+
+def is_dry_run(args):
+    return getattr(args, "dry_run", False) or os.environ.get("AGENT_ORCH_DRY_RUN") == "1"
+
+
+def session_name():
+    if not os.environ.get("TMUX"):
+        return "manual"
+    result = tmux("display-message", "-p", "#S")
+    name = result.stdout.strip()
+    return name or "manual"
+
+
+def slug(value):
+    value = value or "manual"
+    value = re.sub(r"[/\s:]+", "_", value)
+    value = re.sub(r"[^A-Za-z0-9._-]", "", value)
+    return value or "manual"
+
+
+def default_root():
+    if os.environ.get("AGENT_ORCH_ROOT"):
+        return os.environ["AGENT_ORCH_ROOT"]
+    state_home = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(state_home, "agent-orch", slug(session_name()))
+
+
+class Store:
+    def __init__(self, root):
+        self.root = root
+        self.meta_file = os.path.join(root, "meta.json")
+        self.agents_file = os.path.join(root, "agents.json")
+        self.tasks_file = os.path.join(root, "tasks.json")
+        self.messages_file = os.path.join(root, "messages.jsonl")
+        self.runs_file = os.path.join(root, "runs.json")
+
+    def ensure(self, goal=""):
+        os.makedirs(self.root, exist_ok=True)
+        if not os.path.exists(self.meta_file):
+            self.write_json(
+                self.meta_file,
+                {
+                    "goal": goal,
+                    "session_name": session_name(),
+                    "created_at": now(),
+                    "updated_at": now(),
+                },
+            )
+        elif goal:
+            meta = self.meta()
+            meta["goal"] = goal
+            meta["updated_at"] = now()
+            self.write_json(self.meta_file, meta)
+        if not os.path.exists(self.agents_file):
+            self.write_json(self.agents_file, [])
+        if not os.path.exists(self.tasks_file):
+            self.write_json(self.tasks_file, [])
+        if not os.path.exists(self.messages_file):
+            open(self.messages_file, "a", encoding="utf-8").close()
+        if not os.path.exists(self.runs_file):
+            self.write_json(self.runs_file, {"dispatches": []})
+
+    def read_json(self, path, default):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            return default
+
+    def write_json(self, path, data):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".tmp.", dir=os.path.dirname(path), text=True)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, path)
+
+    def append_message(self, message):
+        os.makedirs(os.path.dirname(self.messages_file), exist_ok=True)
+        with open(self.messages_file, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    def meta(self):
+        return self.read_json(self.meta_file, {})
+
+    def agents(self):
+        data = self.read_json(self.agents_file, [])
+        return data if isinstance(data, list) else []
+
+    def tasks(self):
+        data = self.read_json(self.tasks_file, [])
+        return data if isinstance(data, list) else []
+
+    def runs(self):
+        data = self.read_json(self.runs_file, {"dispatches": []})
+        return data if isinstance(data, dict) else {"dispatches": []}
+
+    def messages(self):
+        messages = []
+        try:
+            with open(self.messages_file, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        messages.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except FileNotFoundError:
+            pass
+        return messages
+
+
+def comma_list(value):
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def parse_json_object(value, label):
+    try:
+        data = json.loads(value or "{}")
+    except json.JSONDecodeError as exc:
+        fail(f"{label} must be valid JSON: {exc}")
+    if not isinstance(data, dict):
+        fail(f"{label} must be a JSON object")
+    return data
+
+
+def upsert(items, key, value, record):
+    output = [item for item in items if item.get(key) != value]
+    output.append(record)
+    output.sort(key=lambda item: item.get(key, ""))
+    return output
+
+
+def pane_ids_if_available():
+    result = tmux("list-panes", "-a", "-F", "#{pane_id}")
+    if result.returncode != 0:
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def validate_pane_if_possible(pane_id):
+    if not os.environ.get("TMUX"):
+        return
+    pane_ids = pane_ids_if_available()
+    if pane_ids is not None and pane_id not in pane_ids:
+        fail(f"pane does not exist: {pane_id}")
+
+
+def deps_complete(task, task_by_id):
+    for dep in task.get("depends_on", []):
+        dep_task = task_by_id.get(dep)
+        if not dep_task or dep_task.get("status") != "done":
+            return False
+    return True
+
+
+def refresh_task_readiness(tasks):
+    task_by_id = {task.get("task_id"): task for task in tasks}
+    for task in tasks:
+        status = task.get("status") or "pending"
+        if status not in ("pending", "waiting", "ready"):
+            continue
+        next_status = "ready" if deps_complete(task, task_by_id) else "waiting"
+        if task.get("status") != next_status:
+            task["status"] = next_status
+            task["updated_at"] = now()
+
+
+def find_task(tasks, task_id):
+    for task in tasks:
+        if task.get("task_id") == task_id:
+            return task
+    fail(f"unknown task: {task_id}")
+
+
+def find_agent_by_role(agents, role):
+    for agent in agents:
+        if agent.get("role") == role:
+            return agent.get("agent_id")
+    return f"role:{role}"
+
+
+def count_by(items, field, names):
+    counts = {name: 0 for name in names}
+    for item in items:
+        value = item.get(field) or "unknown"
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def waiting_on(task, task_by_id):
+    waiting = []
+    for dep in task.get("depends_on", []):
+        dep_task = task_by_id.get(dep)
+        if not dep_task or dep_task.get("status") != "done":
+            waiting.append(dep)
+    return waiting
+
+
+def status_payload(store):
+    tasks = store.tasks()
+    before = json.dumps(tasks, sort_keys=True)
+    refresh_task_readiness(tasks)
+    if json.dumps(tasks, sort_keys=True) != before:
+        store.write_json(store.tasks_file, tasks)
+
+    agents = store.agents()
+    messages = store.messages()
+    task_by_id = {task.get("task_id"): task for task in tasks}
+    agent_by_id = {agent.get("agent_id"): agent for agent in agents}
+    tasks_by_status = {}
+    enriched_tasks = []
+    for task in tasks:
+        task_copy = dict(task)
+        task_copy["waiting_on"] = waiting_on(task, task_by_id)
+        assigned_agent_id = task.get("assigned_agent_id") or ""
+        task_copy["assigned_agent"] = agent_by_id.get(assigned_agent_id, {})
+        status = task_copy.get("status") or "pending"
+        tasks_by_status.setdefault(status, []).append(task_copy)
+        enriched_tasks.append(task_copy)
+
+    for status_tasks in tasks_by_status.values():
+        status_tasks.sort(key=lambda item: item.get("task_id", ""))
+
+    blocked = [task for task in enriched_tasks if task.get("status") == "blocked"]
+    waiting = [task for task in enriched_tasks if task.get("waiting_on")]
+    running = [task for task in enriched_tasks if task.get("status") == "running"]
+    idle_agents = [agent for agent in agents if agent.get("state", "idle") == "idle"]
+
+    return {
+        "root": store.root,
+        "meta": store.meta(),
+        "agents": agents,
+        "tasks": enriched_tasks,
+        "message_count": len(messages),
+        "recent_messages": messages[-10:],
+        "runs": store.runs(),
+        "board": {
+            "task_counts": count_by(tasks, "status", TASK_STATUSES),
+            "agent_counts": count_by(agents, "state", AGENT_STATES),
+            "tasks_by_status": tasks_by_status,
+            "waiting": waiting,
+            "blocked": blocked,
+            "running": running,
+            "idle_agents": idle_agents,
+        },
+    }
+
+
+def load_example_tasks(store, name):
+    if name != "mini-kanban":
+        fail(f"unknown example: {name}")
+    tasks = []
+    examples = [
+        ("T0", "Initialize Mini Kanban project", "", "builder", "Project boots and exposes a documented dev/test command."),
+        ("T1", "Implement task model and localStorage persistence", "T0", "builder", "Unit checks cover create, update, move, delete, and persistence."),
+        ("T2", "Build board UI with task creation and movement", "T1", "builder", "Manual check creates tasks and moves them across Todo, Doing, Done."),
+        ("T3", "Add filtering, editing, and deletion", "T2", "builder", "Manual check filters by keyword/status, edits title, and deletes a task."),
+        ("T4", "Run quality pass and complete README", "T2,T3", "tester", "Tests/build pass and README explains usage plus project scope."),
+        ("T5", "Perform final orchestration review", "T4", "reviewer", "Final review reports gaps in agent identity, task DAG, blocker routing, and handoff flow."),
+    ]
+    for task_id, title, deps, role, verification in examples:
+        depends_on = comma_list(deps)
+        tasks.append(
+            {
+                "task_id": task_id,
+                "title": title,
+                "description": title,
+                "depends_on": depends_on,
+                "owner_role": role,
+                "verification": verification,
+                "status": "ready" if not depends_on else "waiting",
+                "assigned_agent_id": "",
+                "outputs": [],
+                "blocker": {},
+                "updated_at": now(),
+            }
+        )
+    store.write_json(store.tasks_file, tasks)
+
+
+def next_agent_id(agents, role):
+    prefix = f"{role}-"
+    used = {agent.get("agent_id") for agent in agents}
+    index = 1
+    while f"{prefix}{index}" in used:
+        index += 1
+    return f"{prefix}{index}"
+
+
+def worker_window_name(args):
+    return getattr(args, "worker_window_name", None) or "agents"
+
+
+def workdir(args):
+    value = getattr(args, "workdir", None) or os.getcwd()
+    return os.path.abspath(os.path.expanduser(value))
+
+
+def agent_command(args):
+    return getattr(args, "agent_command", None) or os.environ.get("AGENT_ORCH_AGENT_CMD") or "codex"
+
+
+def tmux_session(args):
+    return getattr(args, "session", None) or session_name()
+
+
+def find_window_by_name(session, name):
+    result = tmux("list-windows", "-t", session, "-F", "#{window_id}\t#{window_name}", timeout=3.0)
+    if result.returncode != 0:
+        fail(f"failed to list tmux windows for {session}: {result.stderr.strip()}")
+    for line in result.stdout.splitlines():
+        window_id, _, window_name = line.partition("\t")
+        if window_name == name:
+            return window_id
+    return ""
+
+
+def create_worker_pane(args):
+    session = tmux_session(args)
+    name = worker_window_name(args)
+    cwd = workdir(args)
+    command = agent_command(args)
+    window_id = find_window_by_name(session, name)
+    if window_id:
+        result = tmux("split-window", "-d", "-P", "-F", "#{pane_id}", "-t", window_id, "-c", cwd, command, timeout=5.0)
+        if result.returncode == 0:
+            tmux("select-layout", "-t", window_id, "tiled", timeout=2.0)
+    else:
+        result = tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", session, "-n", name, "-c", cwd, command, timeout=5.0)
+    if result.returncode != 0:
+        fail(f"failed to create worker pane: {result.stderr.strip()}")
+    pane_id = result.stdout.strip().splitlines()[-1]
+    if not pane_id:
+        fail("failed to create worker pane: tmux returned no pane id")
+    return pane_id
+
+
+def ensure_agent_for_role(store, role, args, agents=None):
+    agents = agents if agents is not None else store.agents()
+    candidates = [
+        agent
+        for agent in agents
+        if agent.get("role") == role and agent.get("state", "idle") == "idle" and agent.get("pane_id")
+    ]
+    if candidates and not getattr(args, "force_new", False):
+        return sorted(candidates, key=lambda item: item.get("agent_id", ""))[0], agents, False
+
+    dry_run = is_dry_run(args)
+    if dry_run:
+        pane_id = f"%dry-{role}-{len(agents) + 1}"
+        delivery = "dry-run"
+    else:
+        if not os.environ.get("TMUX"):
+            fail("worker auto-create requires tmux; rerun with --dry-run outside tmux")
+        pane_id = create_worker_pane(args)
+        delivery = "tmux"
+
+    record = {
+        "agent_id": next_agent_id(agents, role),
+        "role": role,
+        "pane_id": pane_id,
+        "scope": "window",
+        "state": "idle",
+        "current_task_id": "",
+        "session": tmux_session(args),
+        "worker_window_name": worker_window_name(args),
+        "workdir": workdir(args),
+        "delivery": delivery,
+        "updated_at": now(),
+    }
+    agents = upsert(agents, "agent_id", record["agent_id"], record)
+    store.write_json(store.agents_file, agents)
+    runs = store.runs()
+    created = runs.get("created_agents")
+    if not isinstance(created, list):
+        created = []
+    created.append(
+        {
+            "ts": now(),
+            "agent_id": record["agent_id"],
+            "role": role,
+            "pane_id": pane_id,
+            "delivery": delivery,
+            "worker_window_name": record["worker_window_name"],
+        }
+    )
+    runs["created_agents"] = created
+    store.write_json(store.runs_file, runs)
+    return record, agents, True
+
+
+def prompt_for_task(agent, task):
+    verification = task.get("verification") or "Run the smallest relevant check and report the command."
+    description = task.get("description") or task.get("title") or task.get("task_id")
+    return "\n".join(
+        [
+            f"You are agent {agent.get('agent_id')} with role {agent.get('role')}.",
+            f"Task id: {task.get('task_id')}",
+            f"Task: {task.get('title')}",
+            "",
+            "Goal:",
+            description,
+            "",
+            "Boundaries:",
+            "- Work only on this task and its stated verification.",
+            "- If a dependency, missing requirement, review finding, or policy question blocks you, send a blocker request instead of guessing.",
+            "",
+            "Verification:",
+            verification,
+            "",
+            "Required handoff when done:",
+            "tmux-agent-orch handoff \\",
+            f"  --task-id {task.get('task_id')} \\",
+            f"  --from {agent.get('agent_id')} \\",
+            "  --status done \\",
+            "  --output-json '{\"changed_files\":[],\"checks\":[],\"risks\":[]}'",
+        ]
+    )
+
+
+def send_to_pane(pane_id, text):
+    load = tmux("load-buffer", "-", input_text=text, timeout=3.0)
+    if load.returncode != 0:
+        fail(f"failed to load tmux buffer: {load.stderr.strip()}")
+    paste = tmux("paste-buffer", "-t", pane_id, timeout=3.0)
+    if paste.returncode != 0:
+        fail(f"failed to paste to {pane_id}: {paste.stderr.strip()}")
+    enter = tmux("send-keys", "-t", pane_id, "Enter", timeout=3.0)
+    if enter.returncode != 0:
+        fail(f"failed to send Enter to {pane_id}: {enter.stderr.strip()}")
+
+
+def cmd_init(args):
+    store = Store(args.root or default_root())
+    store.ensure(args.goal)
+    print(f"Initialized agent orchestration state at {store.root}")
+
+
+def cmd_start(args):
+    store = Store(args.root or default_root())
+    store.ensure(args.goal)
+    meta = store.meta()
+    meta.update(
+        {
+            "goal": args.goal,
+            "session_name": args.session or session_name(),
+            "worker_window_name": args.worker_window_name,
+            "workdir": workdir(args),
+            "updated_at": now(),
+        }
+    )
+    store.write_json(store.meta_file, meta)
+    if args.example:
+        load_example_tasks(store, args.example)
+    print(f"Started orchestration state at {store.root}")
+
+
+def cmd_status(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    payload = status_payload(store)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    print(f"Goal: {payload['meta'].get('goal', '-')}")
+    print(f"Session: {payload['meta'].get('session_name', '-')}")
+    print(f"State Root: {store.root}")
+    print(
+        "Tasks: "
+        + " ".join(
+            f"{name}={count}"
+            for name, count in payload["board"]["task_counts"].items()
+            if count
+        )
+    )
+    print("\nAgents:")
+    for agent in payload["agents"]:
+        print(
+            "- {agent_id} role={role} state={state} pane={pane_id} task={current_task_id}".format(
+                **{**{"current_task_id": "-"}, **agent}
+            )
+        )
+    if not payload["agents"]:
+        print("- none")
+    print("\nTasks:")
+    for task in payload["tasks"]:
+        deps = ",".join(task.get("depends_on", [])) or "-"
+        print(
+            "- {task_id} status={status} owner={owner_role} agent={assigned_agent_id} deps={deps} {title}".format(
+                deps=deps,
+                **{**{"assigned_agent_id": "-", "owner_role": "builder"}, **task},
+            )
+        )
+    if not payload["tasks"]:
+        print("- none")
+    print(f"\nMessages: {payload['message_count']}")
+
+
+def cmd_ensure_agent(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    agent, _, created = ensure_agent_for_role(store, args.role, args)
+    action = "Created" if created else "Reused"
+    print(f"{action} agent {agent['agent_id']} ({agent['role']}) at {agent['pane_id']}")
+
+
+def cmd_register_agent(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    validate_pane_if_possible(args.pane)
+    agents = store.agents()
+    existing = {}
+    for agent in agents:
+        if agent.get("agent_id") == args.agent_id:
+            existing = agent
+            break
+    record = {
+        "agent_id": args.agent_id,
+        "role": args.role,
+        "pane_id": args.pane,
+        "scope": args.scope or existing.get("scope") or "window",
+        "state": args.state or existing.get("state") or "idle",
+        "current_task_id": existing.get("current_task_id", ""),
+        "updated_at": now(),
+    }
+    store.write_json(store.agents_file, upsert(agents, "agent_id", args.agent_id, record))
+    print(f"Registered agent {args.agent_id} ({args.role}) at {args.pane}")
+
+
+def cmd_add_task(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    tasks = store.tasks()
+    depends_on = comma_list(args.depends_on)
+    status = "ready" if not depends_on else "waiting"
+    record = {
+        "task_id": args.task_id,
+        "title": args.title,
+        "description": args.description or "",
+        "depends_on": depends_on,
+        "owner_role": args.owner_role,
+        "verification": args.verification or "",
+        "status": status,
+        "assigned_agent_id": "",
+        "outputs": [],
+        "blocker": {},
+        "updated_at": now(),
+    }
+    store.write_json(store.tasks_file, upsert(tasks, "task_id", args.task_id, record))
+    print(f"Added task {args.task_id} ({status})")
+
+
+def cmd_send_message(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    message = {
+        "ts": now(),
+        "from": args.from_agent,
+        "to": args.to,
+        "type": args.type,
+        "task_id": args.task_id or "",
+        "body": args.body,
+    }
+    store.append_message(message)
+    print(f"Recorded message {args.from_agent} -> {args.to} ({args.type})")
+
+
+def cmd_blocker(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    tasks = store.tasks()
+    agents = store.agents()
+    task = find_task(tasks, args.task_id)
+    target_role = ROUTES.get(args.request_type, "window-orchestrator")
+    target = "human" if target_role == "human" else find_agent_by_role(agents, target_role)
+    task["status"] = "blocked"
+    task["blocker"] = {
+        "from": args.from_agent,
+        "to": target,
+        "request_type": args.request_type,
+        "body": args.body,
+        "updated_at": now(),
+    }
+    task["updated_at"] = now()
+    for agent in agents:
+        if agent.get("agent_id") == args.from_agent:
+            agent["state"] = "waiting"
+            agent["updated_at"] = now()
+    store.write_json(store.tasks_file, tasks)
+    store.write_json(store.agents_file, agents)
+    store.append_message(
+        {
+            "ts": now(),
+            "from": args.from_agent,
+            "to": target,
+            "type": "blocker",
+            "request_type": args.request_type,
+            "task_id": args.task_id,
+            "body": args.body,
+        }
+    )
+    print(f"Blocked {args.task_id}; routed {args.request_type} to {target}")
+
+
+def cmd_handoff(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    output = parse_json_object(args.output_json, "--output-json")
+    tasks = store.tasks()
+    agents = store.agents()
+    task = find_task(tasks, args.task_id)
+    task["status"] = args.status
+    task["outputs"] = task.get("outputs") or []
+    task["outputs"].append({"from": args.from_agent, "status": args.status, "output": output, "ts": now()})
+    if args.status == "done":
+        task["assigned_agent_id"] = ""
+        task["blocker"] = {}
+    task["updated_at"] = now()
+    for agent in agents:
+        if agent.get("agent_id") == args.from_agent:
+            agent["state"] = "idle" if args.status == "done" else args.status
+            agent["current_task_id"] = ""
+            agent["updated_at"] = now()
+    store.write_json(store.tasks_file, tasks)
+    store.write_json(store.agents_file, agents)
+    store.append_message(
+        {
+            "ts": now(),
+            "from": args.from_agent,
+            "to": "window-orchestrator",
+            "type": "handoff",
+            "task_id": args.task_id,
+            "status": args.status,
+            "output": output,
+        }
+    )
+    print(f"Recorded handoff for {args.task_id}: {args.status}")
+
+
+def cmd_tick(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    tasks = store.tasks()
+    agents = store.agents()
+    refresh_task_readiness(tasks)
+    ready = [task for task in tasks if task.get("status") == "ready"]
+    if not ready:
+        store.write_json(store.tasks_file, tasks)
+        print("No ready tasks")
+        return
+    task = sorted(ready, key=lambda item: item.get("task_id", ""))[0]
+    owner_role = task.get("owner_role") or "builder"
+    candidates = [
+        agent
+        for agent in agents
+        if agent.get("role") == owner_role and agent.get("state", "idle") == "idle" and agent.get("pane_id")
+    ]
+    if not candidates and args.auto_create:
+        agent, agents, created = ensure_agent_for_role(store, owner_role, args, agents)
+        candidates = [agent]
+        if created:
+            print(
+                "Auto-created {agent_id} role={role} pane={pane_id} window={window}".format(
+                    agent_id=agent["agent_id"],
+                    role=owner_role,
+                    pane_id=agent["pane_id"],
+                    window=agent.get("worker_window_name") or worker_window_name(args),
+                )
+            )
+    if not candidates:
+        store.write_json(store.tasks_file, tasks)
+        print(f"No idle agent for role {owner_role}")
+        return
+    agent = sorted(candidates, key=lambda item: item.get("agent_id", ""))[0]
+    prompt = prompt_for_task(agent, task)
+    dry_run = is_dry_run(args)
+    delivery = "dry-run"
+    if not dry_run:
+        send_to_pane(agent["pane_id"], prompt)
+        delivery = "tmux"
+    task["status"] = "running"
+    task["assigned_agent_id"] = agent["agent_id"]
+    task["updated_at"] = now()
+    agent["state"] = "busy"
+    agent["current_task_id"] = task["task_id"]
+    agent["updated_at"] = now()
+    runs = store.runs()
+    dispatches = runs.get("dispatches")
+    if not isinstance(dispatches, list):
+        dispatches = []
+    dispatches.append(
+        {
+            "ts": now(),
+            "task_id": task["task_id"],
+            "agent_id": agent["agent_id"],
+            "pane_id": agent["pane_id"],
+            "session": agent.get("session") or tmux_session(args),
+            "worker_window_name": agent.get("worker_window_name") or worker_window_name(args),
+            "delivery": delivery,
+        }
+    )
+    runs["dispatches"] = dispatches
+    store.write_json(store.tasks_file, tasks)
+    store.write_json(store.agents_file, agents)
+    store.write_json(store.runs_file, runs)
+    store.append_message(
+        {
+            "ts": now(),
+            "from": "orchestrator",
+            "to": agent["agent_id"],
+            "type": "assignment",
+            "task_id": task["task_id"],
+            "body": prompt,
+            "delivery": delivery,
+        }
+    )
+    print(
+        "Dispatched {task_id} to {agent_id} pane={pane_id} window={window} ({delivery})".format(
+            task_id=task["task_id"],
+            agent_id=agent["agent_id"],
+            pane_id=agent["pane_id"],
+            window=agent.get("worker_window_name") or worker_window_name(args),
+            delivery=delivery,
+        )
+    )
+
+
+def cmd_load_example(args):
+    store = Store(args.root or default_root())
+    store.ensure()
+    load_example_tasks(store, args.name)
+    print(f"Loaded example {args.name}")
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="Coordinate lightweight agent tasks across tmux panes")
+    parser.add_argument("--root", help="state root; defaults to AGENT_ORCH_ROOT or XDG state")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    init = sub.add_parser("init")
+    init.add_argument("--goal", required=True)
+    init.set_defaults(func=cmd_init)
+
+    start = sub.add_parser("start")
+    start.add_argument("--goal", required=True)
+    start.add_argument("--example", choices=["mini-kanban"])
+    start.add_argument("--session")
+    start.add_argument("--worker-window-name", default="agents")
+    start.add_argument("--workdir", default=os.getcwd())
+    start.set_defaults(func=cmd_start)
+
+    status = sub.add_parser("status")
+    status.add_argument("--json", action="store_true")
+    status.set_defaults(func=cmd_status)
+
+    register = sub.add_parser("register-agent")
+    register.add_argument("--agent-id", required=True)
+    register.add_argument("--role", required=True)
+    register.add_argument("--pane", required=True)
+    register.add_argument("--scope")
+    register.add_argument("--state")
+    register.set_defaults(func=cmd_register_agent)
+
+    ensure_agent = sub.add_parser("ensure-agent")
+    ensure_agent.add_argument("--role", required=True)
+    ensure_agent.add_argument("--session")
+    ensure_agent.add_argument("--worker-window-name", default="agents")
+    ensure_agent.add_argument("--workdir", default=os.getcwd())
+    ensure_agent.add_argument("--agent-command", default=os.environ.get("AGENT_ORCH_AGENT_CMD", "codex"))
+    ensure_agent.add_argument("--dry-run", action="store_true")
+    ensure_agent.add_argument("--force-new", action="store_true")
+    ensure_agent.set_defaults(func=cmd_ensure_agent)
+
+    add_task = sub.add_parser("add-task")
+    add_task.add_argument("--task-id", required=True)
+    add_task.add_argument("--title", required=True)
+    add_task.add_argument("--depends-on", default="")
+    add_task.add_argument("--description", default="")
+    add_task.add_argument("--owner-role", default="builder")
+    add_task.add_argument("--verification", default="")
+    add_task.set_defaults(func=cmd_add_task)
+
+    message = sub.add_parser("send-message")
+    message.add_argument("--from", dest="from_agent", required=True)
+    message.add_argument("--to", required=True)
+    message.add_argument("--type", required=True)
+    message.add_argument("--body", required=True)
+    message.add_argument("--task-id", default="")
+    message.set_defaults(func=cmd_send_message)
+
+    blocker = sub.add_parser("blocker")
+    blocker.add_argument("--task-id", required=True)
+    blocker.add_argument("--from", dest="from_agent", required=True)
+    blocker.add_argument("--request-type", required=True)
+    blocker.add_argument("--body", required=True)
+    blocker.set_defaults(func=cmd_blocker)
+
+    handoff = sub.add_parser("handoff")
+    handoff.add_argument("--task-id", required=True)
+    handoff.add_argument("--from", dest="from_agent", required=True)
+    handoff.add_argument("--status", required=True)
+    handoff.add_argument("--output-json", default="{}")
+    handoff.set_defaults(func=cmd_handoff)
+
+    tick = sub.add_parser("tick")
+    tick.add_argument("--dry-run", action="store_true")
+    tick.add_argument("--auto-create", action="store_true")
+    tick.add_argument("--session")
+    tick.add_argument("--worker-window-name", default="agents")
+    tick.add_argument("--workdir", default=os.getcwd())
+    tick.add_argument("--agent-command", default=os.environ.get("AGENT_ORCH_AGENT_CMD", "codex"))
+    tick.set_defaults(func=cmd_tick)
+
+    example = sub.add_parser("load-example")
+    example.add_argument("name")
+    example.set_defaults(func=cmd_load_example)
+    return parser
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    root = args.root or default_root()
+    os.makedirs(root, exist_ok=True)
+    with open(os.path.join(root, ".lock"), "a", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        args.root = root
+        args.func(args)
+
+
+if __name__ == "__main__":
+    main()
