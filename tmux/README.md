@@ -106,6 +106,13 @@ chmod +x ~/.local/bin/codex-tmux-notify
 - tmux 3.6 源码安装：[docs/tmux-install.md](docs/tmux-install.md)
 - Windows / WSL 剪贴板：[docs/windows-wsl-clipboard.md](docs/windows-wsl-clipboard.md)
 
+### Linux SSH 剪贴板
+
+在远端使用本仓库时，Neovim 会在 SSH 会话中自动使用 OSC 52，tmux 的
+copy-mode `y` 也会通过 OSC 52 把内容发送到客户端终端，不依赖远端的
+`xclip` 或 `wl-copy`。更新后执行 `tmux source-file ~/.tmux.conf`，并重新
+打开 Neovim。
+
 ## 脚本地图
 
 | 脚本 | 作用 |

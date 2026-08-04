@@ -112,6 +112,22 @@ vim.api.nvim_create_user_command('Time', function()
 	vim.api.nvim_put({ timestamp }, 'l', true, true)
 end, {})
 
+-- Use OSC 52 over SSH so yanks reach the terminal on the client machine.
+if vim.env.SSH_TTY or vim.env.SSH_CONNECTION then
+  local osc52 = require("vim.ui.clipboard.osc52")
+  vim.g.clipboard = {
+    name = "OSC 52",
+    copy = {
+      ["+"] = osc52.copy("+"),
+      ["*"] = osc52.copy("*"),
+    },
+    paste = {
+      ["+"] = osc52.paste("+"),
+      ["*"] = osc52.paste("*"),
+    },
+  }
+end
+
 -- 设置系统粘贴板
 vim.opt.clipboard = "unnamedplus"
 
