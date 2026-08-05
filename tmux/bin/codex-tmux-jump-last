@@ -18,4 +18,3 @@ session="${win%%:*}"
 tmux switch-client -t "$session"
 tmux select-window -t "$win"
 tmux select-pane -t "$pane"
-
