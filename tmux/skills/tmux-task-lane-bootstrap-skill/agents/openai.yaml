@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tmux Task Lane Bootstrap"
+  short_description: "v0.1.4 - Realize tmux lanes inside one task window"
+  default_prompt: "Use $tmux-task-lane-bootstrap-skill to realize coder, reviewer, or issue-gate lanes inside the current tmux task window after the lane plan is already decided."

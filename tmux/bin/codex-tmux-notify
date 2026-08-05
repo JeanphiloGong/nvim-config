@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Codex CLI "notify" hook.
+#
+# Codex will call this command with 1 JSON argument (event payload). We don't
+# need to parse it; we just record which tmux pane/window the hook ran in.
+
+_payload="${1:-}"
+
+# Only do work when running inside tmux.
+pane="${TMUX_PANE:-}"
+if [ -z "$pane" ]; then
+  exit 0
+fi
+command -v tmux >/dev/null 2>&1 || exit 0
+
+# Record "where Codex finished" so tmux status can show it and jump back.
+win="$(tmux display-message -p -t "$pane" '#{session_name}:#{window_index}' 2>/dev/null || true)"
+if [ -z "$win" ]; then
+  exit 0
+fi
+
+path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
+user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
+thread_id="${CODEX_THREAD_ID:-}"
+
+# Optional: derive a short summary from the notify JSON payload.
+# Keep this best-effort and dependency-light (python3 is optional).
+summary=""
+if [ -n "$_payload" ] && command -v python3 >/dev/null 2>&1; then
+  summary="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+  payload = json.loads(sys.argv[1])
+except Exception:
+  sys.exit(0)
+
+msg = payload.get("last-assistant-message") or ""
+if isinstance(msg, dict):
+  msg = msg.get("content") or ""
+if not isinstance(msg, str):
+  msg = str(msg)
+
+msg = msg.strip()
+if not msg:
+  sys.exit(0)
+
+first = msg.splitlines()[0]
+first = first.replace("\t", " ").replace("\r", " ").replace("\n", " ")
+print(first[:80])
+PY
+)"
+fi
+
+# Prefer CODEX_THREAD_ID (stable env var). Fall back to best-effort JSON fields.
+if [ -z "$thread_id" ] && [ -n "$_payload" ] && command -v python3 >/dev/null 2>&1; then
+  thread_id="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+  payload = json.loads(sys.argv[1])
+except Exception:
+  sys.exit(0)
+
+def pick(obj, *keys):
+  if not isinstance(obj, dict):
+    return ""
+  for key in keys:
+    value = obj.get(key)
+    if value:
+      return str(value)
+  return ""
+
+candidate = (
+  pick(payload, "thread_id", "thread-id", "session_id", "session-id", "id")
+  or pick(payload.get("event"), "thread_id", "thread-id", "session_id", "session-id", "id")
+  or pick(payload.get("session"), "thread_id", "thread-id", "session_id", "session-id", "id")
+)
+
+if candidate:
+  print(candidate.strip())
+PY
+)"
+fi
+
+tmux set -gq @codex_last_win "$win"
+tmux set -gq @codex_last_pane "$pane"
+tmux set -gq @codex_last_path "$path"
+[ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
+[ -n "$thread_id" ] && tmux set -gq @codex_last_thread_id "$thread_id"
+[ -n "$thread_id" ] && tmux set -p -t "$pane" @codex_pane_thread_id "$thread_id" 2>/dev/null || true
+
+# Update shared second-line status slot (persistent until overwritten).
+shared_msg="Codex: $win"
+if [ -n "$summary" ]; then
+  shared_msg="$shared_msg | $summary"
+fi
+# Prevent tmux format interpolation for user content.
+shared_msg="${shared_msg//#/##}"
+tmux set -gq @shared_status_msg "$shared_msg"
+
+tmux refresh-client -S 2>/dev/null || true
+if [ -n "$summary" ]; then
+  tmux set -p -t "$pane" @codex_pane_summary "$summary" 2>/dev/null || true
+fi
+activity="ready for review"
+if [ -n "$summary" ]; then
+  activity="ready: $summary"
+fi
+tmux set -pq -t "$pane" @codex_pane_activity "$activity" 2>/dev/null || true
+tmux select-pane -t "$pane" -T "$activity" 2>/dev/null || true
+
+# Append to a simple history file so tmux can show a menu (latest first).
+# Format (tab-separated):
+#   <ts>  <session:win>  <pane_id>  <pane_path>  <thread_ref?>  <summary?>  <user_title?>
+history_file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
+if [ -z "$history_file" ]; then
+  history_file="$HOME/.tmux-codex-history"
+fi
+ts="$(date '+%Y-%m-%d %H:%M:%S')"
+thread_ref=""
+[ -n "$thread_id" ] && thread_ref="tid:$thread_id"
+
+mkdir -p "$(dirname "$history_file")" 2>/dev/null || true
+touch "$history_file" 2>/dev/null || true
+
+_append_and_trim() {
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$win" "$pane" "$path" "$thread_ref" "$summary" "$user_title" >>"$history_file" || return 0
+  tmp="${history_file}.tmp.$$"
+  dedup="${history_file}.dedup.$$"
+  # Keep only the latest row for each Codex thread id.
+  # For legacy rows without tid, dedupe by session/window + pane id.
+  awk -F '\t' '
+    {
+      key = ""
+      if ($5 ~ /^tid:/) {
+        key = $5
+      } else {
+        key = "legacy:" $2 "|" $3
+      }
+      rows[NR] = $0
+      keys[NR] = key
+      last[key] = NR
+    }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (last[keys[i]] == i) {
+          print rows[i]
+        }
+      }
+    }
+  ' "$history_file" >"$dedup" 2>/dev/null || return 0
+  tail -n 50 "$dedup" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
+  rm -f "$dedup" 2>/dev/null || true
+}
+
+if command -v flock >/dev/null 2>&1; then
+  lock="${history_file}.lock"
+  exec 9>"$lock" || exit 0
+  flock -w 2 9 || exit 0
+  _append_and_trim
+else
+  _append_and_trim
+fi
+
+# Notify: show a small "toast" inside tmux (not a persistent status segment).
+mode="$(tmux show -gv @codex_notify_mode 2>/dev/null || true)"
+[ -n "$mode" ] || mode="message"
+
+if [ "$mode" = "message" ]; then
+  # Keep it short; users can jump back via <prefix>+J / <prefix>+C.
+  if [ -n "$summary" ]; then
+    tmux display-message -d 5000 "Codex done: $win | $summary"
+  else
+    tmux display-message -d 5000 "Codex done: $win"
+  fi
+elif [ "$mode" = "popup" ]; then
+  # A nicer in-terminal "toast": small popup that auto-closes after a moment.
+  #
+  # Position is configurable via @codex_popup_corner:
+  #   tr|br|tl|bl (default: br)
+  # NOTE: tmux popups are modal and will capture input while shown.
+  # Fall back to display-message if display-popup isn't available.
+  corner="$(tmux show -gv @codex_popup_corner 2>/dev/null || true)"
+  [ -n "$corner" ] || corner="br"
+
+  # Margin from the client edge (in cells). Default: 1.
+  margin="$(tmux show -gv @codex_popup_margin 2>/dev/null || true)"
+  [ -n "$margin" ] || margin="1"
+
+  # These are tmux format strings (evaluated by tmux, not by the shell).
+  # We anchor to the *client* (whole window), not the current pane.
+  case "$corner" in
+    tr)
+      pos_x="#{e|-:#{e|-:#{client_width},#{popup_width}},$margin}"
+      pos_y="$margin"
+      ;;
+    tl)
+      pos_x="$margin"
+      pos_y="$margin"
+      ;;
+    bl)
+      pos_x="$margin"
+      pos_y="#{e|-:#{e|-:#{client_height},#{popup_height}},$margin}"
+      ;;
+    br|*)
+      pos_x="#{e|-:#{e|-:#{client_width},#{popup_width}},$margin}"
+      pos_y="#{e|-:#{e|-:#{client_height},#{popup_height}},$margin}"
+      ;;
+  esac
+
+  popup_w="$(tmux show -gv @codex_popup_width 2>/dev/null || true)"
+  popup_h="$(tmux show -gv @codex_popup_height 2>/dev/null || true)"
+  [ -n "$popup_w" ] || popup_w="60"
+  [ -n "$popup_h" ] || popup_h="6"
+  popup_dur_s="$(tmux show -gv @codex_popup_duration 2>/dev/null || true)"
+  [ -n "$popup_dur_s" ] || popup_dur_s="2"
+
+  # Use bash to print the message and sleep briefly; popup closes on exit (-E).
+  # Pass the fields via env vars to avoid shell quoting issues.
+  if ! tmux display-popup -E -t "$pane" -w "$popup_w" -h "$popup_h" -x "$pos_x" -y "$pos_y" -T "Codex" \
+    -e "CODEX_TOAST_WIN=$win" -e "CODEX_TOAST_SUMMARY=$summary" -e "CODEX_TOAST_SLEEP=$popup_dur_s" \
+    "bash -lc 'printf \"Codex done\\n%s\\n\" \"\$CODEX_TOAST_WIN\"; [ -n \"\$CODEX_TOAST_SUMMARY\" ] && printf \"%s\\n\" \"\$CODEX_TOAST_SUMMARY\"; sleep \"\$CODEX_TOAST_SLEEP\"'" 2>/dev/null; then
+    tmux display-message -d 5000 "Codex done: $win${summary:+ | $summary}"
+  fi
+fi

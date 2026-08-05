@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -u
+
+path="${1-}"
+if [ -z "$path" ]; then
+  path="${PWD}"
+fi
+
+branch="$(
+  git -C "$path" symbolic-ref --short HEAD 2>/dev/null ||
+  git -C "$path" rev-parse --short HEAD 2>/dev/null ||
+  true
+)"
+
+if [ -z "$branch" ]; then
+  tmux display-message "Git branch: not a repository" >/dev/null 2>&1 || true
+  exit 0
+fi
+
+copy_ok=0
+copy_via="tmux-buffer"
+
+tmux set-buffer -- "$branch" >/dev/null 2>&1 || true
+
+clip_cmd="$(tmux show -gv @clipboard 2>/dev/null || true)"
+if [ -n "$clip_cmd" ] && printf '%s' "$branch" | sh -c "$clip_cmd" >/dev/null 2>&1; then
+  copy_ok=1
+  copy_via="@clipboard"
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v pbcopy >/dev/null 2>&1; then
+  if printf '%s' "$branch" | pbcopy >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="pbcopy"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v wl-copy >/dev/null 2>&1; then
+  if printf '%s' "$branch" | wl-copy >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="wl-copy"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v xclip >/dev/null 2>&1; then
+  if printf '%s' "$branch" | xclip -selection clipboard >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="xclip"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v xsel >/dev/null 2>&1; then
+  if printf '%s' "$branch" | xsel --clipboard --input >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="xsel"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v win32yank.exe >/dev/null 2>&1; then
+  if printf '%s' "$branch" | win32yank.exe -i --crlf >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="win32yank.exe"
+  fi
+fi
+
+if [ "$copy_ok" -eq 0 ] && command -v clip.exe >/dev/null 2>&1; then
+  if printf '%s' "$branch" | clip.exe >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="clip.exe"
+  fi
+fi
+
+if [ "$copy_ok" -eq 1 ]; then
+  tmux display-message "Git branch copied via ${copy_via}: ${branch}" >/dev/null 2>&1 || true
+else
+  tmux display-message "Git branch copied to tmux buffer: ${branch}" >/dev/null 2>&1 || true
+fi

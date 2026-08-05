@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+orch_bin="$script_dir/orch"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tmux-task-project-handoff \
+    --status STATUS \
+    [--next-request REQUEST] \
+    [--note TEXT] \
+    [--refs-line TEXT] \
+    [--commit SHA] \
+    [--phase NAME] \
+    [--window-id WINDOW_ID] \
+    [--task-branch BRANCH] \
+    [--task-pane-id PANE_ID] \
+    [--project-pane-id PANE_ID] \
+    [--root PATH]
+
+Statuses:
+  merge-ready | merge-complete | blocked | needs-policy
+
+Notes:
+  - Resolves the canonical project orchestrator target from tmux session state
+    first and tmux-orch project-state second.
+  - Refuses to guess by pane index or active pane.
+  - Updates the local task-window lifecycle state before appending the durable
+    handoff and sending the message upward.
+EOF
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+tmux_session_name() {
+  tmux display-message -p '#S'
+}
+
+tmux_window_id() {
+  tmux display-message -p '#{window_id}'
+}
+
+tmux_window_name() {
+  tmux display-message -p '#W'
+}
+
+tmux_pane_id() {
+  tmux display-message -p '#{pane_id}'
+}
+
+default_state_root() {
+  local base session
+  base="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch}"
+  session="$(tmux_session_name 2>/dev/null || printf 'manual')"
+  session="$(printf '%s' "$session" | tr '/ :\t' '____' | tr -cd 'A-Za-z0-9._-')"
+  [ -n "$session" ] || session="manual"
+  printf '%s/%s' "$base" "$session"
+}
+
+send_multiline_message() {
+  local target="$1"
+  local message="$2"
+  tmux send-keys -t "$target" -l "$message"
+  tmux send-keys -t "$target" Enter
+  sleep 0.5
+  tmux send-keys -t "$target" Enter
+}
+
+resolve_project_target_from_tmux() {
+  local session_name="$1"
+  tmux show-options -t "$session_name" -qv @project_orchestrator_pane 2>/dev/null || true
+}
+
+project_target_exists() {
+  local session_name="$1"
+  local pane_id="$2"
+  tmux list-panes -a -F "$(printf '#{session_name}\t#{pane_id}')" \
+    | awk -F '\t' -v session_name="$session_name" -v pane_id="$pane_id" '$1 == session_name && $2 == pane_id { found = 1 } END { exit(found ? 0 : 1) }'
+}
+
+status=""
+next_request=""
+note=""
+refs_line="n/a"
+commit="n/a"
+phase=""
+window_id=""
+task_branch=""
+task_pane_id=""
+project_pane_id=""
+state_root=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --status)
+      status="$2"
+      shift 2
+      ;;
+    --next-request)
+      next_request="$2"
+      shift 2
+      ;;
+    --note)
+      note="$2"
+      shift 2
+      ;;
+    --refs-line)
+      refs_line="$2"
+      shift 2
+      ;;
+    --commit)
+      commit="$2"
+      shift 2
+      ;;
+    --phase)
+      phase="$2"
+      shift 2
+      ;;
+    --window-id)
+      window_id="$2"
+      shift 2
+      ;;
+    --task-branch)
+      task_branch="$2"
+      shift 2
+      ;;
+    --task-pane-id)
+      task_pane_id="$2"
+      shift 2
+      ;;
+    --project-pane-id)
+      project_pane_id="$2"
+      shift 2
+      ;;
+    --root)
+      state_root="$2"
+      shift 2
+      ;;
+    -h | --help | help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[ -n "${TMUX:-}" ] || fail "tmux-task-project-handoff must run inside tmux"
+[ -n "$status" ] || fail "--status is required"
+case "$status" in
+  merge-ready | merge-complete | blocked | needs-policy) ;;
+  *) fail "unsupported status: $status" ;;
+esac
+
+need_cmd tmux
+need_cmd jq
+need_cmd git
+[ -x "$orch_bin" ] || fail "missing executable orch at $orch_bin"
+
+[ -n "$state_root" ] || state_root="$(default_state_root)"
+project_file="$state_root/project-state.json"
+[ -f "$project_file" ] || fail "missing tmux-orch project-state at $project_file"
+[ -n "$note" ] || note="n/a"
+[ -n "$refs_line" ] || refs_line="n/a"
+
+session_name="$(tmux_session_name)"
+[ -n "$window_id" ] || window_id="$(tmux_window_id)"
+window_name="$(tmux_window_name)"
+[ -n "$task_pane_id" ] || task_pane_id="$(tmux_pane_id)"
+[ -n "$task_branch" ] || task_branch="$(git branch --show-current 2>/dev/null || true)"
+[ -n "$phase" ] || phase="$(jq -r --arg window_id "$window_id" 'map(select(.window_id == $window_id)) | first | .phase // empty' "$state_root/windows.json")"
+worktree_path="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+if [ -z "$project_pane_id" ]; then
+  project_pane_id="$(resolve_project_target_from_tmux "$session_name")"
+fi
+if [ -z "$project_pane_id" ]; then
+  project_pane_id="$(jq -r '.project_orchestrator_pane_id // empty' "$project_file")"
+fi
+project_session_name="$(jq -r '.session_name // empty' "$project_file")"
+[ -n "$project_session_name" ] || project_session_name="$session_name"
+
+case "$status" in
+  merge-ready)
+    [ "$commit" != "n/a" ] || fail "merge-ready requires --commit"
+    window_status="merge_ready"
+    commit_status="committed"
+    merge_status="merge_ready"
+    [ -n "$next_request" ] || next_request="schedule-merge"
+    next_action="handoff-project"
+    ;;
+  merge-complete)
+    [ "$commit" != "n/a" ] || fail "merge-complete requires --commit"
+    window_status="merge_complete"
+    commit_status="committed"
+    merge_status="merge_complete"
+    [ -n "$next_request" ] || next_request="retire-window"
+    next_action="retire-window"
+    ;;
+  blocked)
+    window_status="blocked"
+    if [ "$commit" != "n/a" ]; then
+      commit_status="committed"
+    else
+      commit_status="pending"
+    fi
+    merge_status="not_ready"
+    [ -n "$next_request" ] || next_request="await-policy"
+    next_action="handoff-project"
+    ;;
+  needs-policy)
+    window_status="blocked"
+    if [ "$commit" != "n/a" ]; then
+      commit_status="committed"
+    else
+      commit_status="pending"
+    fi
+    merge_status="not_ready"
+    [ -n "$next_request" ] || next_request="await-policy"
+    next_action="handoff-project"
+    ;;
+esac
+
+if [ -z "$project_pane_id" ]; then
+  "$orch_bin" register-window \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --window-name "$window_name" \
+    --phase "$phase" \
+    --status blocked \
+    --next-action resolve-project-handoff-target \
+    --owner-orchestrator-pane-id "$task_pane_id" >/dev/null
+  fail "missing-project-orchestrator-target"
+fi
+
+if ! project_target_exists "$project_session_name" "$project_pane_id"; then
+  "$orch_bin" register-window \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --window-name "$window_name" \
+    --phase "$phase" \
+    --status blocked \
+    --next-action resolve-project-handoff-target \
+    --owner-orchestrator-pane-id "$task_pane_id" >/dev/null
+  fail "stale-project-orchestrator-target: $project_pane_id"
+fi
+
+"$orch_bin" register-window \
+  --root "$state_root" \
+  --window-id "$window_id" \
+  --window-name "$window_name" \
+  --worktree-path "$worktree_path" \
+  --branch "$task_branch" \
+  --phase "$phase" \
+  --status "$window_status" \
+  --next-action "$next_action" \
+  --commit-status "$commit_status" \
+  --merge-status "$merge_status" \
+  --owner-orchestrator-pane-id "$task_pane_id" >/dev/null
+
+payload_json="$(
+  jq -cn \
+    --arg task_branch "$task_branch" \
+    --arg commit "$commit" \
+    --arg refs_line "$refs_line" \
+    --arg next_request "$next_request" \
+    --arg note "$note" \
+    '{
+      task_branch: $task_branch,
+      commit: $commit,
+      refs_line: $refs_line,
+      next_request: $next_request,
+      note: $note
+    }'
+)"
+
+"$orch_bin" handoff \
+  --root "$state_root" \
+  --window-id "$window_id" \
+  --phase "$phase" \
+  --from-pane-id "$task_pane_id" \
+  --to-pane-id "$project_pane_id" \
+  --from-role orchestrator \
+  --to-role project-orchestrator \
+  --type "$status" \
+  --payload-json "$payload_json" >/dev/null
+
+message="$(cat <<EOF
+[handoff][task->project]
+status: $status
+window_id: $window_id
+task_branch: $task_branch
+task_window_pane: $task_pane_id
+commit: $commit
+refs_line: $refs_line
+next_request: $next_request
+note: $note
+EOF
+)"
+
+send_multiline_message "$project_pane_id" "$message"
+
+printf '## Task Upward Handoff\n'
+printf -- '- status: %s\n' "$status"
+printf -- '- window_id: %s\n' "$window_id"
+printf -- '- task_pane_id: %s\n' "$task_pane_id"
+printf -- '- project_pane_id: %s\n' "$project_pane_id"
+printf -- '- next_request: %s\n' "$next_request"

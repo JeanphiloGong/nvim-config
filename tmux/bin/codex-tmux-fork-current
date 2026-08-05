@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Split from current pane and run "codex fork <session_id>" in the new pane.
+# Session id source priority:
+#   1) CODEX_SESSION_ID from foreground process env
+#   2) CODEX_THREAD_ID from foreground process env
+
+orientation="${1:-h}" # h -> horizontal split, v -> vertical split
+case "$orientation" in
+  h | v) ;;
+  *) orientation="h" ;;
+esac
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+target_pane="${TMUX_PANE:-}"
+if [ -z "$target_pane" ]; then
+  target_pane="$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)"
+fi
+[ -n "$target_pane" ] || exit 0
+
+pane_tty="$(tmux display-message -p -t "$target_pane" '#{pane_tty}' 2>/dev/null || true)"
+pane_path="$(tmux display-message -p -t "$target_pane" '#{pane_current_path}' 2>/dev/null || true)"
+[ -n "$pane_tty" ] || pane_tty=""
+tty_short="${pane_tty#/dev/}"
+pane_pid="$(tmux display-message -p -t "$target_pane" '#{pane_pid}' 2>/dev/null || true)"
+[ -n "$pane_path" ] || pane_path="$HOME"
+
+log_file="$(tmux show -gv @codex_fork_log_file 2>/dev/null || true)"
+[ -n "$log_file" ] || log_file="$HOME/.tmux-codex-fork.log"
+
+fork_source=""
+fork_pid=""
+fork_key=""
+debug_candidates=""
+
+append_log() {
+  local level="$1"
+  local detail="$2"
+  local ts
+  [ "$log_file" != "off" ] || return 0
+  ts="$(date '+%Y-%m-%d %H:%M:%S')"
+  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+  printf '%s\t%s\tpane=%s\ttty=%s\tsource=%s\tpid=%s\tkey=%s\tdetail=%s\n' \
+    "$ts" "$level" "$target_pane" "${tty_short:-"-"}" "${fork_source:-"-"}" "${fork_pid:-"-"}" "${fork_key:-"-"}" "$detail" >>"$log_file" 2>/dev/null || true
+}
+
+read_sid_from_pid_env() {
+  local pid="$1"
+  local source_name="${2:-pid}"
+  local env_file="/proc/${pid}/environ"
+  local key value sid thread_id
+
+  [ -r "$env_file" ] || return 1
+  sid=""
+  thread_id=""
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      CODEX_SESSION_ID)
+        sid="$value"
+        fork_source="$source_name"
+        fork_pid="$pid"
+        fork_key="CODEX_SESSION_ID"
+        break
+        ;;
+      CODEX_THREAD_ID)
+        if [ -z "$thread_id" ]; then
+          thread_id="$value"
+          fork_source="$source_name"
+          fork_pid="$pid"
+          fork_key="CODEX_THREAD_ID"
+        fi
+        ;;
+    esac
+  done < <(tr '\0' '\n' <"$env_file")
+
+  if [ -n "$sid" ]; then
+    session_id="$sid"
+    return 0
+  fi
+  if [ -n "$thread_id" ]; then
+    session_id="$thread_id"
+    return 0
+  fi
+  return 1
+}
+
+resolve_session_id() {
+  local pids candidates p
+  pids=""
+  candidates=""
+
+  # 1) Foreground process group on pane tty (prefer this).
+  if [ -n "$tty_short" ]; then
+    p="$(ps -o tpgid= -t "$tty_short" 2>/dev/null | tr -d '[:space:]' || true)"
+    case "$p" in
+      "" | "-1" | "0") ;;
+      *) candidates="${candidates}${p}"$'\n' ;;
+    esac
+  fi
+
+  # 2) Pane root process (usually shell), useful when no foreground pgid.
+  case "${pane_pid:-}" in
+    "" | "-1" | "0") ;;
+    *) candidates="${candidates}${pane_pid}"$'\n' ;;
+  esac
+
+  # 3) Any codex process currently on same tty.
+  if [ -n "$tty_short" ]; then
+    candidates="$candidates$(ps -t "$tty_short" -o pid= -o comm= 2>/dev/null | awk '$2=="codex"{print $1}' || true)"$'\n'
+  fi
+
+  # Deduplicate while preserving order.
+  pids="$(printf '%s' "$candidates" | awk 'NF && !seen[$1]++ {print $1}')"
+  debug_candidates="$(printf '%s' "$pids" | tr '\n' ',' | sed 's/,$//')"
+  [ -n "$pids" ] || return 1
+
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if [ -n "$tty_short" ] && [ "$p" = "$(ps -o tpgid= -t "$tty_short" 2>/dev/null | tr -d '[:space:]' || true)" ]; then
+      read_sid_from_pid_env "$p" "foreground_tpgid" && return 0
+      continue
+    fi
+    if [ -n "${pane_pid:-}" ] && [ "$p" = "$pane_pid" ]; then
+      read_sid_from_pid_env "$p" "pane_pid" && return 0
+      continue
+    fi
+    read_sid_from_pid_env "$p" "tty_codex_pid" && return 0
+  done <<<"$pids"
+
+  # 4) Fallback: pane-local thread id captured by notify hook.
+  p="$(tmux show -pv -t "$target_pane" @codex_pane_thread_id 2>/dev/null || true)"
+  if [ -n "$p" ]; then
+    fork_source="pane_option:@codex_pane_thread_id"
+    fork_pid="-"
+    fork_key="CODEX_THREAD_ID"
+    session_id="$p"
+    return 0
+  fi
+
+  return 1
+}
+
+session_id=""
+resolve_session_id || true
+
+if [ -z "$session_id" ]; then
+  append_log "MISS" "no sid candidates=${debug_candidates:-none}"
+  tmux set -gq @codex_fork_last_source "miss"
+  tmux set -gq @codex_fork_last_pid "-"
+  tmux set -gq @codex_fork_last_key "-"
+  tmux set -gq @codex_fork_last_detail "no sid candidates=${debug_candidates:-none}"
+  tmux display-message "Codex fork: no sid (checked fg/pane/tty/pane-option only)"
+  exit 0
+fi
+
+tmux set -gq @codex_fork_last_source "$fork_source"
+tmux set -gq @codex_fork_last_pid "$fork_pid"
+tmux set -gq @codex_fork_last_key "$fork_key"
+tmux set -gq @codex_fork_last_detail "sid=${session_id} candidates=${debug_candidates:-none}"
+
+split_flag="-h"
+[ "$orientation" = "v" ] && split_flag="-v"
+
+new_pane="$(
+  tmux split-window -P -F '#{pane_id}' "$split_flag" -c "$pane_path" -t "$target_pane" 2>/dev/null || true
+)"
+
+if [ -z "$new_pane" ]; then
+  append_log "FAIL" "split failed sid=${session_id}"
+  tmux display-message "Codex fork: split failed"
+  exit 0
+fi
+
+fork_cmd="$(printf 'codex fork %q' "$session_id")"
+tmux send-keys -t "$new_pane" "$fork_cmd" C-m
+
+append_log "HIT" "sid=${session_id} new_pane=${new_pane} cmd=${fork_cmd}"
+tmux display-message "Codex fork: ${session_id:0:8}... ($fork_source/$fork_key) -> $new_pane"

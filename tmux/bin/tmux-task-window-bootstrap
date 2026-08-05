@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+orch_bin="$script_dir/orch"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tmux-task-window-bootstrap \
+    --repo-root PATH \
+    --task-context TEXT \
+    [--task-kind KIND] \
+    [--task-slug SLUG] \
+    [--base-branch BRANCH] \
+    [--worktree-root PATH] \
+    [--window-name NAME] \
+    [--phase NAME] \
+    [--status STATUS] \
+    [--root PATH] \
+    [--session-id ID]
+
+Notes:
+  - Requires tmux, git, and a current Codex session id.
+  - Uses $TMUX_ORCH_ROOT or the default tmux-orch session root when --root is omitted.
+  - Uses tmux-only fallback mode when jq or tmux-orch is unavailable.
+  - Uses a two-step startup: create the task window, then dispatch bare `codex fork`.
+  - Prompt injection is not handled here; the caller must send it manually with `tmux send-keys`.
+EOF
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+tmux_session_name() {
+  tmux display-message -p '#S'
+}
+
+first_existing_dir() {
+  local path="$1"
+  while [ ! -e "$path" ] && [ "$path" != "/" ]; do
+    path="$(dirname "$path")"
+  done
+  printf '%s\n' "$path"
+}
+
+default_state_root() {
+  local base session
+  base="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch}"
+  session="$(tmux_session_name 2>/dev/null || printf 'manual')"
+  session="$(printf '%s' "$session" | tr '/ :\t' '____' | tr -cd 'A-Za-z0-9._-')"
+  [ -n "$session" ] || session="manual"
+  printf '%s/%s' "$base" "$session"
+}
+
+slugify() {
+  local value
+  value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  value="$(printf '%s' "$value" | sed 's/[^a-z0-9._-][^a-z0-9._-]*/-/g; s/^-//; s/-$//')"
+  value="${value:-task}"
+  printf '%.48s' "$value"
+}
+
+shell_like_command() {
+  case "$1" in
+    "" | bash | sh | zsh | fish | nu)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+state_root_is_writable() {
+  local root="$1"
+  local parent
+  parent="$(first_existing_dir "$root")"
+  [ -w "$parent" ]
+}
+
+repo_root=""
+task_context=""
+task_kind="task"
+task_slug=""
+base_branch=""
+worktree_root=""
+window_name=""
+phase="phase1"
+status="in_progress"
+state_root=""
+session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo-root)
+      repo_root="$2"
+      shift 2
+      ;;
+    --task-context | --task)
+      task_context="$2"
+      shift 2
+      ;;
+    --task-kind)
+      task_kind="$2"
+      shift 2
+      ;;
+    --task-slug)
+      task_slug="$2"
+      shift 2
+      ;;
+    --base-branch)
+      base_branch="$2"
+      shift 2
+      ;;
+    --worktree-root)
+      worktree_root="$2"
+      shift 2
+      ;;
+    --window-name)
+      window_name="$2"
+      shift 2
+      ;;
+    --phase)
+      phase="$2"
+      shift 2
+      ;;
+    --status)
+      status="$2"
+      shift 2
+      ;;
+    --root)
+      state_root="$2"
+      shift 2
+      ;;
+    --session-id)
+      session_id="$2"
+      shift 2
+      ;;
+    -h | --help | help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[ -n "$repo_root" ] || fail "--repo-root is required"
+[ -n "$task_context" ] || fail "--task-context is required"
+[ -n "${TMUX:-}" ] || fail "tmux-task-window-bootstrap must run inside tmux"
+[ -n "$session_id" ] || fail "missing CODEX_SESSION_ID/CODEX_THREAD_ID; pass --session-id explicitly"
+
+need_cmd tmux
+need_cmd git
+
+orch_enabled="no"
+orch_status="degraded"
+if has_cmd jq && [ -x "$orch_bin" ]; then
+  orch_enabled="yes"
+  orch_status="enabled"
+fi
+
+repo_root="$(git -C "$repo_root" rev-parse --show-toplevel)"
+[ -n "$base_branch" ] || base_branch="$(git -C "$repo_root" symbolic-ref --quiet --short HEAD)"
+[ -n "$base_branch" ] || fail "could not resolve base branch from $repo_root"
+[ -n "$task_slug" ] || task_slug="$(slugify "$task_context")"
+task_kind="$(slugify "$task_kind")"
+[ -n "$worktree_root" ] || worktree_root="$(dirname "$repo_root")/_worktrees"
+[ -n "$window_name" ] || window_name="wt-${task_slug}"
+[ -n "$state_root" ] || state_root="$(default_state_root)"
+if [ "$orch_enabled" = "yes" ] && ! state_root_is_writable "$state_root"; then
+  orch_enabled="no"
+  orch_status="degraded"
+fi
+
+branch="task/${task_kind}/$(date +%Y%m%d)-${task_slug}"
+worktree_path="${worktree_root}/${task_kind}-${task_slug}"
+session_name="$(tmux_session_name)"
+
+mkdir -p "$worktree_root"
+
+worktree_created="no"
+if git -C "$worktree_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || printf '%s' "$branch")"
+else
+  git -C "$repo_root" worktree add -b "$branch" "$worktree_path" "$base_branch"
+  worktree_created="yes"
+fi
+
+window_info="$(
+  tmux list-windows -t "$session_name" -F "$(printf '#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_current_path}\t#{pane_current_command}')" \
+  | awk -F '\t' -v want_name="$window_name" -v want_path="$worktree_path" '
+      $2 == want_name || $4 == want_path { print; exit }
+    '
+)"
+
+fork_status="not-started"
+if [ -n "$window_info" ]; then
+  window_id="$(printf '%s' "$window_info" | cut -f1)"
+  window_name="$(printf '%s' "$window_info" | cut -f2)"
+  orchestrator_pane_id="$(printf '%s' "$window_info" | cut -f3)"
+  target_command="$(printf '%s' "$window_info" | cut -f5)"
+  if shell_like_command "$target_command"; then
+    fork_status="window-ready"
+  else
+    fork_status="existing-window-busy"
+  fi
+else
+  new_window="$(
+    tmux new-window -d -t "$session_name" -n "$window_name" -c "$worktree_path" -P -F "$(printf '#{window_id}\t#{window_name}\t#{pane_id}')"
+  )"
+  window_id="$(printf '%s' "$new_window" | cut -f1)"
+  window_name="$(printf '%s' "$new_window" | cut -f2)"
+  orchestrator_pane_id="$(printf '%s' "$new_window" | cut -f3)"
+fi
+
+tmux set -wq -t "$window_id" @pane_orchestrator "$orchestrator_pane_id"
+tmux set -pt "$orchestrator_pane_id" @user_pane_title "orchestrator"
+
+if [ "$orch_enabled" = "yes" ]; then
+  "$orch_bin" init --root "$state_root" --project "$(basename "$repo_root")" >/dev/null
+  "$orch_bin" register-window \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --window-name "$window_name" \
+    --repo-root "$repo_root" \
+    --worktree-path "$worktree_path" \
+    --branch "$branch" \
+    --task "$task_context" \
+    --phase "$phase" \
+    --status "$status" \
+    --next-action "confirm-local-plan" \
+    --review-status pending \
+    --commit-status pending \
+    --merge-status not_ready \
+    --owner-orchestrator-pane-id "$orchestrator_pane_id" >/dev/null
+  "$orch_bin" register-pane \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --pane-id "$orchestrator_pane_id" \
+    --role orchestrator \
+    --scope window \
+    --status active >/dev/null
+fi
+
+if [ "$fork_status" != "existing-window-busy" ]; then
+  printf -v fork_cmd 'TMUX_ORCH_ROOT=%q codex fork %q --cd %q --no-alt-screen -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast' \
+    "$state_root" "$session_id" "$worktree_path"
+  tmux send-keys -t "$orchestrator_pane_id" "$fork_cmd" C-m
+  fork_status="fork-dispatched"
+fi
+
+handoff_ready="no"
+
+printf '## Bootstrap State\n'
+printf -- '- repo_root: %s\n' "$repo_root"
+printf -- '- branch: %s\n' "$branch"
+printf -- '- worktree_path: %s\n' "$worktree_path"
+printf -- '- window_name: %s\n' "$window_name"
+printf -- '- window_id: %s\n' "$window_id"
+printf -- '- orchestrator_pane_id: %s\n' "$orchestrator_pane_id"
+printf -- '- worktree_created: %s\n' "$worktree_created"
+printf '\n## Verification\n'
+printf -- '- window_exists: yes\n'
+printf -- '- tmux_orch_status: %s\n' "$orch_status"
+printf -- '- fork_status: %s\n' "$fork_status"
+printf -- '- handoff_ready: %s\n' "$handoff_ready"

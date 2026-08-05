@@ -1,0 +1,334 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+orch_bin="$script_dir/orch"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tmux-orch-preflight \
+    [--mode MODE] \
+    [--repo-root PATH] \
+    [--worktree-path PATH] \
+    [--window-id WINDOW_ID] \
+    [--pane-id PANE_ID] \
+    [--root PATH] \
+    [--session-id ID]
+
+Modes:
+  dispatch | orchestrate | window-bootstrap
+
+Notes:
+  - Reports required and optional environment readiness for tmux orchestration.
+  - Does not create panes, fork Codex, or mutate tmux-orch state.
+  - Exit code is 0 when required checks for the selected mode pass, 1 otherwise.
+EOF
+}
+
+need_arg() {
+  [ $# -ge 2 ] || {
+    printf 'error: missing value for %s\n' "${1:-argument}" >&2
+    exit 2
+  }
+}
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+sanitize_name() {
+  printf '%s' "$1" | tr '/ :\t' '____' | tr -cd 'A-Za-z0-9._-'
+}
+
+first_existing_dir() {
+  local path="$1"
+  while [ ! -e "$path" ] && [ "$path" != "/" ]; do
+    path="$(dirname "$path")"
+  done
+  printf '%s\n' "$path"
+}
+
+tmux_safe_display() {
+  local format="$1"
+  if has_cmd tmux && [ -n "${TMUX:-}" ]; then
+    tmux display-message -p "$format" 2>/dev/null || true
+  else
+    true
+  fi
+}
+
+pane_exists() {
+  local pane_id="$1"
+  [ -n "$pane_id" ] || return 1
+  has_cmd tmux || return 1
+  tmux list-panes -a -F '#{pane_id}' 2>/dev/null | awk -v want="$pane_id" '$1 == want { found = 1 } END { exit(found ? 0 : 1) }'
+}
+
+window_exists() {
+  local window_id="$1"
+  [ -n "$window_id" ] || return 1
+  has_cmd tmux || return 1
+  tmux list-windows -a -F '#{window_id}' 2>/dev/null | awk -v want="$window_id" '$1 == want { found = 1 } END { exit(found ? 0 : 1) }'
+}
+
+default_state_root() {
+  local base session
+  base="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch}"
+  session="$(tmux_safe_display '#S')"
+  session="${session:-manual}"
+  session="$(sanitize_name "$session")"
+  [ -n "$session" ] || session="manual"
+  printf '%s/%s\n' "$base" "$session"
+}
+
+mode="dispatch"
+repo_root=""
+worktree_path=""
+window_id=""
+pane_id=""
+state_root=""
+session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+session_id_source="missing"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mode)
+      need_arg "$@"
+      mode="$2"
+      shift 2
+      ;;
+    --repo-root)
+      need_arg "$@"
+      repo_root="$2"
+      shift 2
+      ;;
+    --worktree-path)
+      need_arg "$@"
+      worktree_path="$2"
+      shift 2
+      ;;
+    --window-id)
+      need_arg "$@"
+      window_id="$2"
+      shift 2
+      ;;
+    --pane-id)
+      need_arg "$@"
+      pane_id="$2"
+      shift 2
+      ;;
+    --root)
+      need_arg "$@"
+      state_root="$2"
+      shift 2
+      ;;
+    --session-id)
+      need_arg "$@"
+      session_id="$2"
+      shift 2
+      ;;
+    -h | --help | help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'error: unknown argument: %s\n' "$1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+case "$mode" in
+  dispatch | orchestrate | window-bootstrap) ;;
+  *)
+    printf 'error: unsupported mode: %s\n' "$mode" >&2
+    exit 2
+    ;;
+esac
+
+tmux_available="no"
+in_tmux="no"
+codex_available="no"
+jq_available="no"
+orch_available="no"
+orch_status="degraded"
+state_root_writable="no"
+repo_root_ok="unknown"
+worktree_match="unknown"
+window_exists_flag="no"
+pane_exists_flag="no"
+session_id_present="no"
+
+if has_cmd tmux; then
+  tmux_available="yes"
+fi
+if [ -n "${TMUX:-}" ] && [ "$tmux_available" = "yes" ]; then
+  in_tmux="yes"
+fi
+if has_cmd codex; then
+  codex_available="yes"
+fi
+if has_cmd jq; then
+  jq_available="yes"
+fi
+if [ "$jq_available" = "yes" ] && [ -x "$orch_bin" ]; then
+  orch_available="yes"
+  orch_status="enabled"
+fi
+
+if [ -n "$session_id" ]; then
+  session_id_present="yes"
+  if [ -n "${CODEX_SESSION_ID:-}" ] && [ "$session_id" = "${CODEX_SESSION_ID:-}" ]; then
+    session_id_source="CODEX_SESSION_ID"
+  elif [ -n "${CODEX_THREAD_ID:-}" ] && [ "$session_id" = "${CODEX_THREAD_ID:-}" ]; then
+    session_id_source="CODEX_THREAD_ID"
+  else
+    session_id_source="explicit"
+  fi
+fi
+
+[ -n "$worktree_path" ] || worktree_path="$PWD"
+if [ -d "$worktree_path" ] && has_cmd git; then
+  inferred_repo_root="$(git -C "$worktree_path" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -z "$repo_root" ] && [ -n "$inferred_repo_root" ]; then
+    repo_root="$inferred_repo_root"
+  fi
+fi
+if [ -n "$repo_root" ] && has_cmd git; then
+  resolved_repo_root="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$resolved_repo_root" ]; then
+    repo_root="$resolved_repo_root"
+    repo_root_ok="yes"
+  else
+    repo_root_ok="no"
+  fi
+fi
+if [ -n "$repo_root" ] && [ -n "$worktree_path" ] && has_cmd git; then
+  repo_common_dir="$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null || true)"
+  worktree_common_dir="$(git -C "$worktree_path" rev-parse --git-common-dir 2>/dev/null || true)"
+  if [ -n "$repo_common_dir" ] && [ -n "$worktree_common_dir" ] && [ "$repo_common_dir" = "$worktree_common_dir" ]; then
+    worktree_match="yes"
+  elif [ -n "$repo_common_dir" ] || [ -n "$worktree_common_dir" ]; then
+    worktree_match="no"
+  fi
+fi
+
+[ -n "$window_id" ] || window_id="$(tmux_safe_display '#{window_id}')"
+[ -n "$pane_id" ] || pane_id="$(tmux_safe_display '#{pane_id}')"
+if window_exists "$window_id"; then
+  window_exists_flag="yes"
+fi
+if pane_exists "$pane_id"; then
+  pane_exists_flag="yes"
+fi
+
+[ -n "$state_root" ] || state_root="$(default_state_root)"
+state_parent="$(first_existing_dir "$state_root")"
+if [ -w "$state_parent" ]; then
+  state_root_writable="yes"
+fi
+
+required_ready="yes"
+optional_ready="yes"
+can_dispatch_lane="yes"
+can_manage_lifecycle="yes"
+blockers=()
+warnings=()
+
+if [ "$tmux_available" != "yes" ]; then
+  blockers+=("tmux_missing")
+fi
+if [ "$in_tmux" != "yes" ]; then
+  blockers+=("not_in_tmux")
+fi
+if [ "$codex_available" != "yes" ]; then
+  blockers+=("codex_missing")
+fi
+if [ "$session_id_present" != "yes" ]; then
+  blockers+=("session_id_missing")
+fi
+if [ "$window_exists_flag" != "yes" ]; then
+  blockers+=("window_unresolved")
+fi
+if [ "$pane_exists_flag" != "yes" ]; then
+  blockers+=("pane_unresolved")
+fi
+if [ "$mode" = "window-bootstrap" ] && [ "${repo_root_ok:-no}" != "yes" ]; then
+  blockers+=("repo_root_invalid")
+fi
+
+if [ "$orch_available" != "yes" ]; then
+  warnings+=("orch_unavailable")
+fi
+if [ "$state_root_writable" != "yes" ]; then
+  warnings+=("state_root_not_writable")
+fi
+if [ "$repo_root_ok" = "no" ]; then
+  warnings+=("repo_root_invalid")
+fi
+if [ "$worktree_match" = "no" ]; then
+  warnings+=("worktree_outside_repo_root")
+fi
+
+if [ "${#blockers[@]}" -gt 0 ]; then
+  required_ready="no"
+  can_dispatch_lane="no"
+  can_manage_lifecycle="no"
+fi
+
+if [ "$orch_available" != "yes" ] || [ "$state_root_writable" != "yes" ]; then
+  optional_ready="no"
+  can_manage_lifecycle="no"
+fi
+
+printf '## Preflight\n'
+printf -- '- mode: %s\n' "$mode"
+printf -- '- helper_root: %s\n' "$script_dir"
+printf -- '- orch_bin: %s\n' "$orch_bin"
+printf -- '- repo_root: %s\n' "${repo_root:-n/a}"
+printf -- '- worktree_path: %s\n' "${worktree_path:-n/a}"
+printf -- '- session_name: %s\n' "$(tmux_safe_display '#S' || true)"
+printf -- '- window_id: %s\n' "${window_id:-n/a}"
+printf -- '- pane_id: %s\n' "${pane_id:-n/a}"
+printf -- '- session_id_present: %s\n' "$session_id_present"
+printf -- '- session_id_source: %s\n' "$session_id_source"
+printf -- '- state_root: %s\n' "$state_root"
+
+printf '\n## Required Checks\n'
+printf -- '- tmux_available: %s\n' "$tmux_available"
+printf -- '- in_tmux: %s\n' "$in_tmux"
+printf -- '- codex_available: %s\n' "$codex_available"
+printf -- '- window_exists: %s\n' "$window_exists_flag"
+printf -- '- pane_exists: %s\n' "$pane_exists_flag"
+printf -- '- repo_root_ok: %s\n' "$repo_root_ok"
+printf -- '- required_ready: %s\n' "$required_ready"
+
+printf '\n## Optional Checks\n'
+printf -- '- jq_available: %s\n' "$jq_available"
+printf -- '- orch_available: %s\n' "$orch_available"
+printf -- '- orch_status: %s\n' "$orch_status"
+printf -- '- state_root_writable: %s\n' "$state_root_writable"
+printf -- '- worktree_match: %s\n' "$worktree_match"
+printf -- '- optional_ready: %s\n' "$optional_ready"
+
+printf '\n## Capabilities\n'
+printf -- '- can_dispatch_lane: %s\n' "$can_dispatch_lane"
+printf -- '- can_manage_lifecycle: %s\n' "$can_manage_lifecycle"
+
+printf '\n## Findings\n'
+if [ "${#blockers[@]}" -gt 0 ]; then
+  printf -- '- blockers: %s\n' "$(IFS=,; printf '%s' "${blockers[*]}")"
+else
+  printf -- '- blockers: none\n'
+fi
+if [ "${#warnings[@]}" -gt 0 ]; then
+  printf -- '- warnings: %s\n' "$(IFS=,; printf '%s' "${warnings[*]}")"
+else
+  printf -- '- warnings: none\n'
+fi
+
+if [ "$required_ready" = "yes" ]; then
+  exit 0
+fi
+exit 1

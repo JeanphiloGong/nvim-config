@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Jump to the last pane that received a Codex notify event.
+# Data is written by tmux/bin/codex-tmux-notify into tmux global options.
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+pane="$(tmux show -gv @codex_last_pane 2>/dev/null || true)"
+win="$(tmux show -gv @codex_last_win 2>/dev/null || true)"
+
+if [ -z "$pane" ] || [ -z "$win" ]; then
+  tmux display-message "Codex: no last pane"
+  exit 0
+fi
+
+session="${win%%:*}"
+tmux switch-client -t "$session"
+tmux select-window -t "$win"
+tmux select-pane -t "$pane"

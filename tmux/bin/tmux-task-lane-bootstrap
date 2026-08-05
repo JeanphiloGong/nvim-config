@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+orch_bin="$script_dir/orch"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tmux-task-lane-bootstrap \
+    --role ROLE \
+    --task-context TEXT \
+    [--phase NAME] \
+    [--dispatcher-skill NAME] \
+    [--target-pane PANE_ID] \
+    [--orchestrator-pane-id PANE_ID] \
+    [--window-id WINDOW_ID] \
+    [--worktree-path PATH] \
+    [--layout h|v] \
+    [--root PATH] \
+    [--session-id ID]
+
+Roles:
+  coder | issue-gate | reviewer
+
+Notes:
+  - Requires tmux and a current Codex session id.
+  - Creates one non-orchestrator lane pane and dispatches bare `codex fork`.
+  - Prompt injection is not handled here; the caller must send it manually with `tmux send-keys`.
+  - Registers the pane in tmux-orch when jq and tmux-orch are available; otherwise continues in tmux-only fallback mode.
+EOF
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+tmux_session_name() {
+  tmux display-message -p '#S'
+}
+
+first_existing_dir() {
+  local path="$1"
+  while [ ! -e "$path" ] && [ "$path" != "/" ]; do
+    path="$(dirname "$path")"
+  done
+  printf '%s\n' "$path"
+}
+
+default_state_root() {
+  local base session
+  base="${TMUX_ORCH_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-orch}"
+  session="$(tmux_session_name 2>/dev/null || printf 'manual')"
+  session="$(printf '%s' "$session" | tr '/ :\t' '____' | tr -cd 'A-Za-z0-9._-')"
+  [ -n "$session" ] || session="manual"
+  printf '%s/%s' "$base" "$session"
+}
+
+role_option_key() {
+  printf '%s' "$1" | tr '-' '_'
+}
+
+default_layout_for_role() {
+  case "$1" in
+    coder) printf 'h' ;;
+    issue-gate | reviewer) printf 'v' ;;
+    *) printf 'v' ;;
+  esac
+}
+
+state_root_is_writable() {
+  local root="$1"
+  local parent
+  parent="$(first_existing_dir "$root")"
+  [ -w "$parent" ]
+}
+
+role=""
+task_context=""
+phase="phase1"
+dispatcher_skill='$tmux-task-orchestrator-skill'
+target_pane="${TMUX_PANE:-}"
+orchestrator_pane_id="${TMUX_PANE:-}"
+window_id=""
+worktree_path=""
+layout=""
+state_root=""
+session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+status="active"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --role)
+      role="$2"
+      shift 2
+      ;;
+    --task-context | --task)
+      task_context="$2"
+      shift 2
+      ;;
+    --phase)
+      phase="$2"
+      shift 2
+      ;;
+    --dispatcher-skill)
+      dispatcher_skill="$2"
+      shift 2
+      ;;
+    --target-pane)
+      target_pane="$2"
+      shift 2
+      ;;
+    --orchestrator-pane-id)
+      orchestrator_pane_id="$2"
+      shift 2
+      ;;
+    --window-id)
+      window_id="$2"
+      shift 2
+      ;;
+    --worktree-path)
+      worktree_path="$2"
+      shift 2
+      ;;
+    --layout)
+      layout="$2"
+      shift 2
+      ;;
+    --root)
+      state_root="$2"
+      shift 2
+      ;;
+    --session-id)
+      session_id="$2"
+      shift 2
+      ;;
+    --status)
+      status="$2"
+      shift 2
+      ;;
+    -h | --help | help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[ -n "${TMUX:-}" ] || fail "tmux-task-lane-bootstrap must run inside tmux"
+[ -n "$role" ] || fail "--role is required"
+[ -n "$task_context" ] || fail "--task-context is required"
+[ -n "$orchestrator_pane_id" ] || fail "could not resolve orchestrator pane id"
+[ -n "$session_id" ] || fail "missing CODEX_SESSION_ID/CODEX_THREAD_ID; pass --session-id explicitly"
+[ -n "$target_pane" ] || fail "could not resolve target pane"
+
+need_cmd tmux
+
+orch_enabled="no"
+orch_status="degraded"
+if has_cmd jq && [ -x "$orch_bin" ]; then
+  orch_enabled="yes"
+  orch_status="enabled"
+fi
+
+[ -n "$window_id" ] || window_id="$(tmux display-message -p -t "$orchestrator_pane_id" '#{window_id}')"
+[ -n "$worktree_path" ] || worktree_path="$(tmux display-message -p -t "$target_pane" '#{pane_current_path}')"
+[ -n "$layout" ] || layout="$(default_layout_for_role "$role")"
+[ -n "$state_root" ] || state_root="$(default_state_root)"
+if [ "$orch_enabled" = "yes" ] && ! state_root_is_writable "$state_root"; then
+  orch_enabled="no"
+  orch_status="degraded"
+fi
+
+split_flag="-v"
+[ "$layout" = "h" ] && split_flag="-h"
+
+new_pane_id="$(
+  tmux split-window -P -F '#{pane_id}' "$split_flag" -t "$target_pane" -c "$worktree_path"
+)"
+[ -n "$new_pane_id" ] || fail "failed to create lane pane"
+
+tmux set -wq -t "$window_id" @pane_orchestrator "$orchestrator_pane_id"
+tmux set -wq -t "$window_id" "@pane_$(role_option_key "$role")" "$new_pane_id"
+tmux set -pt "$orchestrator_pane_id" @user_pane_title "orchestrator"
+tmux set -pt "$new_pane_id" @user_pane_title "$role"
+
+if [ "$orch_enabled" = "yes" ]; then
+  "$orch_bin" init --root "$state_root" >/dev/null
+  "$orch_bin" register-pane \
+    --root "$state_root" \
+    --window-id "$window_id" \
+    --pane-id "$new_pane_id" \
+    --role "$role" \
+    --scope phase \
+    --phase "$phase" \
+    --status "$status" \
+    --forked-from-session-id "$session_id" \
+    --forked-from-pane-id "$orchestrator_pane_id" >/dev/null
+fi
+
+fork_cmd="TMUX_ORCH_ROOT=$(printf '%q' "$state_root") codex fork $(printf '%q' "$session_id") --cd $(printf '%q' "$worktree_path") --no-alt-screen"
+case "$role" in
+  coder | reviewer)
+    fork_cmd="$fork_cmd -m gpt-5.4 -c model_reasoning_effort=xhigh"
+    ;;
+  issue-gate)
+    fork_cmd="$fork_cmd -m gpt-5.4-mini -c model_reasoning_effort=xhigh -c service_tier=fast"
+    ;;
+esac
+tmux send-keys -t "$new_pane_id" "$fork_cmd" C-m
+fork_status="fork-dispatched"
+
+printf '## Lane Bootstrap\n'
+printf -- '- role: %s\n' "$role"
+printf -- '- window_id: %s\n' "$window_id"
+printf -- '- pane_id: %s\n' "$new_pane_id"
+printf -- '- orchestrator_pane_id: %s\n' "$orchestrator_pane_id"
+printf -- '- worktree_path: %s\n' "$worktree_path"
+printf -- '- state_root: %s\n' "$state_root"
+printf -- '- tmux_orch_status: %s\n' "$orch_status"
+printf -- '- fork_status: %s\n' "$fork_status"

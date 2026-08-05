@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tmux-shared-status --message TEXT
+
+Notes:
+  - Writes a short message to tmux's shared second-line status slot.
+  - Intended for dispatch/handoff confirmations that should not echo full prompt bodies.
+EOF
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+message=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --message)
+      message="$2"
+      shift 2
+      ;;
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[ -n "${TMUX:-}" ] || fail "tmux-shared-status must run inside tmux"
+[ -n "$message" ] || fail "--message is required"
+command -v tmux >/dev/null 2>&1 || fail "missing required command: tmux"
+
+message="${message//#/##}"
+tmux set -gq @shared_status_msg "$message"
+tmux refresh-client -S 2>/dev/null || true

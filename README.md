@@ -16,7 +16,7 @@
 ```
 
 ## 快速开始
-1) 安装依赖：Neovim ≥ 0.11、git、make（编译 telescope-fzf-native）、node + npm/yarn（Prettier 与 Markdown 预览）、可选 go（gofmt/gopls）。
+1) 安装依赖：Neovim ≥ 0.11、git、make（编译 telescope-fzf-native）、node + npm/yarn（Prettier、Markdown 预览、Mermaid 工具链）、可选 go（gofmt/gopls）。
 2) 将本目录放到 `~/.config/nvim`，首次启动 Neovim 后执行：
    - `:Lazy sync`（安装/编译插件）
    - `:MasonInstall pyright svelte ts_ls`（安装常用 LSP）
@@ -63,14 +63,33 @@ npm install -g typescript typescript-language-server
 
 # Go
 go install golang.org/x/tools/gopls@latest
+
+# Mermaid 语法辅助（推荐）
+npm install -g @mermaid-js/mermaid-language-server
+
+# Mermaid 导出工具（可选）
+npm install -g @mermaid-js/mermaid-cli
 ```
 
 ## 常用快捷键
 - 文件树：`<C-b>` 打开/关闭 Neo-tree。
-- 搜索/跳转（Telescope）：`<leader>ff` 文件、`<leader>fg` 全局搜索、`<leader>fb` 缓冲区、`<leader>fh` 帮助；`gd` 定义、`gr` 引用、`gi` 实现。
+- 搜索/跳转（Telescope）：`<leader>ff` 文件、`<leader>fg` 全局搜索、`<leader>fb` 缓冲区、`<leader>fh` 帮助；`gd` 智能分屏打开定义（优先均衡分布，必要时再按宽高比兜底）、`gD` 定义列表、`gr` 引用、`gi` 实现；在 Telescope 内用 `<leader>s` 智能分屏打开条目。
 - 诊断列表：`<leader>xx` 打开 Trouble 诊断，`<leader>xq` 打开 quickfix。
 - 补全：`<Tab>` 确认候选，`<C-Space>` 触发补全。
 - Markdown：`<leader>mp` 预览，`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。
+- Mermaid 导出：在 `.mmd`/`.mermaid` 文件中，`<leader>ms` 导出 SVG，`<leader>mn` 导出 PNG（等价命令 `:MermaidToSvg` / `:MermaidToPng`，后台异步执行）。
+- Mermaid 自动导出：保存 `.mmd`/`.mermaid` 后会后台异步执行 `:MermaidToSvg`（需已安装 `mmdc`，不阻塞编辑）。
+- Mermaid 片段：在 `markdown` 或 `.mmd` 中输入 `mflow` / `mseq` / `mstate`，然后 `<C-Space>` + `<Tab>` 展开。
+
+## Mermaid 预览（mmd 文件）
+1) 在图文件目录启动静态服务（示例）：
+```bash
+npm install -g live-server
+cd docs/flows
+live-server
+```
+2) 浏览器打开同名 `.svg`（例如 `http://127.0.0.1:8080/asset_extract.svg`）。
+3) 在 Neovim 编辑 `asset_extract.mmd` 后保存 `:w`，会后台导出并刷新页面；连续快速保存时仅保留最新一次导出任务。
 
 ## 插件概览
 - 语言/工具链：mason + mason-lspconfig + nvim-lspconfig（pyright、ts_ls、svelte），nvim-cmp + LuaSnip，nvim-treesitter，Prettier。
@@ -78,6 +97,7 @@ go install golang.org/x/tools/gopls@latest
 - Git：gitsigns。
 - 编辑效率：Comment.nvim、nvim-surround、nvim-autopairs、trouble.nvim、indent-blankline (ibl)。
 - Markdown：vim-markdown、markdown-preview.nvim、vim-markdown-toc。
+- Mermaid 语法辅助：`mermaid-language-server`（外部安装）+ LuaSnip 片段（`mflow`/`mseq`/`mstate`）。
 - 终端/分窗：vim-tmux-navigator。
 - 更多细节与用法请见 `docs/plugins.md`。
 
@@ -98,6 +118,7 @@ source ~/.bashrc
 1) 安装 TPM：`git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm`
 2) 关联配置：`ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf`
 3) 启动 tmux 后执行 `tmux source ~/.tmux.conf`，再按 `prefix + I` 安装插件。
+4) `prefix + M` 打开 Codex / Orch 菜单；agent 编排主线已迁移到独立 ApiaryDeck 项目。
 
 ## 实用命令
 - `:Time` 在光标处插入当前时间戳（YYYY-MM-DD HH:MM:SS）。

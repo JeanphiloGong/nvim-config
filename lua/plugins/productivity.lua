@@ -1,13 +1,107 @@
+local function pick_git_branch(on_select, opts)
+  local ok, builtin = pcall(require, "telescope.builtin")
+  if not ok then
+    vim.notify("telescope not available", vim.log.levels.WARN)
+    return
+  end
+
+  local actions = require("telescope.actions")
+  local action_state = require("telescope.actions.state")
+
+  builtin.git_branches(vim.tbl_extend("force", opts or {}, {
+    attach_mappings = function(prompt_bufnr, _)
+      actions.select_default:replace(function()
+        local selection = action_state.get_selected_entry()
+        actions.close(prompt_bufnr)
+
+        local branch = selection and selection.value or nil
+        if not branch or branch == "" then
+          return
+        end
+
+        on_select(branch)
+      end)
+      return true
+    end,
+  }))
+end
+
 return {
   -- Git 变更标记与快速暂存
   {
     "lewis6991/gitsigns.nvim",
-    event = { "BufReadPre", "BufNewFile" },
+    lazy = false,
     config = function()
       require("gitsigns").setup({
         signs = { add = { text = "+" }, change = { text = "~" }, delete = { text = "_" } },
+        on_attach = function(bufnr)
+          local gs = require("gitsigns")
+          local function map(mode, lhs, rhs, desc)
+            vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = desc })
+          end
+
+          map("n", "]c", gs.next_hunk, "Next hunk")
+          map("n", "[c", gs.prev_hunk, "Prev hunk")
+          map("n", "<leader>hs", gs.stage_hunk, "Stage hunk")
+          map("n", "<leader>hr", gs.reset_hunk, "Reset hunk")
+          map("v", "<leader>hs", function()
+            gs.stage_hunk({ vim.fn.line("."), vim.fn.line("v") })
+          end, "Stage hunk")
+          map("v", "<leader>hr", function()
+            gs.reset_hunk({ vim.fn.line("."), vim.fn.line("v") })
+          end, "Reset hunk")
+          map("n", "<leader>hS", gs.stage_buffer, "Stage buffer")
+          map("n", "<leader>hR", gs.reset_buffer, "Reset buffer")
+          map("n", "<leader>hu", gs.undo_stage_hunk, "Undo stage hunk")
+          map("n", "<leader>hp", gs.preview_hunk, "Preview hunk")
+          map("n", "<leader>hb", gs.blame_line, "Blame line")
+          map("n", "<leader>tb", gs.toggle_current_line_blame, "Toggle line blame")
+          map("n", "<leader>hd", gs.diffthis, "Diff this")
+          map("n", "<leader>hD", function()
+            gs.diffthis("~")
+          end, "Diff this ~")
+          map({ "o", "x" }, "ih", ":<C-U>Gitsigns select_hunk<CR>", "Select hunk")
+        end,
       })
     end,
+  },
+
+  -- Git 侧边 diff / 历史
+  {
+    "sindrets/diffview.nvim",
+    dependencies = { "nvim-lua/plenary.nvim" },
+    cmd = { "DiffviewOpen", "DiffviewClose", "DiffviewFileHistory" },
+    keys = {
+      { "<leader>gd", "<cmd>DiffviewOpen<cr>", desc = "Diffview Open" },
+      { "<leader>gD", "<cmd>DiffviewClose<cr>", desc = "Diffview Close" },
+      { "<leader>g1", "<cmd>DiffviewOpen HEAD~1..HEAD<cr>", desc = "Diffview HEAD~1..HEAD" },
+      { "<leader>g2", "<cmd>DiffviewOpen HEAD~2..HEAD~1<cr>", desc = "Diffview HEAD~2..HEAD~1" },
+      {
+        "<leader>gb",
+        function()
+          pick_git_branch(function(branch)
+            require("diffview").open({ "HEAD.." .. branch })
+          end, {
+            prompt_title = "HEAD vs branch",
+          })
+        end,
+        desc = "Diffview HEAD vs Branch",
+      },
+      { "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "Diffview File History" },
+      { "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Diffview History" },
+    },
+    config = function()
+      require("diffview").setup({})
+    end,
+  },
+
+  -- Git 命令视图（fugitive）
+  {
+    "tpope/vim-fugitive",
+    cmd = { "Git" },
+    keys = {
+      { "<leader>gS", "<cmd>Git<cr>", desc = "Git Status (Fugitive)" },
+    },
   },
 
   -- 统一查看诊断/引用/quickfix

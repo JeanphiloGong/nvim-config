@@ -1,0 +1,586 @@
+#!/usr/bin/env bash
+set +v
+set +x
+set -u
+
+input="${1-}"
+auto_paste="${TMUX_LANG_AUTOPASTE-0}"
+target_pane="${TMUX_LANG_TARGET-}"
+history_file="${TMUX_LANG_HISTORY_FILE:-$HOME/.tmux-language-history}"
+log_file="${TMUX_LANG_LOG_FILE:-$HOME/.tmux-language.log}"
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/tmux-language-rewrite/language.env"
+request_id="${TMUX_LANG_REQUEST_ID:-}"
+only_if_active="${TMUX_LANG_ONLY_IF_ACTIVE:-0}"
+allow_paste="${TMUX_LANG_ALLOW_PASTE:-$auto_paste}"
+context="${TMUX_LANG_CONTEXT:-}"
+
+api_base_url=""
+api_key=""
+api_model=""
+api_reasoning_effort=""
+api_timeout=""
+record_backend="api"
+english_translation=""
+polished_english=""
+teacher_note=""
+grammar_tip=""
+context_line=""
+history_en=""
+history_best=""
+history_note=""
+history_tip=""
+history_context=""
+result=""
+copy_ok=0
+copy_via="tmux-buffer"
+api_error_reason=""
+api_error_detail=""
+
+normalize_line() {
+  printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
+}
+
+trim_value() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+append_log() {
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  reason="$(normalize_line "$1")"
+  detail="$(normalize_line "${2-}")"
+  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+  printf '%s\t%s\t%s\t%s\n' \
+    "$ts" \
+    "$reason" \
+    "$(normalize_line "$input")" \
+    "$detail" >> "$log_file" 2>/dev/null || true
+}
+
+tmux_notice() {
+  message="$1"
+  if command -v tmux >/dev/null 2>&1; then
+    tmux display-message "$message" >/dev/null 2>&1 || true
+    tmux set -gq @shared_status_msg "$message" >/dev/null 2>&1 || true
+    tmux refresh-client -S >/dev/null 2>&1 || true
+  fi
+}
+
+fail_language() {
+  message="$1"
+  reason="${2:-error}"
+  detail="${3:-}"
+  append_log "$reason" "$detail"
+  tmux_notice "$message"
+  printf '%s\n' "$message" >&2
+  exit 1
+}
+
+load_language_config() {
+  if [ ! -r "$config_file" ]; then
+    fail_language "Language: missing config: $config_file" "config_missing" "$config_file"
+  fi
+
+  set +u
+  # shellcheck disable=SC1090
+  . "$config_file"
+  set -u
+
+  api_base_url="$(trim_value "${TMUX_LANG_API_BASE_URL:-}")"
+  api_key="$(trim_value "${TMUX_LANG_API_KEY:-}")"
+  api_model="$(trim_value "${TMUX_LANG_API_MODEL:-}")"
+  api_reasoning_effort="$(trim_value "${TMUX_LANG_API_REASONING_EFFORT:-low}")"
+  api_timeout="$(trim_value "${TMUX_LANG_API_TIMEOUT:-30}")"
+
+  if [ -z "$api_base_url" ]; then
+    fail_language "Language: missing TMUX_LANG_API_BASE_URL in $config_file" "config_missing_base_url" "$config_file"
+  fi
+  if [ -z "$api_key" ]; then
+    fail_language "Language: missing TMUX_LANG_API_KEY in $config_file" "config_missing_api_key" "$config_file"
+  fi
+  if [ -z "$api_model" ]; then
+    fail_language "Language: missing TMUX_LANG_API_MODEL in $config_file" "config_missing_model" "$config_file"
+  fi
+  if [ -z "$api_timeout" ]; then
+    api_timeout="30"
+  fi
+  if [ -z "$api_reasoning_effort" ]; then
+    api_reasoning_effort="low"
+  fi
+}
+
+ensure_history_file() {
+  mkdir -p "$(dirname "$history_file")" 2>/dev/null || true
+  touch "$history_file" 2>/dev/null || true
+}
+
+history_with_lock() (
+  ensure_history_file
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"${history_file}.lock" || exit 0
+    flock -w 2 9 || exit 0
+  fi
+  "$@"
+)
+
+history_upsert_impl() {
+  req="$1"
+  ts="$2"
+  backend_label="$3"
+  in_text="$4"
+  en_text="$5"
+  best_text="$6"
+  note_text="$7"
+  tip_text="$8"
+  context_text="$9"
+  tmp="${history_file}.tmp.$$"
+
+  awk -F '\t' -v OFS='\t' \
+    -v req="$req" \
+    -v ts="$ts" \
+    -v backend_label="$backend_label" \
+    -v in_text="$in_text" \
+    -v en_text="$en_text" \
+    -v best_text="$best_text" \
+    -v note_text="$note_text" \
+    -v tip_text="$tip_text" \
+    -v context_text="$context_text" '
+    BEGIN {
+      found = 0
+    }
+    NF >= 8 && $2 == req {
+      print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text, context_text
+      found = 1
+      next
+    }
+    {
+      print $0
+    }
+    END {
+      if (!found) {
+        print ts, req, backend_label, in_text, en_text, best_text, note_text, tip_text, context_text
+      }
+    }
+  ' "$history_file" >"$tmp" 2>/dev/null && mv "$tmp" "$history_file"
+}
+
+history_upsert() {
+  history_with_lock history_upsert_impl "$@"
+}
+
+is_active_request() {
+  if [ "$only_if_active" != "1" ]; then
+    return 0
+  fi
+  active_request_id="$(tmux show -gv @tmux_lang_active_request_id 2>/dev/null || true)"
+  [ -n "$active_request_id" ] && [ "$active_request_id" = "$request_id" ]
+}
+
+rewrite_with_api() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    api_error_reason="python3_missing"
+    api_error_detail="PATH=$PATH"
+    return 1
+  fi
+
+  tmp_dir="$(mktemp -d 2>/dev/null)" || {
+    api_error_reason="mktemp_failed"
+    api_error_detail=""
+    return 1
+  }
+  output_file="$tmp_dir/output.txt"
+  error_file="$tmp_dir/error.txt"
+
+  if ! TMUX_LANG_INPUT="$input" \
+    TMUX_LANG_CONTEXT_VALUE="$context" \
+    TMUX_LANG_API_BASE_URL="$api_base_url" \
+    TMUX_LANG_API_KEY="$api_key" \
+    TMUX_LANG_API_MODEL="$api_model" \
+    TMUX_LANG_API_REASONING_EFFORT="$api_reasoning_effort" \
+    TMUX_LANG_API_TIMEOUT="$api_timeout" \
+    python3 - <<'PY' >"$output_file" 2>"$error_file"; then
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+
+
+def clean(value):
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        value = str(value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def abort(message):
+    print(clean(message), file=sys.stderr)
+    raise SystemExit(1)
+
+
+def extract_json_object(text):
+    text = text.strip()
+    if not text:
+        abort("empty response content")
+    try:
+        value = json.loads(text)
+        if isinstance(value, dict):
+            return value
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        abort("response content did not contain JSON")
+    try:
+        value = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        abort("response content did not contain valid JSON")
+    if not isinstance(value, dict):
+        abort("response JSON was not an object")
+    return value
+
+
+def message_content(response):
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        abort("API response did not include choices")
+    first = choices[0]
+    if not isinstance(first, dict):
+        abort("API choice was not an object")
+    message = first.get("message")
+    if not isinstance(message, dict):
+        abort("API choice did not include a message")
+    content = message.get("content", "")
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text") or item.get("content") or ""))
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(content)
+
+
+base_url = os.environ["TMUX_LANG_API_BASE_URL"].rstrip("/")
+api_key = os.environ["TMUX_LANG_API_KEY"]
+model = os.environ["TMUX_LANG_API_MODEL"]
+reasoning_effort = os.environ.get("TMUX_LANG_API_REASONING_EFFORT", "low") or "low"
+input_text = os.environ.get("TMUX_LANG_INPUT", "")
+context_text = os.environ.get("TMUX_LANG_CONTEXT_VALUE", "")
+
+try:
+    timeout = float(os.environ.get("TMUX_LANG_API_TIMEOUT", "30") or "30")
+except ValueError:
+    timeout = 30.0
+if timeout <= 0:
+    timeout = 30.0
+
+context_rule = (
+    "No additional context was supplied. context_line must be empty."
+    if not context_text.strip()
+    else "Additional context was supplied. context_line must be a concise Chinese lead-in derived from that context, not a copy of it."
+)
+
+prompt = f"""Original input:
+{input_text}
+
+Additional context:
+{context_text}
+
+Return one JSON object with exactly these fields:
+- original_text
+- english_translation
+- polished_english
+- teacher_note_zh
+- grammar_tip_zh
+- context_line
+
+Rules:
+- Keep original_text exactly the same as the original input.
+- english_translation must be a faithful English translation of the input.
+- polished_english must be the most natural English sentence you recommend the learner use.
+- teacher_note_zh must be a short Chinese explanation of what was improved or corrected.
+- grammar_tip_zh must be a short Chinese usage or grammar tip.
+- {context_rule}
+- Keep every field concise and practical.
+"""
+
+body = {
+    "model": model,
+    "reasoning_effort": reasoning_effort,
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are an English teacher and translator. Return only valid JSON. Do not use markdown.",
+        },
+        {
+            "role": "user",
+            "content": prompt,
+        },
+    ],
+    "response_format": {"type": "json_object"},
+}
+
+raw = ""
+last_error = ""
+for attempt in range(1, 6):
+    request = urllib.request.Request(
+        base_url + "/chat/completions",
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        break
+    except urllib.error.HTTPError as exc:
+        last_error = f"HTTP {exc.code}"
+    except urllib.error.URLError:
+        last_error = "request failed"
+    if attempt < 5:
+        time.sleep(0.2 * attempt)
+else:
+    abort(last_error or "request failed")
+
+try:
+    response = json.loads(raw)
+except json.JSONDecodeError:
+    abort("API response was not valid JSON")
+content = message_content(response)
+data = extract_json_object(content)
+
+fields = [
+    "original_text",
+    "english_translation",
+    "polished_english",
+    "teacher_note_zh",
+    "grammar_tip_zh",
+    "context_line",
+]
+missing = [field for field in fields if field not in data]
+if missing:
+    abort("response JSON missed fields: " + ", ".join(missing))
+
+original_text = data.get("original_text")
+if original_text != input_text:
+    data["original_text"] = input_text
+
+english_translation = clean(data.get("english_translation"))
+if not english_translation:
+    abort("response JSON had empty english_translation")
+
+values = [
+    english_translation,
+    clean(data.get("polished_english")) or english_translation,
+    clean(data.get("teacher_note_zh")),
+    clean(data.get("grammar_tip_zh")),
+    clean(data.get("context_line")),
+]
+for value in values:
+    print(value)
+PY
+    api_error_reason="api_request_failed"
+    api_error_detail="$(sed -n '1p' "$error_file" 2>/dev/null | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    rm -rf "$tmp_dir"
+    return 1
+  fi
+
+  {
+    IFS= read -r english_translation || english_translation=""
+    IFS= read -r polished_english || polished_english=""
+    IFS= read -r teacher_note || teacher_note=""
+    IFS= read -r grammar_tip || grammar_tip=""
+    IFS= read -r context_line || context_line=""
+  } <"$output_file"
+
+  rm -rf "$tmp_dir"
+
+  english_translation="$(normalize_line "$english_translation")"
+  polished_english="$(normalize_line "$polished_english")"
+  teacher_note="$(normalize_line "$teacher_note")"
+  grammar_tip="$(normalize_line "$grammar_tip")"
+  context_line="$(normalize_line "$context_line")"
+
+  if [ -z "$english_translation" ]; then
+    api_error_reason="api_output_invalid"
+    api_error_detail="empty english_translation"
+    return 1
+  fi
+  [ -n "$polished_english" ] || polished_english="$english_translation"
+  record_backend="api"
+  return 0
+}
+
+copy_result() {
+  text="$1"
+  status_backend_label="$2"
+
+  if [ -z "$text" ]; then
+    return 0
+  fi
+  if ! is_active_request; then
+    return 0
+  fi
+
+  tmux set-buffer -- "$text" >/dev/null 2>&1 || true
+
+  clip_cmd="$(tmux show -gv @clipboard 2>/dev/null || true)"
+  if [ -n "$clip_cmd" ] && printf '%s' "$text" | sh -c "$clip_cmd" >/dev/null 2>&1; then
+    copy_ok=1
+    copy_via="@clipboard"
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v pbcopy >/dev/null 2>&1; then
+    if printf '%s' "$text" | pbcopy >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="pbcopy"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v wl-copy >/dev/null 2>&1; then
+    if printf '%s' "$text" | wl-copy >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="wl-copy"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v xclip >/dev/null 2>&1; then
+    if printf '%s' "$text" | xclip -selection clipboard >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="xclip"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v xsel >/dev/null 2>&1; then
+    if printf '%s' "$text" | xsel --clipboard --input >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="xsel"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v win32yank.exe >/dev/null 2>&1; then
+    if printf '%s' "$text" | win32yank.exe -i --crlf >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="win32yank.exe"
+    fi
+  fi
+
+  if [ "$copy_ok" -eq 0 ] && command -v clip.exe >/dev/null 2>&1; then
+    if printf '%s' "$text" | clip.exe >/dev/null 2>&1; then
+      copy_ok=1
+      copy_via="clip.exe"
+    fi
+  fi
+
+  status_text="$(normalize_line "$text")"
+  short="$(printf '%s' "$status_text" | cut -c1-80)"
+  [ "${#status_text}" -gt 80 ] && short="${short}..."
+  short="${short//#/##}"
+
+  if [ "$copy_ok" -eq 1 ]; then
+    shared_msg="${status_backend_label}: $short"
+  else
+    shared_msg="${status_backend_label}(buffer): $short"
+  fi
+  tmux set -gq @shared_status_msg "$shared_msg" >/dev/null 2>&1 || true
+  tmux refresh-client -S 2>/dev/null || true
+}
+
+paste_back() {
+  if [ "$allow_paste" != "1" ]; then
+    return 0
+  fi
+  if ! is_active_request; then
+    return 0
+  fi
+
+  if [ -n "$target_pane" ]; then
+    tmux paste-buffer -t "$target_pane" >/dev/null 2>&1 && return 0
+  fi
+
+  tmux paste-buffer >/dev/null 2>&1 || true
+}
+
+if [ -z "$input" ]; then
+  printf "Input (zh/en): "
+  IFS= read -r input || exit 0
+fi
+
+input="$(printf '%s' "$input" | sed 's/[[:space:]]\+$//')"
+context="$(printf '%s' "$context" | sed 's/[[:space:]]\+$//')"
+if [ -z "$input" ]; then
+  tmux_notice "Language: empty input"
+  exit 0
+fi
+
+if [ -z "$request_id" ]; then
+  request_id="lang-$(date +%s)-$$-$RANDOM"
+fi
+
+load_language_config
+
+if ! rewrite_with_api; then
+  fail_language "Language: API request failed (${api_error_reason:-unknown}). See ${log_file}." "api_failed" "$api_error_detail"
+fi
+
+history_en="$(normalize_line "$english_translation")"
+history_best="$(normalize_line "$polished_english")"
+history_note="$(normalize_line "$teacher_note")"
+history_tip="$(normalize_line "$grammar_tip")"
+history_context="$(normalize_line "$context_line")"
+result="$polished_english"
+[ -n "$result" ] || result="$english_translation"
+[ -n "$result" ] || result="$input"
+
+ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+in_text="$(normalize_line "$input")"
+
+history_upsert \
+  "$request_id" \
+  "$ts" \
+  "$record_backend" \
+  "$in_text" \
+  "$history_en" \
+  "$history_best" \
+  "$history_note" \
+  "$history_tip" \
+  "$history_context"
+
+copy_result "$result" "BEST"
+
+if [ -t 1 ]; then
+  printf "\nOriginal:\n%s\n\n" "$input"
+  printf "English:\n%s\n\n" "$english_translation"
+  printf "Better:\n%s\n\n" "$polished_english"
+  if [ -n "$teacher_note" ]; then
+    printf "Note:\n%s\n\n" "$teacher_note"
+  fi
+  if [ -n "$grammar_tip" ]; then
+    printf "Tip:\n%s\n\n" "$grammar_tip"
+  fi
+  if [ -n "$history_context" ]; then
+    printf "Context:\n%s\n\n" "$history_context"
+  fi
+  if [ "$allow_paste" = "1" ] && [ "$copy_ok" -eq 1 ]; then
+    printf "Copied via %s. Press Enter to paste..." "$copy_via"
+  elif [ "$allow_paste" = "1" ]; then
+    printf "Copied to tmux buffer only. Press Enter to paste..."
+  elif [ "$copy_ok" -eq 1 ]; then
+    printf "Copied via %s. Press Enter to close..." "$copy_via"
+  else
+    printf "Copied to tmux buffer only. Press Enter to close..."
+  fi
+  IFS= read -r _
+  paste_back
+else
+  paste_back
+fi

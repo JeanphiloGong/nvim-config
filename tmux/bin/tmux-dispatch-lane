@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+preflight_bin="$script_dir/tmux-orch-preflight"
+lane_bootstrap_bin="$script_dir/tmux-task-lane-bootstrap"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tmux-dispatch-lane \
+    [--role ROLE] \
+    --task-context TEXT \
+    [--phase NAME] \
+    [--window-id WINDOW_ID] \
+    [--orchestrator-pane-id PANE_ID] \
+    [--target-pane PANE_ID] \
+    [--worktree-path PATH] \
+    [--layout h|v] \
+    [--root PATH] \
+    [--session-id ID]
+
+Roles:
+  coder | issue-gate | reviewer
+
+Notes:
+  - Public fast path for lane dispatch.
+  - Runs tmux-orch-preflight first, then delegates pane mechanics to tmux-task-lane-bootstrap.
+  - Stops after the lane pane exists and bare `codex fork` has been dispatched.
+  - Prompt injection is not handled here; the caller must send it explicitly with `tmux send-keys`.
+  - Does not run lifecycle orchestration, review, commit, or merge decisions.
+EOF
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+role="coder"
+task_context=""
+phase="phase1"
+window_id=""
+orchestrator_pane_id="${TMUX_PANE:-}"
+target_pane="${TMUX_PANE:-}"
+worktree_path=""
+layout=""
+state_root=""
+session_id="${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --role)
+      role="$2"
+      shift 2
+      ;;
+    --task-context | --task)
+      task_context="$2"
+      shift 2
+      ;;
+    --phase)
+      phase="$2"
+      shift 2
+      ;;
+    --window-id)
+      window_id="$2"
+      shift 2
+      ;;
+    --orchestrator-pane-id)
+      orchestrator_pane_id="$2"
+      shift 2
+      ;;
+    --target-pane)
+      target_pane="$2"
+      shift 2
+      ;;
+    --worktree-path)
+      worktree_path="$2"
+      shift 2
+      ;;
+    --layout)
+      layout="$2"
+      shift 2
+      ;;
+    --root)
+      state_root="$2"
+      shift 2
+      ;;
+    --session-id)
+      session_id="$2"
+      shift 2
+      ;;
+    -h | --help | help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[ -n "${TMUX:-}" ] || fail "tmux-dispatch-lane must run inside tmux"
+[ -n "$task_context" ] || fail "--task-context is required"
+[ -x "$preflight_bin" ] || fail "missing executable preflight helper at $preflight_bin"
+[ -x "$lane_bootstrap_bin" ] || fail "missing executable lane bootstrap helper at $lane_bootstrap_bin"
+[ -n "$window_id" ] || window_id="$(tmux display-message -p '#{window_id}')"
+[ -n "$orchestrator_pane_id" ] || orchestrator_pane_id="$(tmux display-message -p '#{pane_id}')"
+[ -n "$target_pane" ] || target_pane="$orchestrator_pane_id"
+[ -n "$worktree_path" ] || worktree_path="$(tmux display-message -p -t "$target_pane" '#{pane_current_path}')"
+[ -n "$session_id" ] || fail "missing CODEX_SESSION_ID/CODEX_THREAD_ID; pass --session-id explicitly"
+
+preflight_args=(
+  --mode dispatch
+  --worktree-path "$worktree_path"
+  --window-id "$window_id"
+  --pane-id "$orchestrator_pane_id"
+  --session-id "$session_id"
+)
+if [ -n "$state_root" ]; then
+  preflight_args+=(--root "$state_root")
+fi
+"$preflight_bin" "${preflight_args[@]}"
+
+lane_args=(
+  --role "$role"
+  --task-context "$task_context"
+  --phase "$phase"
+  --dispatcher-skill '$tmux-lane-dispatch-skill'
+  --target-pane "$target_pane"
+  --orchestrator-pane-id "$orchestrator_pane_id"
+  --window-id "$window_id"
+  --worktree-path "$worktree_path"
+  --session-id "$session_id"
+)
+if [ -n "$layout" ]; then
+  lane_args+=(--layout "$layout")
+fi
+if [ -n "$state_root" ]; then
+  lane_args+=(--root "$state_root")
+fi
+"$lane_bootstrap_bin" "${lane_args[@]}"

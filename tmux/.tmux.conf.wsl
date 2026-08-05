@@ -1,38 +1,32 @@
-##### 基本设置 #####
+##### 基本设置（WSL 通用）#####
 set -g prefix C-a
 unbind C-b
 bind C-a send-prefix
 set -g default-terminal "screen-256color"
 set-option -sa terminal-overrides ',xterm-256color:RGB'
-# Allow OSC 52 clipboard forwarding through local tmux and SSH sessions.
-set -s set-clipboard on
-# Nested tmux clients identify themselves as screen-256color.
-set-option -sa terminal-overrides ',screen-256color:Ms=\E]52;%p1%s;%p2%s\007'
-# Keep GUI/session environment available for clipboard tools inside tmux.
-set -g update-environment "DISPLAY KRB5CCNAME MSYSTEM SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID SSH_CONNECTION WINDOWID XAUTHORITY WAYLAND_DISPLAY"
 
-# 鼠标支持
+# 鼠标支持（含滚动与选择）
 set -g mouse on
 
-# 更好的复制模式
+# 复制模式使用 vi 风格按键
 setw -g mode-keys vi
 
 # Cursor: prefer terminal color, use block for clarity
 set -g cursor-style block
 set -g cursor-colour default
 
-# 设置复制模式快捷键
+# 复制模式快捷键（在 vim/nvim 内保持原按键）
 unbind -n C-o
 bind -n C-o if-shell \
   "ps -o comm= -t '#{pane_tty}' | grep -iqE '^(vim|nvim)$'" \
   "send-keys C-o" \
   "copy-mode"
 
-# 搜索和跳转
+# 复制模式搜索与跳转
 bind / command-prompt -p "search down" "send -X search-forward '%%'"
 bind ? command-prompt -p "search up" "send -X search-backward '%%'"
 
-# 平滑滚动体验（避免卡）
+# 历史行数（适度增大，避免滚动卡顿）
 set -g history-limit 10000
 
 # 窗口切换
@@ -50,7 +44,7 @@ bind-key -T choose-tree K swap-window -t -1
 bind-key -r < swap-window -t -1 \; select-window -t -1
 bind-key -r > swap-window -t +1 \; select-window -t +1
 
-##### Plugins #####
+##### Plugins（保持与主配置一致）#####
 set -g @plugin 'tmux-plugins/tpm'
 set -g @plugin 'tmux-plugins/tmux-sensible'
 set -g @plugin 'jimeh/tmux-themepack'
@@ -59,9 +53,16 @@ set -g @plugin 'tmux-plugins/tmux-yank'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
 set -g @plugin 'tmux-plugins/tmux-continuum'
 
+##### tmux-yank：禁止默认绑定 y（防止被 clip.exe 覆盖）#####
+set -g @yank_key 'None'
+
 ##### tmux-yank #####
 # 默认 y 会 yank 并退出复制模式（copy-pipe-and-cancel）；这里改为 yank 后仍停留在复制模式（copy-pipe）
-set -g @yank_action 'copy-pipe'
+# set -g @yank_action 'copy-pipe'
+
+##### tmux-yank：指定 Windows 剪贴板工具（UTF-8 友好）#####
+set -g @clipboard 'win32yank.exe -i --crlf'
+set -g @yank_selection 'clipboard'
 
 ##### Continuum settings #####
 set -g @continuum-restore 'on'
@@ -72,10 +73,6 @@ set -g @resurrect-capture-pane-contents 'on'
 
 ##### 初始化 TPM（建议靠近底部；本文件后面还有覆盖绑定）#####
 run '~/.tmux/plugins/tpm/tpm'
-
-# Keep copy mode open and let tmux send OSC 52 instead of calling xclip/wl-copy.
-bind-key -T copy-mode-vi y send-keys -X copy-selection-no-clear
-bind-key -T copy-mode y send-keys -X copy-selection-no-clear
 
 ##### 状态栏（Codex / Git / CPU / RAM / 时间）#####
 set -g status-interval 5
@@ -89,18 +86,6 @@ set -g status 2
 # 输入提示与消息显示在第 2 行（索引从 0 开始）
 set -g message-line 1
 set -g status-format[1] '#[align=left]#(~/.config/nvim/tmux/bin/tmux-git-status "#{pane_current_path}")#[align=right]#{?@shared_status_msg,#{=/110/...:@shared_status_msg},}'
-# 第 1 行左侧只显示 session 名称（导航信息，避免抢占注意力）
-set -g status-left '#[fg=colour245][#{session_name} #{session_id}]'
-
-# Pane 标记：显示 pane 编号/ID，并高亮“最后一次 Codex 完成”的 pane
-set -g pane-border-status top
-set -g pane-border-format '#[fg=colour240]#P #[fg=colour240]| #[fg=colour39]#{?@user_pane_title,#{=/24/...:@user_pane_title},-} #[fg=colour240]| #[fg=colour208]#{?@codex_pane_activity,#{=/52/...:@codex_pane_activity},#{?@codex_pane_summary,#{=/52/...:@codex_pane_summary},-}}'
-# 某些 tmux 版本不支持 pane-active-border-format，使用 active-border-style 兼容
-set -g pane-active-border-style 'fg=colour45'
-
-# 手动标记：快速改 pane / window 标题（表达“正在做什么”）
-bind-key T command-prompt -p "pane label" "set -p @user_pane_title '%%'"
-bind-key W command-prompt -p "window name" "rename-window '%%'"
 
 # in .tmux.conf
 set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
@@ -113,8 +98,8 @@ set -g @codex_history_file "$HOME/.tmux-codex-history"
 # Codex 和 Language 共用第二行常驻消息槽（不再额外弹消息条）
 set -g @codex_notify_mode "off" # popup | message | off
 
-# <prefix> + M：保留原 Codex / Orch 菜单
-bind-key M run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-menu"'
+# <prefix> + C：弹出最近完成列表（最新在上），选择后跳回对应 pane
+bind-key C run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-menu"'
 
 # <prefix> + J：一键跳回“最后一次完成”的 Codex pane
 bind-key J run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-jump-last"'
@@ -124,6 +109,19 @@ bind-key f run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/c
 
 # <prefix> + F：下方分屏，并从当前 pane 前台进程环境变量 fork（CODEX_SESSION_ID/THREAD_ID）
 bind-key F run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-fork-current" v'
+
+# 第 1 行左侧显示 session 名称 + session id（方便辨识）
+set -g status-left '#[fg=colour245][#{session_name} #{session_id}]'
+
+# Pane 标记：显示 pane 编号/ID，并高亮“最后一次 Codex 完成”的 pane
+set -g pane-border-status top
+set -g pane-border-format '#[fg=colour240]#P #[fg=colour240]| #[fg=colour39]#{?@user_pane_title,#{=/24/...:@user_pane_title},-} #[fg=colour240]| #[fg=colour208]#{?@codex_pane_summary,#{=/40/...:@codex_pane_summary},-}'
+# 某些 tmux 版本不支持 pane-active-border-format，使用 active-border-style 兼容
+set -g pane-active-border-style 'fg=colour45'
+
+# 手动标记：快速改 pane / window 标题（表达“正在做什么”）
+bind-key T command-prompt -p "pane label" "set -p @user_pane_title '%%'"
+bind-key W command-prompt -p "window name" "rename-window '%%'"
 
 # Popup 终端：在当前 pane 路径打开一个临时 shell
 bind-key G display-popup -E -w 90% -h 85% -T "Terminal" -d "#{pane_current_path}" "bash"
@@ -140,3 +138,11 @@ bind-key E display-popup -E -w 90% -h 80% -T "Language Context" -d "#{pane_curre
 
 # Language Coach History：只读历史查看
 bind-key H display-popup -E -w 90% -h 65% -T "Language History" 'bash "$HOME/.config/nvim/tmux/bin/tmux-language-history"'
+
+##### Yank：复制后仍停留在 copy-mode（Windows UTF-8）#####
+# 注意：这段必须放在 TPM 之后，确保覆盖 tmux-yank 的默认绑定
+unbind-key -T copy-mode-vi y
+unbind-key -T copy-mode y
+
+bind-key -T copy-mode-vi y send -X copy-pipe "win32yank.exe -i --crlf"
+bind-key -T copy-mode y     send -X copy-pipe "win32yank.exe -i --crlf"
