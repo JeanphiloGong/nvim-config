@@ -78,10 +78,11 @@ class Handler(BaseHTTPRequestHandler):
             "polished_english": "Could you make this clearer?",
             "teacher_note_zh": "Use a polite request.",
             "grammar_tip_zh": "Could you + verb is softer.",
-            "context_line": "",
         }
         if "teammate review" in body:
             content["context_line"] = "For teammate review:"
+        if "trigger invalid schema" in body:
+            content.pop("english_translation")
         payload = {
             "choices": [
                 {
@@ -105,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
 server = HTTPServer(("127.0.0.1", 0), Handler)
 with open(port_file, "w", encoding="utf-8") as handle:
     handle.write(str(server.server_port))
-for _ in range(6):
+for _ in range(7):
     server.handle_request()
 PY
 server_pid="$!"
@@ -132,6 +133,11 @@ unset TMUX
 
 "$rewrite" "make this clearer"
 TMUX_LANG_CONTEXT="teammate review" "$rewrite" "make this clearer"
+invalid_output="$("$rewrite" "trigger invalid schema" 2>&1)" && {
+  printf 'expected invalid API response to fail\n' >&2
+  exit 1
+}
+printf '%s\n' "$invalid_output" | grep -F "api_response_invalid" >/dev/null
 
 grep -F "api" "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F "Make this clearer." "$TMUX_LANG_HISTORY_FILE" >/dev/null
@@ -141,6 +147,6 @@ grep -F "For teammate review:" "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F '"model": "gpt-5.5"' "$request_file" >/dev/null
 grep -F '"reasoning_effort": "low"' "$request_file" >/dev/null
 grep -F 'teammate review' "$request_file" >/dev/null
-test "$(wc -l <"$request_file" | tr -d ' ')" -eq 6
+test "$(wc -l <"$request_file" | tr -d ' ')" -eq 7
 
 printf 'tmux-language-rewrite smoke: OK\n'
