@@ -215,8 +215,8 @@ def clean(value):
     return re.sub(r"\s+", " ", value).strip()
 
 
-def abort(message):
-    print(clean(message), file=sys.stderr)
+def abort(message, reason="api_response_invalid"):
+    print(f"{reason}|{clean(message)}", file=sys.stderr)
     raise SystemExit(1)
 
 
@@ -349,7 +349,7 @@ for attempt in range(1, 6):
     if attempt < 5:
         time.sleep(0.2 * attempt)
 else:
-    abort(last_error or "request failed")
+    abort(last_error or "request failed", "api_request_failed")
 
 try:
     response = json.loads(raw)
@@ -364,7 +364,6 @@ fields = [
     "polished_english",
     "teacher_note_zh",
     "grammar_tip_zh",
-    "context_line",
 ]
 missing = [field for field in fields if field not in data]
 if missing:
@@ -388,8 +387,17 @@ values = [
 for value in values:
     print(value)
 PY
-    api_error_reason="api_request_failed"
-    api_error_detail="$(sed -n '1p' "$error_file" 2>/dev/null | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    raw_api_error="$(sed -n '1p' "$error_file" 2>/dev/null | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    case "$raw_api_error" in
+      api_response_invalid\|* | api_request_failed\|*)
+        api_error_reason="${raw_api_error%%|*}"
+        api_error_detail="${raw_api_error#*|}"
+        ;;
+      *)
+        api_error_reason="api_request_failed"
+        api_error_detail="$raw_api_error"
+        ;;
+    esac
     rm -rf "$tmp_dir"
     return 1
   fi
@@ -529,7 +537,11 @@ fi
 load_language_config
 
 if ! rewrite_with_api; then
-  fail_language "Language: API request failed (${api_error_reason:-unknown}). See ${log_file}." "api_failed" "$api_error_detail"
+  api_failure_label="API request failed"
+  if [ "${api_error_reason:-}" = "api_response_invalid" ]; then
+    api_failure_label="API response invalid"
+  fi
+  fail_language "Language: ${api_failure_label} (${api_error_reason:-unknown}). See ${log_file}." "${api_error_reason:-api_failed}" "$api_error_detail"
 fi
 
 history_en="$(normalize_line "$english_translation")"

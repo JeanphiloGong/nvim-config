@@ -62,6 +62,10 @@ The API response is expected to produce:
 - `TIP`: short grammar or usage tip.
 - `CONTEXT`: optional lead-in generated from `<prefix> + E` context.
 
+Compatible providers may omit `CONTEXT`; the client treats it as empty. The
+other output fields remain required, and malformed responses are reported as
+`api_response_invalid`.
+
 When context is supplied through `<prefix> + E`, `CONTEXT` is shown before
 `BEST` in history so the final wording is easier to interpret.
 
