@@ -35,6 +35,8 @@ copy_ok=0
 copy_via="tmux-buffer"
 api_error_reason=""
 api_error_detail=""
+request_started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+request_started_epoch="$(date +%s 2>/dev/null || printf '0')"
 
 normalize_line() {
   printf '%s' "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
@@ -48,17 +50,27 @@ append_log() {
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
   reason="$(normalize_line "$1")"
   detail="$(normalize_line "${2-}")"
+  end_epoch="$(date +%s 2>/dev/null || printf '%s' "$request_started_epoch")"
+  elapsed_s=0
+  if [ "$request_started_epoch" -gt 0 ] 2>/dev/null && [ "$end_epoch" -ge "$request_started_epoch" ] 2>/dev/null; then
+    elapsed_s="$((end_epoch - request_started_epoch))"
+  fi
   mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+  touch "$log_file" 2>/dev/null || true
+  chmod 600 "$log_file" 2>/dev/null || true
   printf '%s\t%s\t%s\t%s\n' \
     "$ts" \
     "$reason" \
-    "$(normalize_line "$input")" \
-    "$detail" >> "$log_file" 2>/dev/null || true
+    "$(normalize_line "$request_id")" \
+    "started_at=${request_started_at} elapsed_s=${elapsed_s} detail=${detail}" >> "$log_file" 2>/dev/null || true
 }
 
 tmux_notice() {
   message="$1"
   if command -v tmux >/dev/null 2>&1; then
+    if ! is_active_request; then
+      return 0
+    fi
     tmux display-message "$message" >/dev/null 2>&1 || true
     tmux set -gq @shared_status_msg "$message" >/dev/null 2>&1 || true
     tmux refresh-client -S >/dev/null 2>&1 || true
@@ -344,8 +356,10 @@ for attempt in range(1, 6):
         break
     except urllib.error.HTTPError as exc:
         last_error = f"HTTP {exc.code}"
-    except urllib.error.URLError:
-        last_error = "request failed"
+    except urllib.error.URLError as exc:
+        last_error = f"URLError: {clean(exc.reason)}"
+    except OSError as exc:
+        last_error = f"{type(exc).__name__}: {clean(exc)}"
     if attempt < 5:
         time.sleep(0.2 * attempt)
 else:
@@ -387,7 +401,7 @@ values = [
 for value in values:
     print(value)
 PY
-    raw_api_error="$(sed -n '1p' "$error_file" 2>/dev/null | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    raw_api_error="$(tail -n 1 "$error_file" 2>/dev/null | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
     case "$raw_api_error" in
       api_response_invalid\|* | api_request_failed\|*)
         api_error_reason="${raw_api_error%%|*}"
@@ -556,16 +570,18 @@ result="$polished_english"
 ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
 in_text="$(normalize_line "$input")"
 
-history_upsert \
-  "$request_id" \
-  "$ts" \
-  "$record_backend" \
-  "$in_text" \
-  "$history_en" \
-  "$history_best" \
-  "$history_note" \
-  "$history_tip" \
-  "$history_context"
+if is_active_request; then
+  history_upsert \
+    "$request_id" \
+    "$ts" \
+    "$record_backend" \
+    "$in_text" \
+    "$history_en" \
+    "$history_best" \
+    "$history_note" \
+    "$history_tip" \
+    "$history_context"
+fi
 
 copy_result "$result" "BEST"
 
