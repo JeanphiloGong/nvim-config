@@ -32,6 +32,7 @@ counter_file="$tmp_root/count"
 python3 - "$port_file" "$request_file" "$counter_file" <<'PY' &
 import json
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 port_file, request_file, counter_file = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -72,6 +73,9 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(response)
             return
 
+        if "trigger timeout retry" in body and count == 8:
+            time.sleep(0.15)
+
         content = {
             "original_text": "make this clearer",
             "english_translation": "Make this clearer.",
@@ -97,7 +101,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
-        self.wfile.write(response)
+        try:
+            self.wfile.write(response)
+        except BrokenPipeError:
+            pass
 
     def log_message(self, format, *args):
         return
@@ -106,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
 server = HTTPServer(("127.0.0.1", 0), Handler)
 with open(port_file, "w", encoding="utf-8") as handle:
     handle.write(str(server.server_port))
-for _ in range(7):
+for _ in range(11):
     server.handle_request()
 PY
 server_pid="$!"
@@ -125,7 +132,7 @@ export TMUX_LANG_API_BASE_URL="http://127.0.0.1:$port/v1"
 export TMUX_LANG_API_KEY="test-key"
 export TMUX_LANG_API_MODEL="gpt-5.5"
 export TMUX_LANG_API_REASONING_EFFORT="low"
-export TMUX_LANG_API_TIMEOUT="5"
+export TMUX_LANG_API_TIMEOUT="0.05"
 EOF
 export TMUX_LANG_HISTORY_FILE="$tmp_root/history"
 export TMUX_LANG_LOG_FILE="$tmp_root/log"
@@ -138,6 +145,46 @@ invalid_output="$("$rewrite" "trigger invalid schema" 2>&1)" && {
   exit 1
 }
 printf '%s\n' "$invalid_output" | grep -F "api_response_invalid" >/dev/null
+grep -F "started_at=" "$TMUX_LANG_LOG_FILE" >/dev/null
+grep -F "elapsed_s=" "$TMUX_LANG_LOG_FILE" >/dev/null
+grep -F "detail=response JSON missed fields: english_translation" "$TMUX_LANG_LOG_FILE" >/dev/null
+if grep -F "trigger invalid schema" "$TMUX_LANG_LOG_FILE" >/dev/null; then
+  printf 'expected failure log to omit input text\n' >&2
+  exit 1
+fi
+test "$(stat -c '%a' "$TMUX_LANG_LOG_FILE")" = "600"
+"$rewrite" "trigger timeout retry"
+
+mkdir -p "$tmp_root/stub-bin"
+cat >"$tmp_root/stub-bin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "$*" = "show -gv @tmux_lang_active_request_id" ]; then
+  printf 'active-request\n'
+  exit 0
+fi
+printf '%s\n' "$*" >>"$TMUX_TEST_LOG"
+SH
+chmod +x "$tmp_root/stub-bin/tmux"
+
+TMUX_TEST_LOG="$tmp_root/tmux-actions" \
+PATH="$tmp_root/stub-bin:$PATH" \
+TMUX_LANG_HISTORY_FILE="$tmp_root/stale-history" \
+TMUX_LANG_REQUEST_ID="stale-request" \
+TMUX_LANG_ONLY_IF_ACTIVE="1" \
+  "$rewrite" "stale request"
+
+TMUX_TEST_LOG="$tmp_root/tmux-actions" \
+PATH="$tmp_root/stub-bin:$PATH" \
+TMUX_LANG_HISTORY_FILE="$tmp_root/stale-history" \
+TMUX_LANG_REQUEST_ID="stale-request" \
+TMUX_LANG_ONLY_IF_ACTIVE="1" \
+  "$rewrite" "trigger invalid schema" >/dev/null 2>&1 && {
+  printf 'expected stale invalid response to fail\n' >&2
+  exit 1
+}
+
+test ! -e "$tmp_root/stale-history"
+test ! -s "$tmp_root/tmux-actions"
 
 grep -F "api" "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F "Make this clearer." "$TMUX_LANG_HISTORY_FILE" >/dev/null
@@ -147,6 +194,7 @@ grep -F "For teammate review:" "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F '"model": "gpt-5.5"' "$request_file" >/dev/null
 grep -F '"reasoning_effort": "low"' "$request_file" >/dev/null
 grep -F 'teammate review' "$request_file" >/dev/null
-test "$(wc -l <"$request_file" | tr -d ' ')" -eq 7
+test "$(grep -c 'trigger timeout retry' "$request_file")" -eq 2
+test "$(wc -l <"$request_file" | tr -d ' ')" -eq 11
 
 printf 'tmux-language-rewrite smoke: OK\n'

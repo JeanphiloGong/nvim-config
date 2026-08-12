@@ -109,13 +109,21 @@ if [ -z "$input" ]; then
   exit 0
 fi
 
-tmux set -gq @shared_status_msg "Language: translating with context..." >/dev/null 2>&1 || true
+request_id="lang-$(date +%s)-$$-$RANDOM"
+tmux set -gq @tmux_lang_active_request_id "$request_id" >/dev/null 2>&1 || true
+status_message="Language: translating..."
+if [ -n "$context" ]; then
+  status_message="Language: translating with context..."
+fi
+tmux set -gq @shared_status_msg "$status_message" >/dev/null 2>&1 || true
 tmux refresh-client -S >/dev/null 2>&1 || true
 
 printf -v cmd \
-  'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_CONTEXT=%q bash %q %q' \
+  'TMUX_LANG_AUTOPASTE=%q TMUX_LANG_CONTEXT=%q TMUX_LANG_REQUEST_ID=%q TMUX_LANG_ONLY_IF_ACTIVE=%q bash %q %q' \
   "0" \
   "$context" \
+  "$request_id" \
+  "1" \
   "$rewrite_bin" \
   "$input"
 
