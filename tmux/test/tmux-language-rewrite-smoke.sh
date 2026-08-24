@@ -73,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(response)
             return
 
-        if "trigger timeout retry" in body and count == 8:
+        if "trigger timeout retry" in body and count == 9:
             time.sleep(0.15)
 
         content = {
@@ -113,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
 server = HTTPServer(("127.0.0.1", 0), Handler)
 with open(port_file, "w", encoding="utf-8") as handle:
     handle.write(str(server.server_port))
-for _ in range(11):
+for _ in range(12):
     server.handle_request()
 PY
 server_pid="$!"
@@ -140,6 +140,8 @@ unset TMUX
 
 "$rewrite" "make this clearer"
 TMUX_LANG_CONTEXT="teammate review" "$rewrite" "make this clearer"
+TMUX_LANG_CONTEXT="I want to ask whether adding tracing alone would be acceptable." \
+  "$rewrite" "should i just add a trace instead this is ok"
 invalid_output="$("$rewrite" "trigger invalid schema" 2>&1)" && {
   printf 'expected invalid API response to fail\n' >&2
   exit 1
@@ -194,7 +196,30 @@ grep -F "For teammate review:" "$TMUX_LANG_HISTORY_FILE" >/dev/null
 grep -F '"model": "gpt-5.5"' "$request_file" >/dev/null
 grep -F '"reasoning_effort": "low"' "$request_file" >/dev/null
 grep -F 'teammate review' "$request_file" >/dev/null
+python3 - "$request_file" <<'PY'
+import json
+import sys
+
+requests = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+target_context = "I want to ask whether adding tracing alone would be acceptable."
+prompt = next(
+    request["messages"][1]["content"]
+    for request in requests
+    if target_context in request["messages"][1]["content"]
+)
+required_contract = [
+    "Original input:\nshould i just add a trace instead this is ok\n\nAdditional context:\n" + target_context,
+    "Infer the user's intended meaning and communicative goal from both the original input and additional context.",
+    "Use additional context to resolve what the user is asking about",
+    "If the original input is already English",
+    "english_translation and polished_english must contain English only.",
+    "Do not invent details unsupported by the original input or additional context.",
+]
+for rule in required_contract:
+    if rule not in prompt:
+        raise SystemExit(f"missing prompt contract: {rule}")
+PY
 test "$(grep -c 'trigger timeout retry' "$request_file")" -eq 2
-test "$(wc -l <"$request_file" | tr -d ' ')" -eq 11
+test "$(wc -l <"$request_file" | tr -d ' ')" -eq 12
 
 printf 'tmux-language-rewrite smoke: OK\n'

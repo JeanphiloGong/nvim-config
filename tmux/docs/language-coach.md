@@ -55,8 +55,9 @@ The script fails directly when the config file, `TMUX_LANG_API_BASE_URL`,
 
 The API response is expected to produce:
 
-- `EN`: faithful English translation of the input.
-- `BEST`: the natural sentence to use.
+- `EN`: a faithful English version of the intended meaning. English drafts are
+  minimally corrected; Chinese or mixed input is translated.
+- `BEST`: the natural sentence to use for the inferred intent and context.
 - `NOTE`: short Chinese explanation of the improvement.
 - `TIP`: short grammar or usage tip.
 - `CONTEXT`: optional lead-in generated from the editor's context section.
@@ -65,8 +66,11 @@ Compatible providers may omit `CONTEXT`; the client treats it as empty. The
 other output fields remain required, and malformed responses are reported as
 `api_response_invalid`.
 
-When context is supplied, `CONTEXT` is shown before `BEST` in history so the
-final wording is easier to interpret.
+When context is supplied, the coach uses it with the original input to infer
+what the learner is asking, resolve referents and technical terms, and choose
+an appropriate tone. The input remains the primary evidence, and unsupported
+details must not be invented. `CONTEXT` is shown before `BEST` in history so
+the final wording is easier to interpret.
 
 ## History And Status
 
