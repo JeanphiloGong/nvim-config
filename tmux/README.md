@@ -34,6 +34,7 @@ tmux source ~/.tmux.conf
 
 Language Coach 对应 `<prefix> + e` 和 `<prefix> + H`。在编辑器的
 `[input]` 区域填写内容；需要上下文时再填写 `[context]`，否则留空。
+上下文会帮助模型判断你想问什么、技术词和指代具体指什么，以及应该使用的语气。
 
 它现在只使用 OpenAI-compatible API，并自动读取：
 

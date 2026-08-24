@@ -293,17 +293,72 @@ if timeout <= 0:
     timeout = 30.0
 
 context_rule = (
-    "No additional context was supplied. context_line must be empty."
+    "No additional context was supplied. Infer intent only from the original input, and set context_line to an empty string."
     if not context_text.strip()
-    else "Additional context was supplied. context_line must be a concise Chinese lead-in derived from that context, not a copy of it."
+    else "Additional context was supplied. Use it to interpret the original input, and make context_line a concise Chinese lead-in derived from the relevant context."
 )
 
-prompt = f"""Original input:
+prompt = f"""TASK
+Help an English learner express the meaning they intend, rather than merely rewriting the surface words they entered.
+
+INPUT
+Original input:
 {input_text}
 
 Additional context:
 {context_text}
 
+INPUT MEANING
+- The original input is the learner's rough wording. It may be Chinese, English, or mixed.
+- Additional context is optional supporting evidence about the situation, intended meaning, referents, technical terms, audience, and tone. It is not text to translate verbatim.
+
+DECISION PROCESS
+1. Infer the user's intended meaning and communicative goal from both the original input and additional context.
+2. Use additional context to resolve what the user is asking about, what words such as pronouns or "instead" refer to, and whether the learner is asking for permission, confirmation, or advice.
+3. Treat the original input as primary evidence. If the context conflicts with it, preserve the input's meaning and explain the ambiguity briefly in teacher_note_zh.
+4. Produce a faithful English version, then a more natural English version without changing the inferred intent.
+5. Explain the most useful correction and language tip in concise Chinese.
+
+HARD RULES
+- Keep original_text exactly the same as the original input.
+- If the original input is already English, english_translation must minimally correct grammar, spelling, capitalization, and punctuation while preserving its meaning and wording.
+- If the original input is Chinese or mixed, english_translation must be a faithful and complete English expression of the inferred meaning.
+- polished_english must be the most natural English sentence you recommend the learner use in the supplied context.
+- english_translation and polished_english must contain English only.
+- Do not invent details unsupported by the original input or additional context.
+- teacher_note_zh must be a short Chinese explanation of what was improved, corrected, or disambiguated.
+- grammar_tip_zh must be a short Chinese usage or grammar tip.
+- {context_rule}
+- Keep every field concise and practical.
+
+EXAMPLES
+English draft with context:
+- input: should i just add a trace instead this is ok
+- context: We are choosing between a full debugging mechanism and adding tracing only.
+- output:
+  {{
+    "original_text": "should i just add a trace instead this is ok",
+    "english_translation": "Should I just add a trace instead? Is this okay?",
+    "polished_english": "Could I just add tracing here instead? Would that be acceptable?",
+    "teacher_note_zh": "结合上下文明确这是在询问只添加 tracing 是否可接受，并修正大小写和标点。",
+    "grammar_tip_zh": "用 Could I...? 征求许可通常比 Should I...? 更贴合这个语境。",
+    "context_line": "正在比较完整调试机制与只添加追踪。"
+  }}
+
+Chinese input without context:
+- input: 这个接口是不是已经没有人用了
+- context: empty
+- output:
+  {{
+    "original_text": "这个接口是不是已经没有人用了",
+    "english_translation": "Is this API no longer being used by anyone?",
+    "polished_english": "Is anyone still using this API?",
+    "teacher_note_zh": "保留原意，并将表达改成更自然的主动询问。",
+    "grammar_tip_zh": "询问当前是否有人使用时，Is anyone still using...? 更简洁自然。",
+    "context_line": ""
+  }}
+
+OUTPUT
 Return one JSON object with exactly these fields:
 - original_text
 - english_translation
@@ -311,15 +366,6 @@ Return one JSON object with exactly these fields:
 - teacher_note_zh
 - grammar_tip_zh
 - context_line
-
-Rules:
-- Keep original_text exactly the same as the original input.
-- english_translation must be a faithful English translation of the input.
-- polished_english must be the most natural English sentence you recommend the learner use.
-- teacher_note_zh must be a short Chinese explanation of what was improved or corrected.
-- grammar_tip_zh must be a short Chinese usage or grammar tip.
-- {context_rule}
-- Keep every field concise and practical.
 """
 
 body = {
@@ -328,7 +374,7 @@ body = {
     "messages": [
         {
             "role": "system",
-            "content": "You are an English teacher and translator. Return only valid JSON. Do not use markdown.",
+            "content": "You are an intent-aware English coach. Infer what the learner wants to communicate, then return only valid JSON without markdown.",
         },
         {
             "role": "user",
