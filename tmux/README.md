@@ -117,6 +117,12 @@ chmod +x ~/.local/bin/codex-tmux-notify
 - tmux 3.6 源码安装：[docs/tmux-install.md](docs/tmux-install.md)
 - Windows / WSL 剪贴板：[docs/windows-wsl-clipboard.md](docs/windows-wsl-clipboard.md)
 
+### WezTerm 精确鼠标选择
+
+在 WezTerm 中将 `bypass_mouse_reporting_modifiers` 设为 `ALT` 后，
+`Shift + 鼠标拖动`会由 tmux 逐字符选择，并通过 OSC 52 复制；pane 持续输出
+不会清除该选区。`Alt + 鼠标拖动`保留为 WezTerm 原生选择备用。
+
 ### Linux SSH 剪贴板
 
 在远端使用本仓库时，Neovim 会在 SSH 会话中自动使用 OSC 52，tmux 的

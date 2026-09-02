@@ -2,6 +2,11 @@
 
 这份说明用于解决 Windows Terminal + WSL + tmux + tmux-yank 组合下的中文复制乱码问题。
 
+如果 WSL 是从 Linux 上的 WezTerm 通过 SSH 使用，请优先使用仓库当前的
+`tmux/.tmux.conf.wsl`：它通过 OSC 52 把 tmux 选择发送到 SSH 客户端，不依赖
+远端的 `win32yank.exe`。下面的 `win32yank.exe` 步骤只适用于 Windows Terminal
+直连 WSL 的旧剪贴板路径。
+
 ## 问题原因（简版）
 - tmux-yank 默认会用 `clip.exe` 把内容送到 Windows 剪贴板。
 - `clip.exe` 对 UTF-8 不友好，中文很容易乱码。
