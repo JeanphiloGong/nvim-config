@@ -1,0 +1,4 @@
+interface:
+  display_name: "Neovim Machine Bootstrap"
+  short_description: "v0.1.0 - Set up Neovim and tmux on Linux or WSL"
+  default_prompt: "Use $nvim-machine-bootstrap-skill to configure this cloned repository, including the correct tmux profile, on a fresh Linux or WSL machine."
