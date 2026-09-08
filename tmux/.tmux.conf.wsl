@@ -4,8 +4,9 @@ unbind C-b
 bind C-a send-prefix
 set -g default-terminal "screen-256color"
 set-option -sa terminal-overrides ',xterm-256color:RGB'
-# Allow OSC 52 clipboard forwarding through local tmux and SSH sessions.
+# Forward tmux copies through OSC 52 to the attached terminal (including SSH).
 set -s set-clipboard on
+set-option -sa terminal-overrides ',screen-256color:Ms=\E]52;%p1%s;%p2%s\007'
 
 # 鼠标支持（含滚动与选择）
 set -g mouse on
@@ -62,8 +63,8 @@ set -g @yank_key 'None'
 # 默认 y 会 yank 并退出复制模式（copy-pipe-and-cancel）；这里改为 yank 后仍停留在复制模式（copy-pipe）
 # set -g @yank_action 'copy-pipe'
 
-##### tmux-yank：指定 Windows 剪贴板工具（UTF-8 友好）#####
-set -g @clipboard 'win32yank.exe -i --crlf'
+##### tmux-yank：使用 tmux/OSC 52，不依赖远端 Windows 工具 #####
+set -g @clipboard 'tmux load-buffer -w -'
 set -g @yank_selection 'clipboard'
 
 ##### Continuum settings #####
@@ -131,19 +132,30 @@ bind-key G display-popup -E -w 90% -h 85% -T "Terminal" -d "#{pane_current_path}
 # 复制当前 pane 路径对应仓库的 Git 分支名
 bind-key b run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-copy-git-branch" "#{pane_current_path}"'
 
-# Language Coach：e = 编辑器输入，可选填写上下文
+# Language Coach：e = 快速翻译，E = 带上下文/多行翻译
 unbind-key -q g
 unbind-key -q e
 unbind-key -q E
-bind-key e display-popup -E -w 90% -h 80% -T "Language Coach" -d "#{pane_current_path}" 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-language-context-input"'
+bind-key e display-popup -E -w 90% -h 8 -T "Language Input" -d "#{pane_current_path}" 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-language-input"'
+bind-key E display-popup -E -w 90% -h 80% -T "Language Context" -d "#{pane_current_path}" 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/tmux-language-context-input"'
 
 # Language Coach History：只读历史查看
 bind-key H display-popup -E -w 90% -h 65% -T "Language History" 'bash "$HOME/.config/nvim/tmux/bin/tmux-language-history"'
 
-##### Yank：复制后仍停留在 copy-mode（Windows UTF-8）#####
+##### Yank：复制后仍停留在 copy-mode（OSC 52）#####
 # 注意：这段必须放在 TPM 之后，确保覆盖 tmux-yank 的默认绑定
 unbind-key -T copy-mode-vi y
 unbind-key -T copy-mode y
 
-bind-key -T copy-mode-vi y send -X copy-pipe "win32yank.exe -i --crlf"
-bind-key -T copy-mode y     send -X copy-pipe "win32yank.exe -i --crlf"
+bind-key -T copy-mode-vi y send-keys -X copy-selection-no-clear
+bind-key -T copy-mode y     send-keys -X copy-selection-no-clear
+
+# WezTerm bypasses application mouse reporting for Alt; Shift is reserved for
+# precise tmux selection and is forwarded to these bindings.
+bind-key -T root S-MouseDrag1Pane copy-mode -M
+bind-key -T copy-mode-vi S-MouseDrag1Pane select-pane \; send-keys -X begin-selection
+bind-key -T copy-mode S-MouseDrag1Pane select-pane \; send-keys -X begin-selection
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-selection-no-clear
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-selection-no-clear
+bind-key -T copy-mode-vi S-MouseDragEnd1Pane send-keys -X copy-selection-no-clear
+bind-key -T copy-mode S-MouseDragEnd1Pane send-keys -X copy-selection-no-clear
