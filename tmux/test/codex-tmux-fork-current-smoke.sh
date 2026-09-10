@@ -10,6 +10,18 @@ saved_id="01a00000-0000-7000-8000-000000000001"
 missing_id="01a00000-0000-7000-8000-000000000002"
 
 mkdir -p "$tmp_root/bin"
+export CODEX_HOME="$tmp_root/codex"
+export CODEX_SQLITE_HOME="$CODEX_HOME"
+mkdir -p "$CODEX_HOME"
+python3 - "$CODEX_HOME" "$saved_id" <<'PY'
+import pathlib, sqlite3, sys
+root = pathlib.Path(sys.argv[1])
+rollout = root / 'saved.jsonl'
+rollout.touch()
+with sqlite3.connect(root / 'state_5.sqlite') as db:
+    db.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)')
+    db.execute('INSERT INTO threads VALUES (?, ?)', (sys.argv[2], str(rollout)))
+PY
 
 cat >"$tmp_root/bin/ps" <<'SH'
 #!/usr/bin/env bash
@@ -35,7 +47,13 @@ case "$1" in
     ;;
   show)
     case "$*" in
-      *'@codex_pane_thread_id'*) printf '%s\n' "$TMUX_TEST_PANE_THREAD_ID" ;;
+      *'@codex_pane_thread_id'*)
+        if [ -f "$TMUX_TEST_PANE_PATH/pane-id" ]; then
+          cat "$TMUX_TEST_PANE_PATH/pane-id"
+        else
+          printf '%s\n' "$TMUX_TEST_PANE_THREAD_ID"
+        fi
+        ;;
       *'@codex_history_file'*) printf '%s\n' "$TMUX_TEST_PANE_PATH/history" ;;
       *'@codex_notify_mode'*) printf '%s\n' 'off' ;;
       *'@codex_fork_log_file'*) printf '%s\n' 'off' ;;
@@ -47,6 +65,9 @@ case "$1" in
     ;;
   send-keys|set)
     printf '%s\n' "$*" >>"$TMUX_TEST_LOG"
+    if [ "$1 ${2:-}" = 'set -p' ] && [ "${5:-}" = '@codex_pane_thread_id' ]; then
+      printf '%s\n' "$6" >"$TMUX_TEST_PANE_PATH/pane-id"
+    fi
     ;;
 esac
 SH
@@ -92,6 +113,38 @@ TMUX_PANE='%origin' TMUX_TEST_LOG="$tmp_root/tmux.log" \
   TMUX_TEST_PANE_PATH="$tmp_root" TMUX_TEST_PANE_THREAD_ID="$saved_id" \
   CODEX_THREAD_ID="$missing_id" PATH="$tmp_root/bin:$PATH" \
   "$repo_root/tmux/bin/codex-tmux-notify" '{"type":"agent-turn-complete","id":"not-a-thread"}'
-grep -F 'set -pu -t %origin @codex_pane_thread_id' "$tmp_root/tmux.log" >/dev/null
+test ! -s "$tmp_root/tmux.log"
+
+# A recap notification must not replace the saved thread or any visible state.
+TMUX_PANE='%origin' TMUX_TEST_LOG="$tmp_root/tmux.log" \
+  TMUX_TEST_PANE_PATH="$tmp_root" TMUX_TEST_PANE_THREAD_ID="$saved_id" \
+  PATH="$tmp_root/bin:$PATH" \
+  "$repo_root/tmux/bin/codex-tmux-notify" \
+  "{\"thread-id\":\"$missing_id\",\"last-assistant-message\":\"recap\"}"
+test ! -s "$tmp_root/tmux.log"
+CODEX_THREAD_ID='' run_helper ""
+grep -F "codex fork $saved_id" "$tmp_root/tmux.log" >/dev/null
+
+# Database failures leave existing state untouched and do not create a database.
+: >"$tmp_root/tmux.log"
+TMUX_PANE='%origin' TMUX_TEST_LOG="$tmp_root/tmux.log" \
+  TMUX_TEST_PANE_PATH="$tmp_root" TMUX_TEST_PANE_THREAD_ID="$saved_id" \
+  CODEX_SQLITE_HOME="$tmp_root/absent" PATH="$tmp_root/bin:$PATH" \
+  "$repo_root/tmux/bin/codex-tmux-notify" "{\"thread-id\":\"$saved_id\"}"
+test ! -s "$tmp_root/tmux.log"
+test ! -e "$tmp_root/absent"
+
+# A persisted record alone is insufficient when its rollout has disappeared.
+python3 - "$CODEX_HOME/state_5.sqlite" "$saved_id" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute('UPDATE threads SET rollout_path = ? WHERE id = ?',
+               (sys.argv[1] + '.missing', sys.argv[2]))
+PY
+TMUX_PANE='%origin' TMUX_TEST_LOG="$tmp_root/tmux.log" \
+  TMUX_TEST_PANE_PATH="$tmp_root" TMUX_TEST_PANE_THREAD_ID="$saved_id" \
+  PATH="$tmp_root/bin:$PATH" \
+  "$repo_root/tmux/bin/codex-tmux-notify" "{\"thread-id\":\"$saved_id\"}"
+test ! -s "$tmp_root/tmux.log"
 
 printf 'codex-tmux-fork-current smoke: OK\n'

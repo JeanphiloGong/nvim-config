@@ -3,8 +3,7 @@ set -euo pipefail
 
 # Codex CLI "notify" hook.
 #
-# Codex will call this command with 1 JSON argument (event payload). We don't
-# need to parse it; we just record which tmux pane/window the hook ran in.
+# Codex calls this command with one JSON event, including for ephemeral recaps.
 
 _payload="${1:-}"
 
@@ -23,10 +22,33 @@ fi
 
 path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
 user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
-thread_id=""
+# Only persisted threads may update pane state. Recaps inherit the same pane.
+command -v python3 >/dev/null 2>&1 || exit 0
+thread_id="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
+import json, os, sqlite3, sys
+from pathlib import Path
+
+try:
+  payload = json.loads(sys.argv[1])
+  candidate = payload.get("thread-id") if isinstance(payload, dict) else None
+  if not isinstance(candidate, str) or not candidate.strip():
+    sys.exit(0)
+  candidate = candidate.strip()
+  codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+  sqlite_home = Path(os.environ.get("CODEX_SQLITE_HOME") or codex_home)
+  db_path = (sqlite_home / "state_5.sqlite").resolve()
+  with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=0.2) as db:
+    row = db.execute("SELECT rollout_path FROM threads WHERE id = ?", (candidate,)).fetchone()
+  if row and row[0] and Path(row[0]).is_file():
+    print(candidate)
+except (ValueError, OSError, sqlite3.Error):
+  pass
+PY
+)"
+[ -n "$thread_id" ] || exit 0
 
 # Optional: derive a short summary from the notify JSON payload.
-# Keep this best-effort and dependency-light (python3 is optional).
+# Keep this best-effort.
 summary=""
 if [ -n "$_payload" ] && command -v python3 >/dev/null 2>&1; then
   summary="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
@@ -53,31 +75,12 @@ PY
 )"
 fi
 
-# The event identifies the completed thread; inherited environment may name a parent.
-if [ -n "$_payload" ] && command -v python3 >/dev/null 2>&1; then
-  thread_id="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
-import json, sys
-try:
-  payload = json.loads(sys.argv[1])
-except Exception:
-  sys.exit(0)
-
-candidate = payload.get("thread-id") if isinstance(payload, dict) else None
-if isinstance(candidate, str) and candidate.strip():
-  print(candidate.strip())
-PY
-)"
-fi
-
 tmux set -gq @codex_last_win "$win"
 tmux set -gq @codex_last_pane "$pane"
 tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
-[ -n "$thread_id" ] && tmux set -gq @codex_last_thread_id "$thread_id"
-[ -n "$thread_id" ] && tmux set -p -t "$pane" @codex_pane_thread_id "$thread_id" 2>/dev/null || true
-if [ -z "$thread_id" ]; then
-  tmux set -pu -t "$pane" @codex_pane_thread_id 2>/dev/null || true
-fi
+tmux set -gq @codex_last_thread_id "$thread_id"
+tmux set -p -t "$pane" @codex_pane_thread_id "$thread_id" 2>/dev/null || true
 
 # Update shared second-line status slot (persistent until overwritten).
 shared_msg="Codex: $win"

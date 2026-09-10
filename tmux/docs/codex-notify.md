@@ -31,8 +31,18 @@ The fork id must be a real Codex session or thread id. A tmux session name,
 window name, pane id, or worktree name is not a valid `codex fork` id.
 `CODEX_SESSION_ID` identifies a shared root session and is not used for fork.
 The notify hook records the event's `thread-id`, never an inherited environment
-id or generic `id` field. A notification without a thread id clears the cached
-pane id. Python 3 is required for notify JSON parsing.
+id or generic `id` field. Before changing any pane state, it checks the thread's
+record in `state_5.sqlite` and verifies that the recorded rollout path exists.
+Ephemeral recap threads are not persisted and cannot replace the main thread's
+cached id, summary, or notification history. Missing ids, unavailable databases,
+and missing rollout files leave existing state untouched.
+
+Python 3 with SQLite support is required. The database directory is
+`CODEX_SQLITE_HOME`, or `CODEX_HOME` (default `~/.codex`) when unset. If Codex uses
+a custom `sqlite_home` configuration, export the matching `CODEX_SQLITE_HOME`
+before starting Codex. This check targets Codex's current `state_5.sqlite`
+schema; a future schema change requires updating the hook, not guessing from
+session filenames.
 
 After upgrading these helpers, let a turn finish in the source pane to refresh
 its cached id. Before the first notification, or after switching conversations,
