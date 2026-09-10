@@ -2,9 +2,7 @@
 set -euo pipefail
 
 # Split from current pane and run "codex fork <session_id>" in the new pane.
-# Session id source priority:
-#   1) CODEX_SESSION_ID from foreground process env
-#   2) CODEX_THREAD_ID from foreground process env
+# CODEX_SESSION_ID identifies a root session, not the thread to fork.
 
 orientation="${1:-h}" # h -> horizontal split, v -> vertical split
 case "$orientation" in
@@ -50,21 +48,13 @@ read_sid_from_pid_env() {
   local pid="$1"
   local source_name="${2:-pid}"
   local env_file="/proc/${pid}/environ"
-  local key value sid thread_id
+  local key value thread_id
 
   [ -r "$env_file" ] || return 1
-  sid=""
   thread_id=""
 
   while IFS='=' read -r key value; do
     case "$key" in
-      CODEX_SESSION_ID)
-        sid="$value"
-        fork_source="$source_name"
-        fork_pid="$pid"
-        fork_key="CODEX_SESSION_ID"
-        break
-        ;;
       CODEX_THREAD_ID)
         if [ -z "$thread_id" ]; then
           thread_id="$value"
@@ -76,10 +66,6 @@ read_sid_from_pid_env() {
     esac
   done < <(tr '\0' '\n' <"$env_file")
 
-  if [ -n "$sid" ]; then
-    session_id="$sid"
-    return 0
-  fi
   if [ -n "$thread_id" ]; then
     session_id="$thread_id"
     return 0
@@ -94,7 +80,7 @@ resolve_session_id() {
 
   # 1) Foreground process group on pane tty (prefer this).
   if [ -n "$tty_short" ]; then
-    p="$(ps -o tpgid= -t "$tty_short" 2>/dev/null | tr -d '[:space:]' || true)"
+    p="$(ps -o tpgid= -t "$tty_short" 2>/dev/null | awk 'NF {print $1; exit}' || true)"
     case "$p" in
       "" | "-1" | "0") ;;
       *) candidates="${candidates}${p}"$'\n' ;;
@@ -115,11 +101,10 @@ resolve_session_id() {
   # Deduplicate while preserving order.
   pids="$(printf '%s' "$candidates" | awk 'NF && !seen[$1]++ {print $1}')"
   debug_candidates="$(printf '%s' "$pids" | tr '\n' ',' | sed 's/,$//')"
-  [ -n "$pids" ] || return 1
 
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    if [ -n "$tty_short" ] && [ "$p" = "$(ps -o tpgid= -t "$tty_short" 2>/dev/null | tr -d '[:space:]' || true)" ]; then
+    if [ -n "$tty_short" ] && [ "$p" = "$(ps -o tpgid= -t "$tty_short" 2>/dev/null | awk 'NF {print $1; exit}' || true)" ]; then
       read_sid_from_pid_env "$p" "foreground_tpgid" && return 0
       continue
     fi

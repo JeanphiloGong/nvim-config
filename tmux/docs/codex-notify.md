@@ -23,12 +23,22 @@ Language Coach also writes to the shared status slot; the latest event wins.
 - `<prefix> + f`: split right and run `codex fork <id>` from the current pane.
 - `<prefix> + F`: split down and run `codex fork <id>` from the current pane.
 
-The fork helper reads `CODEX_SESSION_ID` first, then `CODEX_THREAD_ID`. If the
-current foreground process does not expose either value, it tries nearby process
+The fork helper reads `CODEX_THREAD_ID`. If the
+current foreground process does not expose this value, it tries nearby process
 state and finally the pane-local `@codex_pane_thread_id`.
 
 The fork id must be a real Codex session or thread id. A tmux session name,
 window name, pane id, or worktree name is not a valid `codex fork` id.
+`CODEX_SESSION_ID` identifies a shared root session and is not used for fork.
+The notify hook records the event's `thread-id`, never an inherited environment
+id or generic `id` field. A notification without a thread id clears the cached
+pane id. Python 3 is required for notify JSON parsing.
+
+After upgrading these helpers, let a turn finish in the source pane to refresh
+its cached id. Before the first notification, or after switching conversations,
+the cache may be missing or still refer to the previous conversation. Codex
+itself determines whether the selected thread can be forked; the name index and
+rollout filename layout are not used as validity checks.
 
 ## Install
 
@@ -98,11 +108,13 @@ For fork diagnosis:
 tmux show -gv @codex_fork_last_source
 tmux show -gv @codex_fork_last_pid
 tmux show -gv @codex_fork_last_key
+tmux show -gv @codex_fork_last_detail
 tmux show -pv -t "$TMUX_PANE" @codex_pane_thread_id
 ```
 
 Fork attempts are logged to `~/.tmux-codex-fork.log` by default. Set
-`@codex_fork_log_file` to `off` to disable the log.
+`@codex_fork_log_file` to `off` to disable the log. `HIT` means the fork command
+was sent, not that Codex accepted it.
 
 ## Related Docs
 

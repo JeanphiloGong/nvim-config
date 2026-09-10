@@ -23,7 +23,7 @@ fi
 
 path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
 user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
-thread_id="${CODEX_THREAD_ID:-}"
+thread_id=""
 
 # Optional: derive a short summary from the notify JSON payload.
 # Keep this best-effort and dependency-light (python3 is optional).
@@ -53,8 +53,8 @@ PY
 )"
 fi
 
-# Prefer CODEX_THREAD_ID (stable env var). Fall back to best-effort JSON fields.
-if [ -z "$thread_id" ] && [ -n "$_payload" ] && command -v python3 >/dev/null 2>&1; then
+# The event identifies the completed thread; inherited environment may name a parent.
+if [ -n "$_payload" ] && command -v python3 >/dev/null 2>&1; then
   thread_id="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
 import json, sys
 try:
@@ -62,22 +62,8 @@ try:
 except Exception:
   sys.exit(0)
 
-def pick(obj, *keys):
-  if not isinstance(obj, dict):
-    return ""
-  for key in keys:
-    value = obj.get(key)
-    if value:
-      return str(value)
-  return ""
-
-candidate = (
-  pick(payload, "thread_id", "thread-id", "session_id", "session-id", "id")
-  or pick(payload.get("event"), "thread_id", "thread-id", "session_id", "session-id", "id")
-  or pick(payload.get("session"), "thread_id", "thread-id", "session_id", "session-id", "id")
-)
-
-if candidate:
+candidate = payload.get("thread-id") if isinstance(payload, dict) else None
+if isinstance(candidate, str) and candidate.strip():
   print(candidate.strip())
 PY
 )"
@@ -89,6 +75,9 @@ tmux set -gq @codex_last_path "$path"
 [ -n "$summary" ] && tmux set -gq @codex_last_summary "$summary"
 [ -n "$thread_id" ] && tmux set -gq @codex_last_thread_id "$thread_id"
 [ -n "$thread_id" ] && tmux set -p -t "$pane" @codex_pane_thread_id "$thread_id" 2>/dev/null || true
+if [ -z "$thread_id" ]; then
+  tmux set -pu -t "$pane" @codex_pane_thread_id 2>/dev/null || true
+fi
 
 # Update shared second-line status slot (persistent until overwritten).
 shared_msg="Codex: $win"
