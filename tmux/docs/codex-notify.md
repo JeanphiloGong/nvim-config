@@ -23,12 +23,32 @@ Language Coach also writes to the shared status slot; the latest event wins.
 - `<prefix> + f`: split right and run `codex fork <id>` from the current pane.
 - `<prefix> + F`: split down and run `codex fork <id>` from the current pane.
 
-The fork helper reads `CODEX_SESSION_ID` first, then `CODEX_THREAD_ID`. If the
-current foreground process does not expose either value, it tries nearby process
+The fork helper reads `CODEX_THREAD_ID`. If the
+current foreground process does not expose this value, it tries nearby process
 state and finally the pane-local `@codex_pane_thread_id`.
 
 The fork id must be a real Codex session or thread id. A tmux session name,
 window name, pane id, or worktree name is not a valid `codex fork` id.
+`CODEX_SESSION_ID` identifies a shared root session and is not used for fork.
+The notify hook records the event's `thread-id`, never an inherited environment
+id or generic `id` field. Before changing any pane state, it checks the thread's
+record in `state_5.sqlite` and verifies that the recorded rollout path exists.
+Ephemeral recap threads are not persisted and cannot replace the main thread's
+cached id, summary, or notification history. Missing ids, unavailable databases,
+and missing rollout files leave existing state untouched.
+
+Python 3 with SQLite support is required. The database directory is
+`CODEX_SQLITE_HOME`, or `CODEX_HOME` (default `~/.codex`) when unset. If Codex uses
+a custom `sqlite_home` configuration, export the matching `CODEX_SQLITE_HOME`
+before starting Codex. This check targets Codex's current `state_5.sqlite`
+schema; a future schema change requires updating the hook, not guessing from
+session filenames.
+
+After upgrading these helpers, let a turn finish in the source pane to refresh
+its cached id. Before the first notification, or after switching conversations,
+the cache may be missing or still refer to the previous conversation. Codex
+itself determines whether the selected thread can be forked; the name index and
+rollout filename layout are not used as validity checks.
 
 ## Install
 
@@ -98,11 +118,13 @@ For fork diagnosis:
 tmux show -gv @codex_fork_last_source
 tmux show -gv @codex_fork_last_pid
 tmux show -gv @codex_fork_last_key
+tmux show -gv @codex_fork_last_detail
 tmux show -pv -t "$TMUX_PANE" @codex_pane_thread_id
 ```
 
 Fork attempts are logged to `~/.tmux-codex-fork.log` by default. Set
-`@codex_fork_log_file` to `off` to disable the log.
+`@codex_fork_log_file` to `off` to disable the log. `HIT` means the fork command
+was sent, not that Codex accepted it.
 
 ## Related Docs
 

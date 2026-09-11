@@ -128,6 +128,7 @@ copy-mode `y` 也会通过 OSC 52 把内容发送到客户端终端，不依赖�
 修改 tmux helpers 后优先运行：
 
 ```sh
+tmux/test/codex-tmux-fork-current-smoke.sh
 tmux/test/tmux-language-rewrite-smoke.sh
 tmux/test/tmux-language-input-smoke.sh
 tmux/test/tmux-agent-orch-smoke.sh
