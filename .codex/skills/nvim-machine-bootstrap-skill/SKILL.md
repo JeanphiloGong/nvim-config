@@ -94,9 +94,9 @@ existing configuration.
 7. Configure optional user-owned integrations separately.
    - Codex/tmux notifications require an installed and authenticated Codex CLI
      plus an explicit edit to the user's Codex configuration.
-   - The `f` and `F` bindings only fork a real Codex session or thread ID from
-     `CODEX_SESSION_ID` or `CODEX_THREAD_ID`; do not treat a tmux pane, window,
-     or session name as a valid fallback.
+   - The `f` and `F` bindings only fork a real persisted Codex thread ID from
+     `CODEX_THREAD_ID` or the pane's validated notification cache; do not use
+     `CODEX_SESSION_ID`, a tmux pane, window, or session name as a fallback.
    - Language Coach requires the user to fill its external environment file;
      never place an API key in this repository or print it in output.
 8. Verify the finished workstation and report any deferred items.
@@ -109,7 +109,7 @@ existing configuration.
   discovered state. Do not apply Linux package commands to another platform.
 - If `WSL_DISTRO_NAME` is set or `/proc/version` identifies Microsoft/WSL, use
   only `tmux/.tmux.conf.wsl`; otherwise use only `tmux/.tmux.conf`. Never merge
-  the two profiles or install `win32yank.exe` on non-WSL Linux.
+  the two profiles or install Windows-only clipboard tools on Linux.
 - If `~/.config/nvim` or `~/.tmux.conf` exists and is not this clone's intended
   target, stop before overwriting, moving, or unlinking it.
 - If a package manager provides an older Neovim, do not accept it merely
@@ -167,8 +167,8 @@ existing configuration.
       selected config is sourced.
 - [ ] TPM plugins install, including `tmux-continuum`, and
       `tmux source-file ~/.tmux.conf` succeeds.
-- [ ] The selected copy-mode `y` binding is present: OSC 52 copy without
-      leaving copy mode on Linux, or `win32yank.exe -i --crlf` on WSL.
+- [ ] The selected copy-mode `y` binding uses OSC 52 without leaving copy mode
+      on both Linux and WSL.
 - [ ] The selected profile retains the configured Git/status layout, Codex
       bindings, popup shell, and Language Coach bindings. Codex notifications
       and Language Coach credentials remain optional user-owned setup.

@@ -133,18 +133,19 @@ the current directory; and provide a two-line Git/CPU/RAM/time status layout.
 They also configure the Codex menu/jump/fork keys, popup shell, Git branch
 copy, and Language Coach entry/history keys.
 
-The profiles intentionally differ in their clipboard behavior and Codex menu
-key. Linux uses OSC 52 and retains copy mode after `y`, with Codex menu on
-`prefix + M`. WSL uses `win32yank.exe -i --crlf` after `y`, with Codex menu on
-`prefix + C`. Install and test `win32yank.exe` only for the WSL profile. Never
-combine the profiles or carry the WSL clipboard command to a normal Linux host.
+The profiles intentionally differ in their Codex menu key. Both use OSC 52 and
+retain copy mode after `y`; Linux has the Codex menu on `prefix + M`, while WSL
+uses `prefix + C`. WSL additionally defines Shift-drag selection bindings for
+terminals that bypass application mouse reporting. Do not install or require
+`win32yank.exe` for either profile.
 
 The optional Codex notification hook needs an authenticated `codex` command, a
 user-local `~/.local/bin/codex-tmux-notify` link, and a deliberate edit to
 `~/.codex/config.toml`. The fork bindings require a real Codex session or
-thread ID, normally supplied by `CODEX_SESSION_ID` or `CODEX_THREAD_ID`; a tmux
-session, window, or pane ID is not valid. Do not alter the Codex configuration
-unless the user requests this integration.
+thread ID, supplied by `CODEX_THREAD_ID` or the pane's validated notification
+cache; `CODEX_SESSION_ID` is a shared root-session ID and is not used for fork.
+A tmux session, window, or pane ID is not valid. Do not alter the Codex
+configuration unless the user requests this integration.
 
 Language Coach is optional. Its environment file belongs outside the repository
 at `~/.config/tmux-language-rewrite/language.env`, must be mode `600`, and
