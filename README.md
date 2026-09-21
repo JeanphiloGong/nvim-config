@@ -16,11 +16,11 @@
 ```
 
 ## 快速开始
-1) 安装依赖：Neovim ≥ 0.11、git、make（编译 telescope-fzf-native）、node + npm/yarn（Prettier、Markdown 预览、Mermaid 工具链）、可选 go（gofmt/gopls）。
+1) 安装依赖：Neovim ≥ 0.12、git、make（编译 telescope-fzf-native）、Node + npm/yarn、Go、Rust/Cargo，以及 .NET SDK 8（C# LSP）。
 2) 将本目录放到 `~/.config/nvim`，首次启动 Neovim 后执行：
    - `:Lazy sync`（安装/编译插件）
    - `:MasonInstall pyright svelte ts_ls`（安装常用 LSP）
-   - `:TSUpdate`（安装 Treesitter 解析器）
+   - `:TSUpdate`（更新已安装的 Treesitter 解析器）
 3) Markdown 预览若自动安装失败，可手动执行 `cd ~/.local/share/nvim/lazy/markdown-preview.nvim/app && npm install`。
 
 ### Neovim 安装（Linux 示例）
@@ -64,8 +64,22 @@ npm install -g typescript typescript-language-server
 # Go
 go install golang.org/x/tools/gopls@latest
 
-# Mermaid 语法辅助（推荐）
-npm install -g @mermaid-js/mermaid-language-server
+# Mermaid 语法辅助（推荐；当前未发布 npm 包）
+mkdir -p ~/.local/src
+git clone https://github.com/thepwagner-org/mermaid-language-server.git ~/.local/src/mermaid-language-server
+npm install --prefix ~/.local/src/mermaid-language-server
+npm run --prefix ~/.local/src/mermaid-language-server build
+mermaid_launcher_tmp="$(mktemp)"
+cat > "$mermaid_launcher_tmp" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -h|--help) printf '%s\n' 'Usage: mermaid-language-server --stdio'; exit 0 ;;
+esac
+exec node "$HOME/.local/src/mermaid-language-server/dist/server.js" "$@"
+SH
+install -m 755 "$mermaid_launcher_tmp" ~/.local/bin/mermaid-language-server
+rm -f "$mermaid_launcher_tmp"
 
 # Mermaid 导出工具（可选）
 npm install -g @mermaid-js/mermaid-cli

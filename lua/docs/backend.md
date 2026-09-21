@@ -13,13 +13,13 @@
 <!-- vim-markdown-toc -->
 ## 包含插件与用途
 - `williamboman/mason.nvim`：LSP/DAP/Formatter 安装器，`build = :MasonUpdate` 会在同步时刷新包索引。主命令 `:Mason` 打开 UI 管理安装。
-- `williamboman/mason-lspconfig.nvim`：将 Mason 安装结果桥接给 LSP，`ensure_installed = { pyright, svelte, ts_ls, gopls, clangd, rust_analyzer, solidity_ls }`，`automatic_enable = false` 避免自动 attach，由下方自定义的 `vim.lsp.enable` 负责启用。
-- `neovim/nvim-lspconfig`：为各语言启动 LSP（含 Mermaid 自定义 `cmd`），自动注入 `cmp_nvim_lsp` 的补全能力；内置 `with_capabilities` 辅助函数方便在新增服务器时保持一致配置。
+- `williamboman/mason-lspconfig.nvim`：将 Mason 安装结果桥接给 LSP，`ensure_installed = { pyright, svelte, ts_ls, gopls, clangd, rust_analyzer, solidity_ls_nomicfoundation, csharp_ls@0.15.0 }`，`automatic_enable = false` 避免自动 attach，由下方自定义的 `vim.lsp.enable` 负责启用。
+- `neovim/nvim-lspconfig`：为各语言启动 LSP（含 Mermaid 自定义 `cmd`），自动注入 `cmp_nvim_lsp` 的补全能力；Solidity 使用 Nomic Foundation language server，避免旧服务器在每个项目中先下载远程 `latest` 编译器；内置 `with_capabilities` 辅助函数方便在新增服务器时保持一致配置。
 
 ## 快速上手
 1. 运行 `:Lazy sync` 确保插件就绪。
 2. 打开 `:Mason`，确认常用服务器已安装（如 `pyright`、`svelte-language-server`、`typescript-language-server`）；若缺少可在 UI 中按 `i` 安装。
-3. Mermaid 语法辅助需单独安装：`npm install -g @mermaid-js/mermaid-language-server`。
+3. Mermaid 语法辅助需从源码安装（该项目当前未发布 npm 包）：克隆 `https://github.com/thepwagner-org/mermaid-language-server`，执行 `npm install` 和 `npm run build`，再创建一个调用 `dist/server.js` 的 `~/.local/bin/mermaid-language-server` 启动器。
 4. 重启/重新打开对应语言的文件，LSP 会根据文件类型自动启动并共享 `nvim-cmp` 的补全能力。
 
 ## 日常使用

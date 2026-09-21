@@ -63,7 +63,7 @@ existing configuration.
 2. Inspect the host without changing it.
    - Identify the Linux distribution from `/etc/os-release`, the architecture
      from `uname -m`, and WSL from `WSL_DISTRO_NAME` or `/proc/version`.
-   - Require Neovim 0.11 or newer, a current Node LTS, tmux, build tools,
+   - Require Neovim 0.12 or newer, a current Node LTS, tmux, build tools,
      Git, search tools, archives, and .NET SDK 8 for the configured C# LSP.
 3. Present one concrete setup plan.
    - Separate required packages, optional integrations, configuration links,
@@ -159,7 +159,7 @@ copied database with old absolute paths is portable.
 - If `~/.config/nvim` or `~/.tmux.conf` exists and is not this clone's intended
   target, stop before overwriting, moving, or unlinking it.
 - If a package manager provides an older Neovim, do not accept it merely
-  because `nvim` exists. Install an official 0.11+ build and verify its path.
+  because `nvim` exists. Install an official 0.12+ build and verify its path.
 - If .NET SDK 8 is unavailable, stop before Mason's C# installation and report
   that the pinned `csharp_ls@0.15.0` needs that SDK. Do not silently substitute
   a different LSP or SDK.
@@ -191,7 +191,7 @@ copied database with old absolute paths is portable.
 ## Red Flags
 
 - The repository was linked over an existing directory or `.tmux.conf`.
-- `nvim --version` is below 0.11, but setup continues anyway.
+- `nvim --version` is below 0.12, but setup continues anyway.
 - Mason packages are claimed installed without opening `:Mason` or checking
   the executable and LSP state.
 - A command pipes an unverified remote script into a shell.
@@ -204,7 +204,7 @@ copied database with old absolute paths is portable.
 
 - [ ] The repository is the intended `~/.config/nvim` target, with no existing
       configuration overwritten.
-- [ ] `nvim --version` reports 0.11 or newer and Neovim starts without startup
+- [ ] `nvim --version` reports 0.12 or newer and Neovim starts without startup
       errors.
 - [ ] `git`, `curl`, build tools, `rg`, Node, Yarn, Python, Go, Rust, tmux,
       `jq`, and archive tools satisfy the matrix checks.

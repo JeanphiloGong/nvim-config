@@ -3,7 +3,7 @@
 ## Source Of Truth
 
 Use this matrix after rereading the checked-out configuration. It covers Linux
-and WSL hosts. The current repository requires Neovim 0.11 or newer and
+and WSL hosts. The current repository requires Neovim 0.12 or newer and
 includes:
 
 - Lazy.nvim plugin bootstrap from `init.lua`.
@@ -22,7 +22,7 @@ bootstrap checklist, not permission to overwrite a workstation.
 
 | Component | Required state | Check |
 | --- | --- | --- |
-| Neovim | 0.11 or newer | `nvim --version` |
+| Neovim | 0.12 or newer | `nvim --version` |
 | Node | Current supported LTS | `node --version` |
 | Package client | npm and Yarn available | `npm --version`, `yarn --version` |
 | .NET | SDK 8.x | `dotnet --list-sdks` |
@@ -54,7 +54,7 @@ do not run a full system upgrade just to provision this repository.
 ## Neovim, Node, And .NET
 
 1. Install the distro package only when it meets the version gate.
-2. If Neovim is older than 0.11, resolve the current official Neovim release
+2. If Neovim is older than 0.12, resolve the current official Neovim release
    for the detected architecture, verify its source and checksum, and install
    it in a user-owned or explicitly approved system location.
 3. If the distribution Node package is not a current supported LTS, use an
@@ -95,7 +95,24 @@ Avoid a timed headless command that exits while Lazy or Mason is still working.
 Install selected external Node tools after Node and Yarn are ready:
 
 ```sh
-npm install -g @mermaid-js/mermaid-language-server @mermaid-js/mermaid-cli
+npm install -g @mermaid-js/mermaid-cli
+
+# Mermaid language server (the npm package is not currently published)
+mkdir -p "$HOME/.local/src"
+git clone https://github.com/thepwagner-org/mermaid-language-server.git "$HOME/.local/src/mermaid-language-server"
+npm install --prefix "$HOME/.local/src/mermaid-language-server"
+npm run --prefix "$HOME/.local/src/mermaid-language-server" build
+mermaid_launcher_tmp="$(mktemp)"
+cat > "$mermaid_launcher_tmp" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -h|--help) printf '%s\n' 'Usage: mermaid-language-server --stdio'; exit 0 ;;
+esac
+exec node "$HOME/.local/src/mermaid-language-server/dist/server.js" "$@"
+SH
+install -m 755 "$mermaid_launcher_tmp" "$HOME/.local/bin/mermaid-language-server"
+rm -f "$mermaid_launcher_tmp"
 ```
 
 `live-server` is optional and only needed for the README's static Mermaid
