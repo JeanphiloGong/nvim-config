@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Split from current pane and run "codex fork <session_id>" in the new pane.
-# CODEX_SESSION_ID identifies a root session, not the thread to fork.
+# Split from the current pane and run "codex fork <thread_id>" in the new pane.
+# The thread ID comes from CODEX_THREAD_ID or the validated pane cache.
 
 orientation="${1:-h}" # h -> horizontal split, v -> vertical split
 case "$orientation" in

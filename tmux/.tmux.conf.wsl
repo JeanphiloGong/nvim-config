@@ -112,10 +112,10 @@ bind-key C run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/c
 # <prefix> + J：一键跳回“最后一次完成”的 Codex pane
 bind-key J run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-jump-last"'
 
-# <prefix> + f：右侧分屏，并从当前 pane 前台进程环境变量 fork（CODEX_SESSION_ID/THREAD_ID）
+# <prefix> + f：右侧分屏，并从当前 pane 的有效 CODEX_THREAD_ID fork
 bind-key f run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-fork-current" h'
 
-# <prefix> + F：下方分屏，并从当前 pane 前台进程环境变量 fork（CODEX_SESSION_ID/THREAD_ID）
+# <prefix> + F：下方分屏，并从当前 pane 的有效 CODEX_THREAD_ID fork
 bind-key F run-shell -b 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-fork-current" v'
 
 # 第 1 行左侧显示 session 名称 + session id（方便辨识）

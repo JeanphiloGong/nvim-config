@@ -4,7 +4,7 @@
 tmux 编排状态 helper。完整 agent 编排和 dashboard 已迁移到独立
 ApiaryDeck 项目。
 
-新服务器最短安装路径：
+新服务器最短安装路径（Linux）：
 
 ```sh
 # Linux
@@ -13,6 +13,8 @@ ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf
 ln -sf ~/.config/nvim/tmux/.tmux.conf.wsl ~/.tmux.conf
 tmux source ~/.tmux.conf
 ```
+
+WSL 使用 `tmux/.tmux.conf.wsl` 替换上面的配置路径。
 
 启动 tmux 后使用当前 prefix：`Ctrl-a`。Linux profile 的 Codex 菜单是
 `<prefix> + M`，WSL profile 使用 `<prefix> + C`；其余 Codex 快捷键一致。
@@ -23,8 +25,8 @@ tmux source ~/.tmux.conf
 | --- | --- |
 | `<prefix> + M`（Linux）/ `<prefix> + C`（WSL） | 打开 `Agents / Codex / Orch` 菜单。 |
 | `<prefix> + J` | 跳回最近一次完成的 Codex pane。 |
-| `<prefix> + f` | 右侧分屏并执行 `codex fork <session_or_thread_id>`。 |
-| `<prefix> + F` | 下方分屏并执行 `codex fork <session_or_thread_id>`。 |
+| `<prefix> + f` | 右侧分屏并使用当前 pane 的有效 thread ID 执行 `codex fork`。 |
+| `<prefix> + F` | 下方分屏并使用当前 pane 的有效 thread ID 执行 `codex fork`。 |
 | `<prefix> + e` | 打开 Language Coach 编辑器，可选填写上下文。 |
 | `<prefix> + H` | 打开 Language Coach 历史。 |
 | `<prefix> + T` | 设置当前 pane 标签。 |
@@ -90,6 +92,7 @@ Codex notify 记录完成的 turn，并支持快速跳回。tmux-resurrect/conti
 ```sh
 mkdir -p ~/.local/bin
 ln -sf ~/.config/nvim/tmux/bin/codex-tmux-notify ~/.local/bin/codex-tmux-notify
+ln -sf ~/.config/nvim/tmux/bin/codex-tmux-fork-current ~/.local/bin/codex-tmux-fork-current
 chmod +x ~/.local/bin/codex-tmux-notify
 ```
 
