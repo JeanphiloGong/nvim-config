@@ -13,6 +13,9 @@ panes, and lets you jump back quickly.
 - The current pane gets `@codex_pane_summary`.
 - The current pane gets `@codex_pane_thread_id` for future fork actions.
 - Recent completions are stored in `~/.tmux-codex-history`.
+- Codex panes are snapshotted every 5 seconds to `~/.tmux-codex-resume` and
+  restored with their matching `codex resume <thread-id>` command after
+  tmux-resurrect recreates the layout.
 
 Language Coach also writes to the shared status slot; the latest event wins.
 
@@ -66,6 +69,23 @@ hook maps those positions to the newly created panes, verifies each thread in
 This cache rebuild is separate from the notify history file. It means `f`, `F`,
 and `J` remain available immediately after a successful restore; an invalid or
 deleted Codex thread is skipped rather than reintroduced into tmux state.
+
+## Restart Recovery
+
+The Linux and WSL tmux profiles already enable tmux-resurrect and tmux-continuum.
+Their status bar invokes `bin/codex-tmux-resurrect snapshot` every 5 seconds.
+The snapshot records the logical `session:window.pane` location and only keeps a
+thread when the pane is still running Codex and Codex's `state_5.sqlite` row and
+rollout file still exist. For a running Codex process, it can refresh the pane
+cache before the first completion notification. Stale pane-local ids are
+ignored after Codex exits. Pane ids such as `%17` are intentionally not
+persisted because tmux assigns new ids after a server restart.
+
+After resurrect restores the panes, its post-restore hook sends
+`codex resume <thread-id>` to each saved Codex pane. A pane that is already
+running Codex is left untouched, and missing or invalid thread records are
+skipped. A new snapshot is created after the next status refresh, so closing a
+Codex pane removes it from the next recovery set.
 
 ## Install
 

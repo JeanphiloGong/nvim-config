@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Keep Codex thread ids outside tmux so resurrect can start the right session
+# after the tmux server is recreated. Pane ids such as %17 are not stable.
+
+resume_file="${TMUX_CODEX_RESURRECT_FILE:-$HOME/.tmux-codex-resume}"
+restore_marker="${resume_file}.restoring"
+
+restore_in_progress() {
+  local marker_time now
+  [ -f "$restore_marker" ] || return 1
+  marker_time="$(stat -c %Y "$restore_marker" 2>/dev/null || printf '0')"
+  now="$(date +%s)"
+  if [ "$marker_time" -gt 0 ] && [ $((now - marker_time)) -le 120 ]; then
+    return 0
+  fi
+  rm -f "$restore_marker"
+  return 1
+}
+
+begin_restore() {
+  mkdir -p "$(dirname "$restore_marker")"
+  printf '%s\n' "$(date +%s)" >"$restore_marker"
+  chmod 600 "$restore_marker"
+}
+
+thread_id_from_process() {
+  local pane_id="$1"
+  local pane_tty tty_short pid fd target thread_id
+
+  pane_tty="$(tmux display-message -p -t "$pane_id" '#{pane_tty}' 2>/dev/null || true)"
+  [ -n "$pane_tty" ] || return 1
+  tty_short="${pane_tty#/dev/}"
+
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    for fd in "/proc/$pid/fd/"*; do
+      target="$(readlink "$fd" 2>/dev/null || true)"
+      case "$target" in
+        */thread-writer-locks/*.lock)
+          thread_id="${target##*/}"
+          printf '%s\n' "${thread_id%.lock}"
+          return 0
+          ;;
+      esac
+    done
+  done < <(ps -t "$tty_short" -o pid=,comm= 2>/dev/null | awk '$2 == "codex" {print $1}')
+
+  return 1
+}
+
+snapshot_threads() {
+  local parent candidates tmp panes session_name window_index pane_index pane_id current_command cached_thread_id thread_id
+  local -A seen_panes=()
+  restore_in_progress && return 0
+  parent="$(dirname "$resume_file")"
+  mkdir -p "$parent"
+
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"${resume_file}.lock"
+    flock -w 2 9 || return 0
+  fi
+
+  candidates="$(mktemp "${resume_file}.candidates.XXXXXX")"
+  tmp="$(mktemp "${resume_file}.tmp.XXXXXX")"
+  panes="$(tmux list-panes -a -F "$(printf '#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}\t#{pane_current_command}')" 2>/dev/null || true)"
+
+  while IFS=$'\t' read -r session_name window_index pane_index pane_id current_command; do
+    [ -n "${pane_id:-}" ] || continue
+    [ -z "${seen_panes[$pane_id]+x}" ] || continue
+    seen_panes["$pane_id"]=1
+    cached_thread_id="$(tmux show -pv -t "$pane_id" @codex_pane_thread_id 2>/dev/null || true)"
+    thread_id="$(thread_id_from_process "$pane_id" || true)"
+    if [ -n "$thread_id" ] && [ "$thread_id" != "$cached_thread_id" ]; then
+      tmux set -pq -t "$pane_id" @codex_pane_thread_id "$thread_id" 2>/dev/null || true
+    fi
+    if [ -z "$thread_id" ]; then
+      case "$current_command" in
+        codex|codex-*|node) thread_id="$cached_thread_id" ;;
+        *) continue ;;
+      esac
+    fi
+    [ -n "$thread_id" ] || continue
+    printf '%s\t%s\t%s\t%s\n' \
+      "$session_name" "$window_index" "$pane_index" "$thread_id" >>"$candidates"
+  done <<<"$panes"
+
+  if ! python3 - "$candidates" "$tmp" <<'PY'
+import os
+import re
+import sqlite3
+import sys
+from pathlib import Path
+
+candidates_path, output_path = sys.argv[1:]
+rows = []
+with open(candidates_path, encoding="utf-8") as handle:
+    for raw in handle:
+        fields = raw.rstrip("\n").split("\t")
+        if len(fields) != 4:
+            continue
+        session_name, window_index, pane_index, thread_id = fields
+        if re.fullmatch(r"[0-9a-fA-F-]{36}", thread_id):
+            rows.append((session_name, window_index, pane_index, thread_id))
+
+if rows:
+    codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    sqlite_home = Path(os.environ.get("CODEX_SQLITE_HOME") or codex_home)
+    db_path = (sqlite_home / "state_5.sqlite").resolve()
+    try:
+        with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=0.2) as db:
+            valid_rows = []
+            for row in rows:
+                record = db.execute(
+                    "SELECT rollout_path FROM threads WHERE id = ?", (row[3],)
+                ).fetchone()
+                if record and record[0] and Path(record[0]).is_file():
+                    valid_rows.append(row)
+    except (OSError, sqlite3.Error, ValueError):
+        # Keep the previous snapshot if Codex is briefly unavailable.
+        sys.exit(1)
+else:
+    valid_rows = []
+
+with open(output_path, "w", encoding="utf-8") as handle:
+    for row in valid_rows:
+        handle.write("\t".join(row) + "\n")
+os.chmod(output_path, 0o600)
+PY
+  then
+    rm -f "$candidates" "$tmp"
+    return 0
+  fi
+
+  mv -f "$tmp" "$resume_file"
+  rm -f "$candidates"
+  chmod 600 "$resume_file"
+}
+
+restore_threads() {
+  local session_name window_index pane_index thread_id target panes restored_thread current_command
+  [ -r "$resume_file" ] || return 0
+
+  while IFS=$'\t' read -r session_name window_index pane_index thread_id; do
+    [ -n "${session_name:-}" ] || continue
+    [ -n "${window_index:-}" ] || continue
+    [ -n "${pane_index:-}" ] || continue
+    [ -n "${thread_id:-}" ] || continue
+
+    target="${session_name}:${window_index}.${pane_index}"
+    tmux has-session -t "$session_name" 2>/dev/null || continue
+    panes="$(tmux list-panes -t "${session_name}:${window_index}" -F '#{pane_index}' 2>/dev/null || true)"
+    printf '%s\n' "$panes" | grep -Fxq "$pane_index" || continue
+
+    restored_thread="$(tmux show -pv -t "$target" @codex_resurrect_restored_thread 2>/dev/null || true)"
+    [ "$restored_thread" = "$thread_id" ] && continue
+
+    current_command="$(tmux display-message -p -t "$target" '#{pane_current_command}' 2>/dev/null || true)"
+    case "$current_command" in
+      codex|codex-*|node)
+        continue
+        ;;
+    esac
+
+    tmux send-keys -t "$target" "codex resume $thread_id" C-m
+    tmux set -p -t "$target" @codex_resurrect_restored_thread "$thread_id" 2>/dev/null || true
+  done <"$resume_file"
+  rm -f "$restore_marker"
+}
+
+case "${1:-}" in
+  begin-restore)
+    begin_restore
+    ;;
+  snapshot)
+    snapshot_threads
+    ;;
+  restore)
+    restore_threads
+    ;;
+  *)
+    printf 'Usage: %s {begin-restore|snapshot|restore}\n' "${0##*/}"
+    exit 2
+    ;;
+esac

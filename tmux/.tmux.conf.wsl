@@ -73,11 +73,13 @@ set -g @continuum-save-interval '15'
 
 ##### tmux-resurrect #####
 set -g @resurrect-capture-pane-contents 'on'
+<<<<<<< HEAD
 set -g @resurrect-processes '"~codex"'
 set -g @codex_resurrect_state_file "$HOME/.tmux-codex-resurrect-state"
 set -gu @resurrect-hook-post-save-all
 set -g @resurrect-hook-post-save-layout 'bash ~/.config/nvim/tmux/bin/codex-tmux-resurrect-state save'
-set -g @resurrect-hook-post-restore-all 'bash ~/.config/nvim/tmux/bin/codex-tmux-resurrect-state restore'
+set -g @resurrect-hook-pre-restore-all 'bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-resurrect" begin-restore'
+set -g @resurrect-hook-post-restore-all 'bash ~/.config/nvim/tmux/bin/codex-tmux-resurrect-state restore; bash "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/tmux/bin/codex-tmux-resurrect" restore'
 
 ##### 初始化 TPM（建议靠近底部；本文件后面还有覆盖绑定）#####
 run '~/.tmux/plugins/tpm/tpm'
@@ -96,7 +98,7 @@ set -g message-line 1
 set -g status-format[1] '#[align=left]#(~/.config/nvim/tmux/bin/tmux-git-status "#{pane_current_path}")#[align=right]#{?@shared_status_msg,#{=/110/...:@shared_status_msg},}'
 
 # in .tmux.conf
-set -g status-right "#(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
+set -g status-right "#(~/.config/nvim/tmux/bin/codex-tmux-resurrect snapshot) #(~/.tmux/plugins/tmux-continuum/scripts/continuum_save.sh) #(awk -v RS=\"\" '/^cpu / {u=$2+$4; t=$2+$4+$5; printf \"CPU: %.1f%%\", u*100/t}' /proc/stat) | #(free -m | awk '/Mem/ {printf \"RAM: %.1f%%\", $3*100/$2 }') | %a %h-%d %H:%M "
 
 ##### Codex（可选）：turn 完成提示 + 快速跳回 #####
 # 依赖 Codex CLI 的 notify hook（agent-turn-complete）把位置写入 tmux option：

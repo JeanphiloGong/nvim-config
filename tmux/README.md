@@ -139,6 +139,7 @@ copy-mode `y` 也会通过 OSC 52 把内容发送到客户端终端，不依赖�
 | `bin/codex-tmux-notify` | Codex notify hook 集成。 |
 | `bin/codex-tmux-fork-current` | 把当前 Codex thread fork 到新 pane。 |
 | `bin/codex-tmux-resurrect-state` | 保存并恢复 Codex pane/thread cache。 |
+| `bin/codex-tmux-resurrect` | 快照并恢复 Codex thread。 |
 | `bin/tmux-language-rewrite` | API-only Language Coach backend。 |
 
 ## 验证
@@ -147,6 +148,7 @@ copy-mode `y` 也会通过 OSC 52 把内容发送到客户端终端，不依赖�
 
 ```sh
 tmux/test/codex-tmux-fork-current-smoke.sh
+tmux/test/codex-tmux-resurrect-smoke.sh
 tmux/test/tmux-language-rewrite-smoke.sh
 tmux/test/tmux-language-input-smoke.sh
 tmux/test/tmux-agent-orch-smoke.sh
