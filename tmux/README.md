@@ -80,8 +80,9 @@ chmod 600 ~/.config/tmux-language-rewrite/language.env
 ## Codex 集成
 
 Codex notify 记录完成的 turn，并支持快速跳回。tmux-resurrect/continuum
-还会保存 Codex pane 的 thread id；恢复后会校验 `state_5.sqlite` 和 rollout
-文件并重建 pane/global cache，因此 `f`、`F`、`J` 不需要等待下一次 notify。
+还会保存每个 Codex pane 的 thread id，并把恢复命令改写为
+`codex resume <thread_id>`；恢复后会校验 `state_5.sqlite` 和 rollout 文件并
+重建 pane/global cache，因此 `f`、`F`、`J` 不需要等待下一次 notify。
 
 安装 hook：
 

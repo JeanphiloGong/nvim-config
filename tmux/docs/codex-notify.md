@@ -54,10 +54,11 @@ index and rollout filename layout are not used as validity checks.
 ## Resurrect And Continuum Recovery
 
 Both tmux profiles configure tmux-resurrect to restore a foreground `codex`
-process and tmux-continuum to restore the saved layout automatically. The
-post-save hook records each Codex pane's session/window/pane position and
-thread id in `~/.tmux-codex-resurrect-state`. The post-restore hook maps those
-positions to the newly created panes, verifies each thread in
+process and tmux-continuum to restore the saved layout automatically. During
+the post-save-layout hook, each Codex pane's session/window/pane position and
+thread id are recorded in `~/.tmux-codex-resurrect-state`, and its saved
+process command is rewritten to `codex resume <thread_id>`. The post-restore
+hook maps those positions to the newly created panes, verifies each thread in
 `state_5.sqlite` and its rollout file, then rebuilds
 `@codex_pane_thread_id`, `@codex_last_win`, `@codex_last_pane`, and
 `@codex_last_thread_id`.

@@ -63,15 +63,23 @@ SH
 chmod +x "$tmp_root/bin/tmux"
 
 state_file="$tmp_root/resurrect-state"
+snapshot_file="$tmp_root/tmux-resurrect.txt"
 log_file="$tmp_root/tmux.log"
+
+printf '%s\n' \
+  $'pane\ttest\t0\t1\t:\t1\tDESKTOP\t/tmp\t0\tnode\t:node /home/gong/.nvm/versions/node/v22/bin/codex' \
+  $'pane\ttest\t0\t1\t:\t1\tDESKTOP\t/tmp\t1\tbash\t:' \
+  >"$snapshot_file"
 
 TMUX_TEST_LOG="$log_file" \
 TMUX_TEST_STATE="$state_file" \
 PATH="$tmp_root/bin:$PATH" \
-  "$entry" save
+  "$entry" save "$snapshot_file"
 
 grep -F $'pane\ttest\t0\t1\t01a00000-0000-7000-8000-000000000001' "$state_file" >/dev/null
 grep -F $'last\ttest\t0\t1\t01a00000-0000-7000-8000-000000000001' "$state_file" >/dev/null
+grep -F $'pane\ttest\t0\t1\t:\t1\tDESKTOP\t/tmp\t0\tnode\t:codex resume 01a00000-0000-7000-8000-000000000001' "$snapshot_file" >/dev/null
+grep -F $'pane\ttest\t0\t1\t:\t1\tDESKTOP\t/tmp\t1\tbash\t:' "$snapshot_file" >/dev/null
 test "$(stat -c '%a' "$state_file")" = 600
 
 : >"$log_file"

@@ -13,6 +13,7 @@ state_file="$(tmux show -gv @codex_resurrect_state_file 2>/dev/null || true)"
 [ -n "$state_file" ] || state_file="$HOME/.tmux-codex-resurrect-state"
 state_file="${state_file/#\~/$HOME}"
 state_dir="$(dirname "$state_file")"
+snapshot_file="${2:-}"
 
 pane_exists() {
   local session="$1"
@@ -51,6 +52,64 @@ if [ "$mode" = "save" ]; then
 
   chmod 600 "$tmp_file"
   mv -f "$tmp_file" "$state_file"
+
+  if [ -n "$snapshot_file" ] && [ -f "$snapshot_file" ] && command -v python3 >/dev/null 2>&1; then
+    python3 - "$snapshot_file" "$state_file" <<'PY'
+import os
+import re
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+snapshot_path = Path(sys.argv[1])
+state_path = Path(sys.argv[2])
+
+try:
+    pane_threads = {}
+    for raw in state_path.read_text().splitlines():
+        fields = raw.split("\t")
+        if len(fields) == 5 and fields[0] == "pane":
+            pane_threads[(fields[1], fields[2], fields[3])] = fields[4]
+
+    if not pane_threads:
+        sys.exit(0)
+
+    lines = snapshot_path.read_text().splitlines(keepends=True)
+    rewritten = []
+    changed = False
+    for line in lines:
+        newline = "\n" if line.endswith("\n") else ""
+        body = line[:-1] if newline else line
+        fields = body.split("\t")
+        if len(fields) >= 11 and fields[0] == "pane":
+            key = (fields[1], fields[2], fields[5])
+            thread_id = pane_threads.get(key)
+            full_command = fields[10][1:] if fields[10].startswith(":") else fields[10]
+            if thread_id and re.search(r"(?:^|[ /])codex(?:\s|$)", full_command):
+                fields[10] = f":codex resume {thread_id}"
+                body = "\t".join(fields)
+                changed = True
+        rewritten.append(body + newline)
+
+    if changed:
+        mode = stat.S_IMODE(snapshot_path.stat().st_mode)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{snapshot_path.name}.", dir=snapshot_path.parent)
+        try:
+            with os.fdopen(fd, "w") as temp_file:
+                temp_file.writelines(rewritten)
+            os.chmod(temp_name, mode)
+            os.replace(temp_name, snapshot_path)
+        finally:
+            try:
+                os.unlink(temp_name)
+            except FileNotFoundError:
+                pass
+except (OSError, UnicodeError):
+    pass
+PY
+  fi
+
   trap - EXIT
   exit 0
 fi
