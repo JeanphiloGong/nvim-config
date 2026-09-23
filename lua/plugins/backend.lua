@@ -14,7 +14,7 @@ return {
     "williamboman/mason-lspconfig.nvim",
     config = function()
       require("mason-lspconfig").setup({
-        ensure_installed = { "pyright", "svelte", "ts_ls", "gopls", "clangd", "rust_analyzer", "solidity_ls" },
+        ensure_installed = { "pyright", "svelte", "ts_ls", "gopls", "clangd", "rust_analyzer", "solidity_ls", "csharp_ls@0.15.0" },
         automatic_enable = false,
       })
     end,
@@ -59,6 +59,7 @@ return {
         clangd = with_capabilities(),
         rust_analyzer = with_capabilities(),
         solidity_ls = with_capabilities(),
+        csharp_ls = with_capabilities(),
         gopls = with_capabilities({
           settings = {
             gopls = {

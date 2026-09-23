@@ -116,9 +116,12 @@ source ~/.bashrc
 
 ## tmux 使用
 1) 安装 TPM：`git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm`
-2) 关联配置：`ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf`
+2) 关联配置：Linux 执行
+   `ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf`；WSL 执行
+   `ln -sf ~/.config/nvim/tmux/.tmux.conf.wsl ~/.tmux.conf`。
 3) 启动 tmux 后执行 `tmux source ~/.tmux.conf`，再按 `prefix + I` 安装插件。
-4) `prefix + M` 打开 Codex / Orch 菜单；agent 编排主线已迁移到独立 ApiaryDeck 项目。
+4) Linux 用 `prefix + M`、WSL 用 `prefix + C` 打开 Codex / Orch 菜单；agent
+   编排主线已迁移到独立 ApiaryDeck 项目。
 
 ## 实用命令
 - `:Time` 在光标处插入当前时间戳（YYYY-MM-DD HH:MM:SS）。

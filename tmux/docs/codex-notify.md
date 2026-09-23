@@ -19,16 +19,53 @@ Language Coach also writes to the shared status slot; the latest event wins.
 ## Key Bindings
 
 - `<prefix> + J`: jump to the most recently completed Codex pane.
-- `<prefix> + M`: open the `Agents / Codex / Orch` menu.
+- `<prefix> + M` on Linux, or `<prefix> + C` on WSL: open the
+  `Agents / Codex / Orch` menu.
 - `<prefix> + f`: split right and run `codex fork <id>` from the current pane.
 - `<prefix> + F`: split down and run `codex fork <id>` from the current pane.
 
-The fork helper reads `CODEX_SESSION_ID` first, then `CODEX_THREAD_ID`. If the
-current foreground process does not expose either value, it tries nearby process
+The fork helper reads `CODEX_THREAD_ID`. If the
+current foreground process does not expose this value, it tries nearby process
 state and finally the pane-local `@codex_pane_thread_id`.
 
 The fork id must be a real Codex session or thread id. A tmux session name,
 window name, pane id, or worktree name is not a valid `codex fork` id.
+`CODEX_SESSION_ID` identifies a shared root session and is not used for fork.
+The notify hook records the event's `thread-id`, never an inherited environment
+id or generic `id` field. Before changing any pane state, it checks the thread's
+record in `state_5.sqlite` and verifies that the recorded rollout path exists.
+Ephemeral recap threads are not persisted and cannot replace the main thread's
+cached id, summary, or notification history. Missing ids, unavailable databases,
+and missing rollout files leave existing state untouched.
+
+Python 3 with SQLite support is required. The database directory is
+`CODEX_SQLITE_HOME`, or `CODEX_HOME` (default `~/.codex`) when unset. If Codex uses
+a custom `sqlite_home` configuration, export the matching `CODEX_SQLITE_HOME`
+before starting Codex. This check targets Codex's current `state_5.sqlite`
+schema; a future schema change requires updating the hook, not guessing from
+session filenames.
+
+On a machine with no saved Codex state, let one turn finish in the source pane
+to initialize the cache and history. After switching conversations, the cache
+may still refer to the previous conversation until the new turn completes.
+Codex itself determines whether the selected thread can be forked; the name
+index and rollout filename layout are not used as validity checks.
+
+## Resurrect And Continuum Recovery
+
+Both tmux profiles configure tmux-resurrect to restore a foreground `codex`
+process and tmux-continuum to restore the saved layout automatically. During
+the post-save-layout hook, each Codex pane's session/window/pane position and
+thread id are recorded in `~/.tmux-codex-resurrect-state`, and its saved
+process command is rewritten to `codex resume <thread_id>`. The post-restore
+hook maps those positions to the newly created panes, verifies each thread in
+`state_5.sqlite` and its rollout file, then rebuilds
+`@codex_pane_thread_id`, `@codex_last_win`, `@codex_last_pane`, and
+`@codex_last_thread_id`.
+
+This cache rebuild is separate from the notify history file. It means `f`, `F`,
+and `J` remain available immediately after a successful restore; an invalid or
+deleted Codex thread is skipped rather than reintroduced into tmux state.
 
 ## Install
 
@@ -56,7 +93,8 @@ Codex CLI after editing the config.
 2. Let one turn finish.
 3. Confirm the second status line updates to `Codex: ...`.
 4. Press `<prefix> + J` to jump back to the completed pane.
-5. Press `<prefix> + M` and confirm the recent Codex pane appears in the menu.
+5. Press `<prefix> + M` on Linux or `<prefix> + C` on WSL and confirm the
+   recent Codex pane appears in the menu.
 
 ## History Menu
 
@@ -98,11 +136,13 @@ For fork diagnosis:
 tmux show -gv @codex_fork_last_source
 tmux show -gv @codex_fork_last_pid
 tmux show -gv @codex_fork_last_key
+tmux show -gv @codex_fork_last_detail
 tmux show -pv -t "$TMUX_PANE" @codex_pane_thread_id
 ```
 
 Fork attempts are logged to `~/.tmux-codex-fork.log` by default. Set
-`@codex_fork_log_file` to `off` to disable the log.
+`@codex_fork_log_file` to `off` to disable the log. `HIT` means the fork command
+was sent, not that Codex accepted it.
 
 ## Related Docs
 

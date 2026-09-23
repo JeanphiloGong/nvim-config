@@ -7,22 +7,25 @@ ApiaryDeck 项目。
 新服务器最短安装路径：
 
 ```sh
+# Linux
 ln -sf ~/.config/nvim/tmux/.tmux.conf ~/.tmux.conf
+# WSL
+ln -sf ~/.config/nvim/tmux/.tmux.conf.wsl ~/.tmux.conf
 tmux source ~/.tmux.conf
 ```
 
-启动 tmux 后使用当前 prefix：`Ctrl-a`。
+启动 tmux 后使用当前 prefix：`Ctrl-a`。Linux profile 的 Codex 菜单是
+`<prefix> + M`，WSL profile 使用 `<prefix> + C`；其余 Codex 快捷键一致。
 
 ## 常用快捷键
 
 | 快捷键 | 作用 |
 | --- | --- |
-| `<prefix> + M` | 打开 `Agents / Codex / Orch` 菜单。 |
+| `<prefix> + M`（Linux）/ `<prefix> + C`（WSL） | 打开 `Agents / Codex / Orch` 菜单。 |
 | `<prefix> + J` | 跳回最近一次完成的 Codex pane。 |
 | `<prefix> + f` | 右侧分屏并执行 `codex fork <session_or_thread_id>`。 |
 | `<prefix> + F` | 下方分屏并执行 `codex fork <session_or_thread_id>`。 |
-| `<prefix> + e` | 打开单行 Language Coach 输入。 |
-| `<prefix> + E` | 打开带上下文的 Language Coach 输入。 |
+| `<prefix> + e` | 打开 Language Coach 编辑器，可选填写上下文。 |
 | `<prefix> + H` | 打开 Language Coach 历史。 |
 | `<prefix> + T` | 设置当前 pane 标签。 |
 | `<prefix> + W` | 重命名当前 window。 |
@@ -33,7 +36,8 @@ tmux source ~/.tmux.conf
 
 ## Language Coach
 
-Language Coach 对应 `<prefix> + e`、`<prefix> + E` 和 `<prefix> + H`。
+Language Coach 对应 `<prefix> + e` 和 `<prefix> + H`。在编辑器的
+`[input]` 区域填写内容；需要上下文时再填写 `[context]`，否则留空。
 
 它现在只使用 OpenAI-compatible API，并自动读取：
 
@@ -75,7 +79,10 @@ chmod 600 ~/.config/tmux-language-rewrite/language.env
 
 ## Codex 集成
 
-Codex notify 记录完成的 turn，并支持快速跳回。
+Codex notify 记录完成的 turn，并支持快速跳回。tmux-resurrect/continuum
+还会保存每个 Codex pane 的 thread id，并把恢复命令改写为
+`codex resume <thread_id>`；恢复后会校验 `state_5.sqlite` 和 rollout 文件并
+重建 pane/global cache，因此 `f`、`F`、`J` 不需要等待下一次 notify。
 
 安装 hook：
 
@@ -121,6 +128,7 @@ copy-mode `y` 也会通过 OSC 52 把内容发送到客户端终端，不依赖�
 | `bin/orch` | tmux-orch Phase A 状态 helper。 |
 | `bin/codex-tmux-notify` | Codex notify hook 集成。 |
 | `bin/codex-tmux-fork-current` | 把当前 Codex thread fork 到新 pane。 |
+| `bin/codex-tmux-resurrect-state` | 保存并恢复 Codex pane/thread cache。 |
 | `bin/tmux-language-rewrite` | API-only Language Coach backend。 |
 
 ## 验证
@@ -128,6 +136,9 @@ copy-mode `y` 也会通过 OSC 52 把内容发送到客户端终端，不依赖�
 修改 tmux helpers 后优先运行：
 
 ```sh
+tmux/test/codex-tmux-fork-current-smoke.sh
 tmux/test/tmux-language-rewrite-smoke.sh
+tmux/test/tmux-language-input-smoke.sh
 tmux/test/tmux-agent-orch-smoke.sh
+tmux/test/codex-tmux-resurrect-state-smoke.sh
 ```

@@ -112,8 +112,8 @@ vim.api.nvim_create_user_command('Time', function()
 	vim.api.nvim_put({ timestamp }, 'l', true, true)
 end, {})
 
--- Use OSC 52 over SSH so yanks reach the terminal on the client machine.
-if vim.env.SSH_TTY or vim.env.SSH_CONNECTION then
+-- Use OSC 52 for SSH and tmux, including panes started before an SSH reattach.
+if vim.env.SSH_TTY or vim.env.SSH_CONNECTION or vim.env.TMUX then
   local osc52 = require("vim.ui.clipboard.osc52")
   vim.g.clipboard = {
     name = "OSC 52",
