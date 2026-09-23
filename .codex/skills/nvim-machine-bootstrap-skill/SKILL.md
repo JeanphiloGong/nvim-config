@@ -1,6 +1,6 @@
 ---
 name: nvim-machine-bootstrap-skill
-description: "v0.1.0 - Bootstrap this Neovim and tmux workspace on a fresh Linux or WSL machine, including dependency checks, profile-aware configuration links, plugin setup, and verification. Use when a user clones this repository on a new Linux or WSL machine or asks to repair a missing local development dependency."
+description: "v0.1.1 - Bootstrap or migrate this Neovim and tmux workspace on Linux or WSL, including dependency checks, profile-aware configuration links, plugin setup, Codex thread recovery, and verification. Use when a user clones this repository on a new machine, migrates the workspace, or asks to repair a missing local development dependency."
 ---
 
 # Nvim Machine Bootstrap Skill
@@ -16,6 +16,8 @@ source of truth; this skill verifies it before making machine changes.
 
 - A user has cloned this repository on a new Linux or WSL machine and wants the
   full editor and tmux environment ready to use.
+- A user is moving the workstation to another Linux or WSL server and needs to
+  decide which configuration, Codex data, and tmux state should be recreated.
 - Neovim starts with missing plugins, LSPs, tmux plugins, or required external
   tools after a clone.
 - A user asks which host dependencies this repository requires before setup.
@@ -41,6 +43,10 @@ Before changing the machine, collect:
 - whether `~/.config/nvim` or `~/.tmux.conf` already exists;
 - the selected tmux profile: `tmux/.tmux.conf` on Linux or
   `tmux/.tmux.conf.wsl` on WSL;
+- whether this is a fresh setup or a migration, and whether old Codex threads
+  must remain resumable on the new host;
+- whether the new host uses the standard home and config paths expected by the
+  tmux templates;
 - whether the user wants optional Mermaid, Codex/tmux integration, and
   Language Coach setup.
 
@@ -103,6 +109,46 @@ existing configuration.
    - Run the verification checklist below and distinguish a working baseline
      from optional integrations the user chose not to configure.
 
+## Migration Runbook
+
+Use this runbook when the target is another server rather than a clean install.
+The repository expects `~/.config/nvim` as the standard path. Keep that path on
+the new host, or create a safe symlink to the clone; do not edit every tmux
+command to follow a machine-specific checkout path. The tmux hooks also use
+`~/.config/nvim/tmux/bin/...` directly.
+
+1. Recreate the host baseline: Neovim 0.11+, tmux, Node LTS, Python 3 with
+   SQLite support, TPM, tmux-resurrect, tmux-continuum, and the configured
+   language toolchains.
+2. Link exactly one profile to `~/.tmux.conf`: use
+   `tmux/.tmux.conf.wsl` on WSL and `tmux/.tmux.conf` on native Linux. Source
+   it and install TPM plugins before checking any Codex behavior.
+3. Install and authenticate Codex CLI on the new host. Recreate the notify
+   symlink at `~/.local/bin/codex-tmux-notify`, then update the absolute
+   `notify` path in the new host's `~/.codex/config.toml`. Never copy a Codex
+   credential as a substitute for login.
+4. Decide whether to migrate Codex history. For a fresh history, do not copy
+   the old `~/.tmux-codex-resurrect-state`, tmux resurrect snapshots, or Codex
+   cache; let the new host generate them after the first completed turn. To
+   preserve old threads, migrate the matching `state_5.sqlite` and rollout
+   files under `CODEX_HOME` or `CODEX_SQLITE_HOME`, and verify that the
+   database `rollout_path` values still exist on the new host. Copy the latest
+   resurrect snapshot and `~/.tmux-codex-resurrect-state` only when the new
+   host preserves the referenced project paths and pane layout; otherwise
+   manually run `codex resume <thread_id>` for the threads that matter and
+   create a new snapshot. Thread IDs alone cannot restore a conversation.
+5. After Codex has produced a validated notification, trigger one tmux-resurrect
+   save or wait for continuum. The save hook rewrites each Codex pane command to
+   `codex resume <thread_id>`; the restore hook then rebuilds the pane and
+   global thread cache. Do not test migration by running a real restore until
+   the saved snapshot contains the expected `codex resume` commands.
+
+When the new host uses a different home directory, preserve the standard
+`~/.config/nvim` and `~/.codex` locations where possible. If a custom
+`CODEX_HOME` or `CODEX_SQLITE_HOME` is required, export it before starting
+Codex and verify both the database and rollout paths; do not assume that a
+copied database with old absolute paths is portable.
+
 ## Decision Points
 
 - If the host is not a supported Linux distribution, stop after reporting the
@@ -122,6 +168,12 @@ existing configuration.
   headless command.
 - If optional integrations require credentials or account login, create only
   their non-secret local structure and leave credential entry to the user.
+- If this is a migration and old Codex threads are requested but the matching
+  database or rollout files are absent, report that limitation and complete a
+  fresh setup; do not invent thread records or copy credentials blindly.
+- If an old tmux resurrect snapshot contains machine-specific paths, keep it
+  out of the new host's active restore directory and generate a new snapshot
+  after the new profile is loaded.
 
 ## Common Rationalizations
 
@@ -133,6 +185,8 @@ existing configuration.
 | "A short headless wait proves Mason installed." | It can interrupt asynchronous downloads and create a false failure. Wait for completion or use the package's completion signal. |
 | "Optional API features can use placeholder credentials." | Placeholders create broken flows and encourage secrets in the repository. Leave user-owned credentials unset. |
 | "The Linux and WSL tmux files are interchangeable." | Their clipboard integration and Codex menu bindings differ; link exactly one profile based on the detected host. |
+| "Copying the old tmux snapshot preserves the workstation." | Resurrect snapshots contain old pane paths and commands; generate a new snapshot after migration. |
+| "A thread ID is enough to resume Codex." | `codex resume` also needs the matching `state_5.sqlite` record and rollout file at a valid path. |
 
 ## Red Flags
 
@@ -172,6 +226,12 @@ existing configuration.
 - [ ] The selected profile retains the configured Git/status layout, Codex
       bindings, popup shell, and Language Coach bindings. Codex notifications
       and Language Coach credentials remain optional user-owned setup.
+- [ ] On a migration, the standard config path, selected profile, Codex notify
+      path, and `CODEX_HOME`/`CODEX_SQLITE_HOME` decision are recorded.
+- [ ] If old Codex threads are requested, every migrated thread has a database
+      record and an existing rollout path; otherwise fresh history is reported.
+- [ ] A post-migration resurrect snapshot contains `codex resume <thread_id>`
+      for each eligible Codex pane before restore is attempted.
 - [ ] Optional Codex and Language Coach steps are either verified or explicitly
       recorded as deferred because they require user credentials or login.
 

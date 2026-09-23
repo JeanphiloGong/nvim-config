@@ -1,4 +1,4 @@
 interface:
   display_name: "Neovim Machine Bootstrap"
-  short_description: "v0.1.0 - Set up Neovim and tmux on Linux or WSL"
-  default_prompt: "Use $nvim-machine-bootstrap-skill to configure this cloned repository, including the correct tmux profile, on a fresh Linux or WSL machine."
+  short_description: "v0.1.1 Bootstrap or migrate Neovim and tmux on Linux/WSL"
+  default_prompt: "Use $nvim-machine-bootstrap-skill to bootstrap or migrate this Neovim and tmux workstation, verify host dependencies, and report deferred user-owned setup."
