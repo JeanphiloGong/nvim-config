@@ -164,6 +164,47 @@ cache; `CODEX_SESSION_ID` is a shared root-session ID and is not used for fork.
 A tmux session, window, or pane ID is not valid. Do not alter the Codex
 configuration unless the user requests this integration.
 
+### Codex Pane Recovery
+
+Both tracked tmux profiles configure `tmux-resurrect` and `tmux-continuum` to
+run `bin/codex-tmux-resurrect`. The status refresh records active Codex thread
+mappings every five seconds in `~/.tmux-codex-resume`; the continuum interval
+remains 15 minutes for the full tmux layout. After tmux-resurrect recreates the
+saved panes, the post-restore hook runs `codex resume <thread-id>` in each
+matching logical pane.
+
+No additional plugin or user-local link is required for the recovery helper.
+On a host that is already linked and has TPM plugins installed, update the
+repository and activate the checked-out configuration with:
+
+```sh
+tmux source-file "$HOME/.tmux.conf"
+```
+
+On a fresh host, complete the profile link and TPM installation steps above
+first. Then start Codex inside an attached tmux client, wait for a status
+refresh, and verify recovery without restarting the live server:
+
+```sh
+tmux show-options -gv status-interval
+tmux show-options -gv @resurrect-hook-pre-restore-all
+tmux show-options -gv @resurrect-hook-post-restore-all
+test -x "$HOME/.config/nvim/tmux/bin/codex-tmux-resurrect"
+test -s "$HOME/.tmux-codex-resume"
+test "$(stat -c %a "$HOME/.tmux-codex-resume")" = 600
+"$HOME/.config/nvim/tmux/test/codex-tmux-resurrect-smoke.sh"
+```
+
+The helper validates thread IDs against Codex's `state_5.sqlite` and recorded
+rollout files. It uses `CODEX_SQLITE_HOME`, or `CODEX_HOME` and then
+`~/.codex` by default. When a custom Codex state directory is selected, export
+the matching `CODEX_SQLITE_HOME` before starting the tmux server so status
+commands inherit it.
+
+Recovery state is local to one machine. Pulling the repository distributes the
+configuration but does not migrate `~/.codex`, saved tmux layouts, or active
+Codex sessions from another host. Do not copy `~/.tmux-codex-resume` alone.
+
 Language Coach is optional. Its environment file belongs outside the repository
 at `~/.config/tmux-language-rewrite/language.env`, must be mode `600`, and
 requires the user to enter their own API credentials.

@@ -1,6 +1,6 @@
 ---
 name: nvim-machine-bootstrap-skill
-description: "v0.1.1 - Bootstrap or migrate this Neovim and tmux workspace on Linux or WSL, including dependency checks, profile-aware configuration links, plugin setup, Codex thread recovery, and verification. Use when a user clones this repository on a new machine, migrates the workspace, or asks to repair a missing local development dependency."
+description: "v0.1.1 - Bootstrap or migrate this Neovim and tmux workspace on Linux or WSL, including dependency checks, profile-aware configuration links, plugin setup, Codex pane recovery, and verification. Use when a user clones this repository on a new machine, migrates the workspace, enables tmux/Codex integration, or asks to repair a missing local development dependency."
 ---
 
 # Nvim Machine Bootstrap Skill
@@ -58,6 +58,8 @@ existing configuration.
 1. Read the repository contract.
    - Read `AGENTS.md`, `README.md`, `lua/plugins/*.lua`, both checked-out tmux
      profiles, and the Linux environment matrix.
+   - When Codex/tmux integration is selected, also read
+     `../../../tmux/docs/codex-notify.md` before changing machine state.
    - Derive the required LSPs and external commands from the checked-out
      configuration rather than from an old setup report.
 2. Inspect the host without changing it.
@@ -74,7 +76,7 @@ existing configuration.
      changes.
 4. Install the required host dependencies.
    - Use the package guidance for the detected distribution.
-   - If the package manager cannot provide Neovim 0.11 or a current Node LTS,
+   - If the package manager cannot provide Neovim 0.12 or a current Node LTS,
      use the current official upstream installation instructions after
      confirming the download source and architecture.
    - Install .NET SDK 8 before allowing Mason to install `csharp_ls@0.15.0`.
@@ -97,12 +99,24 @@ existing configuration.
    - Clone `tmux-plugins/tpm` into `~/.tmux/plugins/tpm` only when it is
      absent. Start the tmux server, source the selected `~/.tmux.conf`, run
      `~/.tmux/plugins/tpm/bin/install_plugins`, then source the config again.
+   - Treat Codex pane recovery as part of the tracked tmux profiles. Once TPM
+     has installed `tmux-resurrect` and `tmux-continuum`, sourcing the profile
+     activates `bin/codex-tmux-resurrect`; do not add another plugin or helper
+     symlink for recovery.
 7. Configure optional user-owned integrations separately.
    - Codex/tmux notifications require an installed and authenticated Codex CLI
      plus an explicit edit to the user's Codex configuration.
    - The `f` and `F` bindings only fork a real persisted Codex thread ID from
      `CODEX_THREAD_ID` or the pane's validated notification cache; do not use
      `CODEX_SESSION_ID`, a tmux pane, window, or session name as a fallback.
+   - The selected tmux profile snapshots active Codex thread mappings every
+     five seconds and resumes them after tmux-resurrect recreates the panes.
+     On an already bootstrapped host, a repository update only needs the tmux
+     configuration sourced again; reinstall TPM plugins only when missing.
+   - Recovery state is machine-local. Do not claim that pulling this repository
+     migrates sessions from another server, and do not copy
+     `~/.tmux-codex-resume` without its matching Codex database and rollout
+     files.
    - Language Coach requires the user to fill its external environment file;
      never place an API key in this repository or print it in output.
 8. Verify the finished workstation and report any deferred items.
@@ -174,6 +188,9 @@ copied database with old absolute paths is portable.
 - If an old tmux resurrect snapshot contains machine-specific paths, keep it
   out of the new host's active restore directory and generate a new snapshot
   after the new profile is loaded.
+- If Codex uses a nondefault state directory, require the matching
+  `CODEX_SQLITE_HOME` in the environment inherited by the tmux server before
+  verifying snapshots; do not infer a directory from rollout filenames.
 
 ## Common Rationalizations
 
@@ -181,12 +198,13 @@ copied database with old absolute paths is portable.
 | --- | --- |
 | "The README package list is enough." | Plugin specs and tmux scripts are the current dependency contract; inspect them before installing. |
 | "I can replace an existing config to finish quickly." | A workstation configuration is user data. Stop on a target conflict and ask. |
-| "Any Neovim or .NET version will work." | This config uses Neovim 0.11 APIs and its C# LSP is pinned for .NET 8. |
+| "Any Neovim or .NET version will work." | This config requires Neovim 0.12+ and pins its C# LSP for .NET 8. |
 | "A short headless wait proves Mason installed." | It can interrupt asynchronous downloads and create a false failure. Wait for completion or use the package's completion signal. |
 | "Optional API features can use placeholder credentials." | Placeholders create broken flows and encourage secrets in the repository. Leave user-owned credentials unset. |
 | "The Linux and WSL tmux files are interchangeable." | Their clipboard integration and Codex menu bindings differ; link exactly one profile based on the detected host. |
 | "Copying the old tmux snapshot preserves the workstation." | Resurrect snapshots contain old pane paths and commands; generate a new snapshot after migration. |
 | "A thread ID is enough to resume Codex." | `codex resume` also needs the matching `state_5.sqlite` record and rollout file at a valid path. |
+| "Pulling the repository restores sessions from another host." | Recovery uses machine-local Codex database and rollout files; Git only distributes the helper and tmux configuration. |
 
 ## Red Flags
 
@@ -199,6 +217,8 @@ copied database with old absolute paths is portable.
   without a direct reason and user approval.
 - tmux is declared ready without recording the selected profile, sourcing it,
   and checking TPM plugin installation.
+- Codex recovery is declared ready without checking both resurrect hooks and a
+  nonempty snapshot from an active Codex pane.
 
 ## Verification
 
@@ -221,6 +241,11 @@ copied database with old absolute paths is portable.
       selected config is sourced.
 - [ ] TPM plugins install, including `tmux-continuum`, and
       `tmux source-file ~/.tmux.conf` succeeds.
+- [ ] When Codex/tmux integration is selected, both resurrect hooks reference
+      `bin/codex-tmux-resurrect`, `status-interval` is `5`, and an active Codex
+      pane produces a mode-`600` `~/.tmux-codex-resume` file.
+- [ ] `tmux/test/codex-tmux-resurrect-smoke.sh` passes without restarting or
+      killing the user's live tmux server.
 - [ ] The selected copy-mode `y` binding uses OSC 52 without leaving copy mode
       on both Linux and WSL.
 - [ ] The selected profile retains the configured Git/status layout, Codex

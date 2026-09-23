@@ -1,4 +1,4 @@
 interface:
   display_name: "Neovim Machine Bootstrap"
-  short_description: "v0.1.1 Bootstrap or migrate Neovim and tmux on Linux/WSL"
-  default_prompt: "Use $nvim-machine-bootstrap-skill to bootstrap or migrate this Neovim and tmux workstation, verify host dependencies, and report deferred user-owned setup."
+  short_description: "v0.1.1 - Bootstrap or migrate Neovim, tmux, and Codex recovery on Linux/WSL"
+  default_prompt: "Use $nvim-machine-bootstrap-skill to bootstrap or migrate this Neovim and tmux workstation, configure the correct profile, verify host dependencies and optional Codex pane recovery, and report deferred user-owned setup."

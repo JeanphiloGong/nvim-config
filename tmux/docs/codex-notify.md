@@ -87,6 +87,33 @@ running Codex is left untouched, and missing or invalid thread records are
 skipped. A new snapshot is created after the next status refresh, so closing a
 Codex pane removes it from the next recovery set.
 
+### New Server Activation
+
+No extra recovery plugin or helper link is required. On a machine where this
+repository, the selected tmux profile, TPM, tmux-resurrect, and tmux-continuum
+are already installed, update the checkout and reload tmux:
+
+```sh
+git -C "$HOME/.config/nvim" pull
+tmux source-file "$HOME/.tmux.conf"
+```
+
+On a fresh machine, first link the correct Linux or WSL profile and install the
+TPM plugins as described in `../README.md`. Start Codex inside tmux, wait for a
+status refresh, and confirm that the snapshot and hooks are active:
+
+```sh
+test -s "$HOME/.tmux-codex-resume"
+test "$(stat -c %a "$HOME/.tmux-codex-resume")" = 600
+tmux show-options -gv @resurrect-hook-post-restore-all
+```
+
+The five-second snapshot stores thread mappings; tmux-continuum still saves the
+full pane layout at its configured 15-minute interval. Recovery data is local
+to the machine. Pulling this repository does not migrate another server's
+`~/.codex` database, rollout files, tmux layout, or active sessions, and copying
+`~/.tmux-codex-resume` alone is insufficient.
+
 ## Install
 
 Place the notify script somewhere stable:
