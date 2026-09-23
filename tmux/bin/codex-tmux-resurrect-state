@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-}"
+case "$mode" in
+  save | restore) ;;
+  *) exit 0 ;;
+esac
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+state_file="$(tmux show -gv @codex_resurrect_state_file 2>/dev/null || true)"
+[ -n "$state_file" ] || state_file="$HOME/.tmux-codex-resurrect-state"
+state_file="${state_file/#\~/$HOME}"
+state_dir="$(dirname "$state_file")"
+
+pane_exists() {
+  local session="$1"
+  local window="$2"
+  local pane_index="$3"
+  tmux list-panes -t "${session}:${window}" -F '#{pane_index}' 2>/dev/null |
+    awk -v expected="$pane_index" '$0 == expected { found = 1 } END { exit !found }'
+}
+
+if [ "$mode" = "save" ]; then
+  mkdir -p "$state_dir" 2>/dev/null || exit 0
+  tmp_file="$(mktemp "${state_file}.tmp.XXXXXX")" || exit 0
+  trap 'rm -f "$tmp_file"' EXIT
+
+  {
+    printf 'version\t1\n'
+    while IFS=$'\t' read -r session window pane_index pane_id; do
+      [ -n "$pane_id" ] || continue
+      thread_id="$(tmux show -pv -t "$pane_id" @codex_pane_thread_id 2>/dev/null || true)"
+      [ -n "$thread_id" ] || continue
+      printf 'pane\t%s\t%s\t%s\t%s\n' "$session" "$window" "$pane_index" "$thread_id"
+    done < <(tmux list-panes -a -F "$(printf '#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}')" 2>/dev/null)
+
+    last_win="$(tmux show -gv @codex_last_win 2>/dev/null || true)"
+    last_pane="$(tmux show -gv @codex_last_pane 2>/dev/null || true)"
+    if [ -n "$last_win" ] && [ -n "$last_pane" ] && [[ "$last_win" == *:* ]]; then
+      last_session="${last_win%%:*}"
+      last_window="${last_win#*:}"
+      last_index="$(tmux display-message -p -t "$last_pane" '#{pane_index}' 2>/dev/null || true)"
+      last_thread="$(tmux show -pv -t "$last_pane" @codex_pane_thread_id 2>/dev/null || true)"
+      if [ -n "$last_index" ] && [ -n "$last_thread" ]; then
+        printf 'last\t%s\t%s\t%s\t%s\n' "$last_session" "$last_window" "$last_index" "$last_thread"
+      fi
+    fi
+  } >"$tmp_file"
+
+  chmod 600 "$tmp_file"
+  mv -f "$tmp_file" "$state_file"
+  trap - EXIT
+  exit 0
+fi
+
+[ -r "$state_file" ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+valid_state="$(mktemp "${TMPDIR:-/tmp}/codex-tmux-resurrect-state.XXXXXX")" || exit 0
+trap 'rm -f "$valid_state"' EXIT
+
+python3 - "$state_file" >"$valid_state" <<'PY'
+import os
+import sqlite3
+import sys
+from pathlib import Path
+
+state_path = Path(sys.argv[1])
+codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+sqlite_home = Path(os.environ.get("CODEX_SQLITE_HOME") or codex_home)
+db_path = (sqlite_home / "state_5.sqlite").resolve()
+
+try:
+    db = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=0.2)
+except (OSError, sqlite3.Error, ValueError):
+    sys.exit(0)
+
+try:
+    with db:
+        for raw in state_path.read_text().splitlines():
+            fields = raw.split("\t")
+            if len(fields) != 5 or fields[0] not in {"pane", "last"}:
+                continue
+            thread_id = fields[4].strip()
+            if not thread_id:
+                continue
+            try:
+                row = db.execute(
+                    "SELECT rollout_path FROM threads WHERE id = ?", (thread_id,)
+                ).fetchone()
+            except sqlite3.Error:
+                continue
+            if row and row[0] and Path(row[0]).is_file():
+                print("\t".join(fields))
+finally:
+    db.close()
+PY
+
+last_restored=0
+while IFS=$'\t' read -r kind session window pane_index thread_id; do
+  [ "$kind" = "pane" ] || [ "$kind" = "last" ] || continue
+  pane_exists "$session" "$window" "$pane_index" || continue
+  target="${session}:${window}.${pane_index}"
+  pane_id="$(tmux display-message -p -t "$target" '#{pane_id}' 2>/dev/null || true)"
+  [ -n "$pane_id" ] || continue
+
+  if [ "$kind" = "pane" ]; then
+    tmux set -p -t "$pane_id" @codex_pane_thread_id "$thread_id" 2>/dev/null || true
+    continue
+  fi
+
+  tmux set -gq @codex_last_win "${session}:${window}" 2>/dev/null || true
+  tmux set -gq @codex_last_pane "$pane_id" 2>/dev/null || true
+  tmux set -gq @codex_last_thread_id "$thread_id" 2>/dev/null || true
+  last_restored=1
+done <"$valid_state"
+
+if [ "$last_restored" -eq 1 ]; then
+  tmux refresh-client -S 2>/dev/null || true
+fi

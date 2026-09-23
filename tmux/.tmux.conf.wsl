@@ -73,6 +73,10 @@ set -g @continuum-save-interval '15'
 
 ##### tmux-resurrect #####
 set -g @resurrect-capture-pane-contents 'on'
+set -g @resurrect-processes '"~codex"'
+set -g @codex_resurrect_state_file "$HOME/.tmux-codex-resurrect-state"
+set -g @resurrect-hook-post-save-all 'bash ~/.config/nvim/tmux/bin/codex-tmux-resurrect-state save'
+set -g @resurrect-hook-post-restore-all 'bash ~/.config/nvim/tmux/bin/codex-tmux-resurrect-state restore'
 
 ##### 初始化 TPM（建议靠近底部；本文件后面还有覆盖绑定）#####
 run '~/.tmux/plugins/tpm/tpm'
