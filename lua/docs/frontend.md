@@ -12,8 +12,7 @@
 <!-- vim-markdown-toc -->
 ## 插件与用途
 - `nvim-treesitter/nvim-treesitter`
-  - 使用新版 `require("nvim-treesitter").install(...)` 接口确保前端和后端语言解析器已安装，首次启动会异步下载缺失项。
-  - 在 `FileType` 事件中调用 `vim.treesitter.start()`，启用 Neovim 内置语法高亮与解析能力。
+  - 使用 `require("nvim-treesitter.configs").setup(...)` 确保前端和后端语言解析器已安装，并启用语法高亮与缩进。
 - `prettier/vim-prettier`
   - `build = yarn install --frozen-lockfile --production`，需系统有 Node + npm/yarn。
   - 覆盖文件类型：JS/TS/JSX/TSX/HTML/CSS/Markdown；默认 `vim.g.prettier_autoformat = 1`，保存时自动格式化。
@@ -30,6 +29,6 @@
 4. 在 HTML/JSX/TSX/Svelte 中尝试 Emmet：输入缩写后按 `<C-e>` 展开。
 
 ## 调优与扩展
-- Treesitter：在 `frontend.lua` 传给 `treesitter.install(...)` 的列表中加入需要的语言（如 `vue`、`json`）；缩进等功能需按新版插件接口单独配置。
+- Treesitter：在 `frontend.lua` 的 `configs.setup(...)` 中向 `ensure_installed` 加入需要的语言（如 `vue`、`json`），并按需配置高亮与缩进。
 - Prettier：若想改为手动格式化，可将 `vim.g.prettier_autoformat = 0` 写入个人 config；也可通过 `.prettierrc` 自定义格式化规则。
 - Emmet：如需调整触发键，修改 `vim.g.user_emmet_leader_key`；若想仅限插入模式，可把 `vim.g.user_emmet_mode` 改为 `"i"`。
