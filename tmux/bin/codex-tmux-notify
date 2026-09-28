@@ -7,12 +7,38 @@ set -euo pipefail
 
 _payload="${1:-}"
 
-# Only do work when running inside tmux.
-pane="${TMUX_PANE:-}"
-if [ -z "$pane" ]; then
-  exit 0
-fi
 command -v tmux >/dev/null 2>&1 || exit 0
+
+normalize_tty() {
+  case "${1:-}" in
+    "" | \?) return 1 ;;
+    /dev/*) printf '%s\n' "$1" ;;
+    *) printf '/dev/%s\n' "$1" ;;
+  esac
+}
+
+# Codex can retain a stale TMUX_PANE after a pane is restored or moved. Prefer
+# it only when its tty still matches the process running this hook, then locate
+# the live pane by tty as a fallback.
+hook_tty="$(normalize_tty "$(ps -o tty= -p "$$" 2>/dev/null | awk 'NF {print $1; exit}' || true)" || true)"
+pane_candidate="${TMUX_PANE:-}"
+pane=""
+if [ -n "$pane_candidate" ]; then
+  candidate_tty="$(tmux display-message -p -t "$pane_candidate" '#{pane_tty}' 2>/dev/null || true)"
+  if [ -z "$hook_tty" ] || [ "$candidate_tty" = "$hook_tty" ]; then
+    pane="$pane_candidate"
+  fi
+fi
+
+if [ -z "$pane" ] && [ -n "$hook_tty" ]; then
+  while IFS=$'\t' read -r candidate_pane candidate_tty; do
+    [ "$candidate_tty" = "$hook_tty" ] || continue
+    pane="$candidate_pane"
+    break
+  done < <(tmux list-panes -a -F '#{pane_id}\t#{pane_tty}' 2>/dev/null || true)
+fi
+
+[ -n "$pane" ] || exit 0
 
 # Record "where Codex finished" so tmux status can show it and jump back.
 win="$(tmux display-message -p -t "$pane" '#{session_name}:#{window_index}' 2>/dev/null || true)"

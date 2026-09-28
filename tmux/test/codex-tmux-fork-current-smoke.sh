@@ -26,6 +26,10 @@ PY
 cat >"$tmp_root/bin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
+  *'-o tty= -p '*)
+    printf '/dev/pts/999\n'
+    exit 0
+    ;;
   *'-o args= -p 999999'*)
     printf 'node /opt/codex/bin/codex resume %s\n' "${TMUX_TEST_CMDLINE_THREAD:-}"
     exit 0
@@ -39,9 +43,14 @@ cat >"$tmp_root/bin/tmux" <<'SH'
 set -euo pipefail
 
 case "$1" in
+  list-panes)
+    printf '%s\t%s\n' '%origin' '/dev/pts/999'
+    printf '%s\t%s\n' '%other' '/dev/pts/1000'
+    ;;
   display-message)
     if [ "${2:-}" = "-p" ]; then
       case "$*" in
+        *'-t %stale'*'#{pane_tty}'*) printf '%s\n' '/dev/pts/1000' ;;
         *'#{pane_tty}'*) printf '%s\n' '/dev/pts/999' ;;
         *'#{pane_current_path}'*) printf '%s\n' "$TMUX_TEST_PANE_PATH" ;;
         *'#{pane_pid}'*) printf '%s\n' '999999' ;;
@@ -112,6 +121,14 @@ grep -F "codex fork $saved_id" "$tmp_root/tmux.log" >/dev/null
 
 : >"$tmp_root/tmux.log"
 TMUX_PANE='%origin' TMUX_TEST_LOG="$tmp_root/tmux.log" \
+  TMUX_TEST_PANE_PATH="$tmp_root" TMUX_TEST_PANE_THREAD_ID='' \
+  CODEX_THREAD_ID="$missing_id" PATH="$tmp_root/bin:$PATH" \
+  "$repo_root/tmux/bin/codex-tmux-notify" \
+  "{\"type\":\"agent-turn-complete\",\"thread-id\":\"$saved_id\"}"
+grep -F "set -p -t %origin @codex_pane_thread_id $saved_id" "$tmp_root/tmux.log" >/dev/null
+
+: >"$tmp_root/tmux.log"
+TMUX_PANE='%stale' TMUX_TEST_LOG="$tmp_root/tmux.log" \
   TMUX_TEST_PANE_PATH="$tmp_root" TMUX_TEST_PANE_THREAD_ID='' \
   CODEX_THREAD_ID="$missing_id" PATH="$tmp_root/bin:$PATH" \
   "$repo_root/tmux/bin/codex-tmux-notify" \
