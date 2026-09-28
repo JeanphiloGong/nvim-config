@@ -73,7 +73,6 @@ set -g @continuum-save-interval '15'
 
 ##### tmux-resurrect #####
 set -g @resurrect-capture-pane-contents 'on'
-<<<<<<< HEAD
 set -g @resurrect-processes '"~codex"'
 set -g @codex_resurrect_state_file "$HOME/.tmux-codex-resurrect-state"
 set -gu @resurrect-hook-post-save-all
