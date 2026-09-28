@@ -25,6 +25,12 @@ PY
 
 cat >"$tmp_root/bin/ps" <<'SH'
 #!/usr/bin/env bash
+case "$*" in
+  *'-o args= -p 999999'*)
+    printf 'node /opt/codex/bin/codex resume %s\n' "${TMUX_TEST_CMDLINE_THREAD:-}"
+    exit 0
+    ;;
+esac
 printf '%s\n%s\n' "${TMUX_TEST_PID:-999999}" "${TMUX_TEST_PID:-999999}"
 SH
 
@@ -94,6 +100,10 @@ if grep -F 'split-window' "$tmp_root/tmux.log" >/dev/null; then
   exit 1
 fi
 grep -F 'Codex fork: no sid' "$tmp_root/tmux.log" >/dev/null
+
+: >"$tmp_root/tmux.log"
+TMUX_TEST_CMDLINE_THREAD="$saved_id" CODEX_SESSION_ID="$missing_id" CODEX_THREAD_ID='' run_helper ""
+grep -F "codex fork $saved_id" "$tmp_root/tmux.log" >/dev/null
 
 : >"$tmp_root/tmux.log"
 CODEX_SESSION_ID="$missing_id" CODEX_THREAD_ID='' run_helper "$saved_id"

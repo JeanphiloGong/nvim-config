@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Split from the current pane and run "codex fork <thread_id>" in the new pane.
-# The thread ID comes from CODEX_THREAD_ID or the validated pane cache.
+# The thread ID comes from CODEX_THREAD_ID, a resumed command line, or the
+# validated pane cache.
 
 orientation="${1:-h}" # h -> horizontal split, v -> vertical split
 case "$orientation" in
@@ -73,6 +74,37 @@ read_sid_from_pid_env() {
   return 1
 }
 
+read_sid_from_pid_command() {
+  local pid="$1"
+  local source_name="${2:-commandline}"
+  local command token next index thread_id
+  local -a command_args
+
+  command="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+  [ -n "$command" ] || return 1
+  read -r -a command_args <<<"$command"
+
+  for ((index = 0; index < ${#command_args[@]}; index++)); do
+    token="${command_args[index]##*/}"
+    case "$token" in
+      codex | codex.exe)
+        next=$((index + 2))
+        [ "${command_args[index + 1]:-}" = "resume" ] || continue
+        thread_id="${command_args[next]:-}"
+        if [[ "$thread_id" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+          fork_source="$source_name"
+          fork_pid="$pid"
+          fork_key="codex resume argument"
+          session_id="$thread_id"
+          return 0
+        fi
+        ;;
+    esac
+  done
+
+  return 1
+}
+
 resolve_session_id() {
   local pids candidates p
   pids=""
@@ -110,9 +142,11 @@ resolve_session_id() {
     fi
     if [ -n "${pane_pid:-}" ] && [ "$p" = "$pane_pid" ]; then
       read_sid_from_pid_env "$p" "pane_pid" && return 0
+      read_sid_from_pid_command "$p" "pane_command" && return 0
       continue
     fi
     read_sid_from_pid_env "$p" "tty_codex_pid" && return 0
+    read_sid_from_pid_command "$p" "codex_command" && return 0
   done <<<"$pids"
 
   # 4) Fallback: pane-local thread id captured by notify hook.
@@ -137,7 +171,7 @@ if [ -z "$session_id" ]; then
   tmux set -gq @codex_fork_last_pid "-"
   tmux set -gq @codex_fork_last_key "-"
   tmux set -gq @codex_fork_last_detail "no sid candidates=${debug_candidates:-none}"
-  tmux display-message "Codex fork: no sid (checked fg/pane/tty/pane-option only)"
+  tmux display-message "Codex fork: no sid (checked fg/pane/tty command and pane cache)"
   exit 0
 fi
 
