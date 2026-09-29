@@ -101,8 +101,10 @@ run_helper() {
 : >"$tmp_root/tmux.log"
 CODEX_SESSION_ID="$missing_id" CODEX_THREAD_ID="$saved_id" run_helper ""
 grep -F "codex fork $saved_id" "$tmp_root/tmux.log" >/dev/null
+grep -F "set -p -t %forked @codex_pane_thread_id $saved_id" "$tmp_root/tmux.log" >/dev/null
 
 : >"$tmp_root/tmux.log"
+rm -f "$tmp_root/pane-id"
 CODEX_SESSION_ID="$missing_id" CODEX_THREAD_ID='' run_helper ""
 if grep -F 'split-window' "$tmp_root/tmux.log" >/dev/null; then
   printf 'missing session id created a pane\n' >&2

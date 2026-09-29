@@ -193,6 +193,11 @@ if [ -z "$new_pane" ]; then
   exit 0
 fi
 
+# Keep a usable fallback while the forked Codex process establishes its own
+# thread and emits the first notify event. A later valid notify replaces this
+# source thread with the fork's thread ID.
+tmux set -p -t "$new_pane" @codex_pane_thread_id "$session_id" 2>/dev/null || true
+
 fork_cmd="$(printf 'codex fork %q' "$session_id")"
 tmux send-keys -t "$new_pane" "$fork_cmd" C-m
 
