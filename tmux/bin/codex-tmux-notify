@@ -35,22 +35,20 @@ if [ -z "$pane" ] && [ -n "$hook_tty" ]; then
     [ "$candidate_tty" = "$hook_tty" ] || continue
     pane="$candidate_pane"
     break
-  done < <(tmux list-panes -a -F '#{pane_id}\t#{pane_tty}' 2>/dev/null || true)
+  done < <(tmux list-panes -a -F "$(printf '#{pane_id}\t#{pane_tty}')" 2>/dev/null || true)
 fi
 
-[ -n "$pane" ] || exit 0
+# A long-lived app-server can retain an old TMUX_PANE while serving a forked
+# Codex process. Do not trust that pane when the hook has no usable tty; the
+# thread metadata below provides a stronger identity match.
+if [ -n "$pane" ] && [ -z "$hook_tty" ] && [ "$pane" = "$pane_candidate" ]; then
+  pane=""
+fi
 
 # Record "where Codex finished" so tmux status can show it and jump back.
-win="$(tmux display-message -p -t "$pane" '#{session_name}:#{window_index}' 2>/dev/null || true)"
-if [ -z "$win" ]; then
-  exit 0
-fi
-
-path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
-user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
 # Only persisted threads may update pane state. Recaps inherit the same pane.
 command -v python3 >/dev/null 2>&1 || exit 0
-thread_id="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
+thread_info="$(python3 - "$_payload" <<'PY' 2>/dev/null || true
 import json, os, sqlite3, sys
 from pathlib import Path
 
@@ -64,14 +62,65 @@ try:
   sqlite_home = Path(os.environ.get("CODEX_SQLITE_HOME") or codex_home)
   db_path = (sqlite_home / "state_5.sqlite").resolve()
   with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=0.2) as db:
-    row = db.execute("SELECT rollout_path FROM threads WHERE id = ?", (candidate,)).fetchone()
-  if row and row[0] and Path(row[0]).is_file():
-    print(candidate)
+    try:
+      row = db.execute(
+        "SELECT rollout_path, cwd FROM threads WHERE id = ?", (candidate,)
+      ).fetchone()
+    except sqlite3.Error:
+      # Older test fixtures and Codex databases may not have cwd yet.
+      row = db.execute(
+        "SELECT rollout_path FROM threads WHERE id = ?", (candidate,)
+      ).fetchone()
+      if row:
+        row = (row[0], "")
+  if not row or not row[0] or not Path(row[0]).is_file():
+    sys.exit(0)
+
+  parent = ""
+  try:
+    first = json.loads(Path(row[0]).read_text(encoding="utf-8").splitlines()[0])
+    payload = first.get("payload") or {}
+    parent = payload.get("forked_from_id") or ""
+  except (OSError, ValueError, IndexError):
+    pass
+  print("\t".join((candidate, row[1] or "", parent)))
 except (ValueError, OSError, sqlite3.Error):
   pass
 PY
 )"
+IFS=$'\t' read -r thread_id thread_cwd thread_parent <<<"$thread_info"
 [ -n "$thread_id" ] || exit 0
+
+# Match a forked thread to the pane that still runs `codex fork <parent>` when
+# the notify process inherited a stale TMUX_PANE from the app-server daemon.
+if [ -z "$pane" ]; then
+  while IFS=$'\t' read -r candidate_pane candidate_tty candidate_path candidate_pid candidate_command; do
+    [ -n "$candidate_pane" ] || continue
+    [ -n "$thread_cwd" ] && [ "$candidate_path" = "$thread_cwd" ] || continue
+
+    cached_thread="$(tmux show -pv -t "$candidate_pane" @codex_pane_thread_id 2>/dev/null || true)"
+    if [ "$cached_thread" = "$thread_id" ]; then
+      pane="$candidate_pane"
+      break
+    fi
+
+    if [ -n "$thread_parent" ] && [ -n "$candidate_tty" ]; then
+      tty_short="${candidate_tty#/dev/}"
+      if ps -t "$tty_short" -o args= 2>/dev/null | grep -F -- "codex fork $thread_parent" >/dev/null; then
+        pane="$candidate_pane"
+        break
+      fi
+    fi
+  done < <(tmux list-panes -a -F "$(printf '#{pane_id}\t#{pane_tty}\t#{pane_current_path}\t#{pane_pid}\t#{pane_current_command}')" 2>/dev/null || true)
+fi
+
+[ -n "$pane" ] || exit 0
+
+win="$(tmux display-message -p -t "$pane" '#{session_name}:#{window_index}' 2>/dev/null || true)"
+[ -n "$win" ] || exit 0
+
+path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
+user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
 
 # Optional: derive a short summary from the notify JSON payload.
 # Keep this best-effort.

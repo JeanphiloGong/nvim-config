@@ -8,6 +8,7 @@ trap 'rm -rf "$tmp_root"' EXIT
 
 saved_id="01a00000-0000-7000-8000-000000000001"
 missing_id="01a00000-0000-7000-8000-000000000002"
+parent_id="01a00000-0000-7000-8000-000000000003"
 
 mkdir -p "$tmp_root/bin"
 export CODEX_HOME="$tmp_root/codex"
@@ -17,17 +18,25 @@ python3 - "$CODEX_HOME" "$saved_id" <<'PY'
 import pathlib, sqlite3, sys
 root = pathlib.Path(sys.argv[1])
 rollout = root / 'saved.jsonl'
-rollout.touch()
+rollout.write_text('{"payload":{"forked_from_id":"01a00000-0000-7000-8000-000000000003"}}\n')
 with sqlite3.connect(root / 'state_5.sqlite') as db:
-    db.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)')
-    db.execute('INSERT INTO threads VALUES (?, ?)', (sys.argv[2], str(rollout)))
+    db.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT)')
+    db.execute('INSERT INTO threads VALUES (?, ?, ?)', (sys.argv[2], str(rollout), str(root)))
 PY
 
 cat >"$tmp_root/bin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *'-o tty= -p '*)
-    printf '/dev/pts/999\n'
+    if [ "${TMUX_TEST_HOOK_TTY:-}" = 'unknown' ]; then
+      printf '?\n'
+    else
+      printf '/dev/pts/999\n'
+    fi
+    exit 0
+    ;;
+  *'-t pts/999 -o args='*)
+    printf 'node /opt/codex/bin/codex fork %s\n' "${TMUX_TEST_FORK_PARENT:-}"
     exit 0
     ;;
   *'-o args= -p 999999'*)
@@ -44,8 +53,16 @@ set -euo pipefail
 
 case "$1" in
   list-panes)
-    printf '%s\t%s\n' '%origin' '/dev/pts/999'
-    printf '%s\t%s\n' '%other' '/dev/pts/1000'
+    case "$*" in
+      *'#{pane_current_path}'*)
+        printf '%s\t%s\t%s\t%s\t%s\n' '%origin' '/dev/pts/999' "$TMUX_TEST_PANE_PATH" '999999' 'node'
+        printf '%s\t%s\t%s\t%s\t%s\n' '%other' '/dev/pts/1000' '/other' '999998' 'bash'
+        ;;
+      *)
+        printf '%s\t%s\n' '%origin' '/dev/pts/999'
+        printf '%s\t%s\n' '%other' '/dev/pts/1000'
+        ;;
+    esac
     ;;
   display-message)
     if [ "${2:-}" = "-p" ]; then
@@ -53,6 +70,7 @@ case "$1" in
         *'-t %stale'*'#{pane_tty}'*) printf '%s\n' '/dev/pts/1000' ;;
         *'#{pane_tty}'*) printf '%s\n' '/dev/pts/999' ;;
         *'#{pane_current_path}'*) printf '%s\n' "$TMUX_TEST_PANE_PATH" ;;
+        *'#{pane_current_command}'*) printf '%s\n' 'node' ;;
         *'#{pane_pid}'*) printf '%s\n' '999999' ;;
         *'#{session_name}:#{window_index}'*) printf '%s\n' 'test:0' ;;
       esac
@@ -133,6 +151,14 @@ grep -F "set -p -t %origin @codex_pane_thread_id $saved_id" "$tmp_root/tmux.log"
 TMUX_PANE='%stale' TMUX_TEST_LOG="$tmp_root/tmux.log" \
   TMUX_TEST_PANE_PATH="$tmp_root" TMUX_TEST_PANE_THREAD_ID='' \
   CODEX_THREAD_ID="$missing_id" PATH="$tmp_root/bin:$PATH" \
+  "$repo_root/tmux/bin/codex-tmux-notify" \
+  "{\"type\":\"agent-turn-complete\",\"thread-id\":\"$saved_id\"}"
+grep -F "set -p -t %origin @codex_pane_thread_id $saved_id" "$tmp_root/tmux.log" >/dev/null
+
+: >"$tmp_root/tmux.log"
+TMUX_PANE='%stale' TMUX_TEST_HOOK_TTY=unknown TMUX_TEST_FORK_PARENT="$parent_id" \
+  TMUX_TEST_LOG="$tmp_root/tmux.log" TMUX_TEST_PANE_PATH="$CODEX_HOME" \
+TMUX_TEST_PANE_THREAD_ID="$saved_id" CODEX_THREAD_ID="$missing_id" PATH="$tmp_root/bin:$PATH" \
   "$repo_root/tmux/bin/codex-tmux-notify" \
   "{\"type\":\"agent-turn-complete\",\"thread-id\":\"$saved_id\"}"
 grep -F "set -p -t %origin @codex_pane_thread_id $saved_id" "$tmp_root/tmux.log" >/dev/null
