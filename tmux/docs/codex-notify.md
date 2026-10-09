@@ -41,6 +41,23 @@ Ephemeral recap threads are not persisted and cannot replace the main thread's
 cached id, summary, or notification history. Missing ids, unavailable databases,
 and missing rollout files leave existing state untouched.
 
+For shared-server notifications without a usable terminal, the hook searches
+all panes for a unique exact child-thread cache before considering a unique
+`codex fork <parent>` process match. Multiple exact matches or multiple parent
+candidates leave pane state, history, and completion status untouched. Parent
+lineage alone cannot distinguish concurrent forks of the same conversation.
+Existing incorrect caches need explicit correction; this routing rule cannot
+prove that an old cache belongs to the process still running in that pane.
+
+The fork helper intentionally leaves the new pane's thread cache empty until
+its first completed turn. The CLI creates the child ID internally but does not
+return it to the shell helper; retaining the parent ID would make a subsequent
+fork repeat the parent's history.
+
+Run `python3 tmux/test/codex-tmux-notify-routing.py` to check this routing with
+an isolated real tmux server and real process lookup. Thread data and process
+arguments are fixtures; this test does not make Codex model requests.
+
 Python 3 with SQLite support is required. The database directory is
 `CODEX_SQLITE_HOME`, or `CODEX_HOME` (default `~/.codex`) when unset. If Codex uses
 a custom `sqlite_home` configuration, export the matching `CODEX_SQLITE_HOME`

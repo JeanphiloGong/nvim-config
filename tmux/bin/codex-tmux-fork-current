@@ -193,10 +193,10 @@ if [ -z "$new_pane" ]; then
   exit 0
 fi
 
-# Keep a usable fallback while the forked Codex process establishes its own
-# thread and emits the first notify event. A later valid notify replaces this
-# source thread with the fork's thread ID.
-tmux set -p -t "$new_pane" @codex_pane_thread_id "$session_id" 2>/dev/null || true
+# Do not copy the parent ID into the new pane. `codex fork` creates a new child
+# thread, but the interactive CLI does not expose that ID to this helper. The
+# first valid notify event identifies the child via its fork parent and writes
+# the real ID; copying the parent would make later forks repeat old history.
 
 fork_cmd="$(printf 'codex fork %q' "$session_id")"
 tmux send-keys -t "$new_pane" "$fork_cmd" C-m

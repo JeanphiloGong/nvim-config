@@ -91,27 +91,37 @@ PY
 IFS=$'\t' read -r thread_id thread_cwd thread_parent <<<"$thread_info"
 [ -n "$thread_id" ] || exit 0
 
-# Match a forked thread to the pane that still runs `codex fork <parent>` when
-# the notify process inherited a stale TMUX_PANE from the app-server daemon.
+# Search every exact child binding before considering fork-parent matches.
+# Shared-daemon notifications have no reliable tty; ambiguous matches must not
+# overwrite another pane's identity or publish misleading completion status.
 if [ -z "$pane" ]; then
+  exact_pane=""
+  exact_count=0
+  parent_pane=""
+  parent_count=0
   while IFS=$'\t' read -r candidate_pane candidate_tty candidate_path candidate_pid candidate_command; do
     [ -n "$candidate_pane" ] || continue
-    [ -n "$thread_cwd" ] && [ "$candidate_path" = "$thread_cwd" ] || continue
 
     cached_thread="$(tmux show -pv -t "$candidate_pane" @codex_pane_thread_id 2>/dev/null || true)"
     if [ "$cached_thread" = "$thread_id" ]; then
-      pane="$candidate_pane"
-      break
+      exact_pane="$candidate_pane"
+      exact_count=$((exact_count + 1))
     fi
 
+    [ -n "$thread_cwd" ] && [ "$candidate_path" = "$thread_cwd" ] || continue
     if [ -n "$thread_parent" ] && [ -n "$candidate_tty" ]; then
       tty_short="${candidate_tty#/dev/}"
       if ps -t "$tty_short" -o args= 2>/dev/null | grep -F -- "codex fork $thread_parent" >/dev/null; then
-        pane="$candidate_pane"
-        break
+        parent_pane="$candidate_pane"
+        parent_count=$((parent_count + 1))
       fi
     fi
   done < <(tmux list-panes -a -F "$(printf '#{pane_id}\t#{pane_tty}\t#{pane_current_path}\t#{pane_pid}\t#{pane_current_command}')" 2>/dev/null || true)
+  if [ "$exact_count" -eq 1 ]; then
+    pane="$exact_pane"
+  elif [ "$exact_count" -eq 0 ] && [ "$parent_count" -eq 1 ]; then
+    pane="$parent_pane"
+  fi
 fi
 
 [ -n "$pane" ] || exit 0
