@@ -108,7 +108,7 @@ if [ -z "$pane" ]; then
   while IFS=$'\t' read -r candidate_pane candidate_tty candidate_path candidate_pid candidate_command; do
     [ -n "$candidate_pane" ] || continue
 
-    cached_thread="$(tmux show -pv -t "$candidate_pane" @codex_pane_thread_id 2>/dev/null || true)"
+    cached_thread="$(tmux show-options -pqv -t "$candidate_pane" @codex_pane_thread_id 2>/dev/null || true)"
     if [ "$cached_thread" = "$thread_id" ]; then
       exact_pane="$candidate_pane"
       exact_count=$((exact_count + 1))
@@ -136,7 +136,7 @@ win="$(tmux display-message -p -t "$pane" '#{session_name}:#{window_index}' 2>/d
 [ -n "$win" ] || exit 0
 
 path="$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
-user_title="$(tmux show -pv -t "$pane" @user_pane_title 2>/dev/null || true)"
+user_title="$(tmux show-options -pqv -t "$pane" @user_pane_title 2>/dev/null || true)"
 
 # Optional: derive a short summary from the notify JSON payload.
 # Keep this best-effort.
@@ -196,7 +196,7 @@ tmux select-pane -t "$pane" -T "$activity" 2>/dev/null || true
 # Append to a simple history file so tmux can show a menu (latest first).
 # Format (tab-separated):
 #   <ts>  <session:win>  <pane_id>  <pane_path>  <thread_ref?>  <summary?>  <user_title?>
-history_file="$(tmux show -gv @codex_history_file 2>/dev/null || true)"
+history_file="$(tmux show-options -gqv @codex_history_file 2>/dev/null || true)"
 if [ -z "$history_file" ]; then
   history_file="$HOME/.tmux-codex-history"
 fi
@@ -247,7 +247,7 @@ else
 fi
 
 # Notify: show a small "toast" inside tmux (not a persistent status segment).
-mode="$(tmux show -gv @codex_notify_mode 2>/dev/null || true)"
+mode="$(tmux show-options -gqv @codex_notify_mode 2>/dev/null || true)"
 [ -n "$mode" ] || mode="message"
 
 if [ "$mode" = "message" ]; then
@@ -264,11 +264,11 @@ elif [ "$mode" = "popup" ]; then
   #   tr|br|tl|bl (default: br)
   # NOTE: tmux popups are modal and will capture input while shown.
   # Fall back to display-message if display-popup isn't available.
-  corner="$(tmux show -gv @codex_popup_corner 2>/dev/null || true)"
+  corner="$(tmux show-options -gqv @codex_popup_corner 2>/dev/null || true)"
   [ -n "$corner" ] || corner="br"
 
   # Margin from the client edge (in cells). Default: 1.
-  margin="$(tmux show -gv @codex_popup_margin 2>/dev/null || true)"
+  margin="$(tmux show-options -gqv @codex_popup_margin 2>/dev/null || true)"
   [ -n "$margin" ] || margin="1"
 
   # These are tmux format strings (evaluated by tmux, not by the shell).
@@ -292,11 +292,11 @@ elif [ "$mode" = "popup" ]; then
       ;;
   esac
 
-  popup_w="$(tmux show -gv @codex_popup_width 2>/dev/null || true)"
-  popup_h="$(tmux show -gv @codex_popup_height 2>/dev/null || true)"
+  popup_w="$(tmux show-options -gqv @codex_popup_width 2>/dev/null || true)"
+  popup_h="$(tmux show-options -gqv @codex_popup_height 2>/dev/null || true)"
   [ -n "$popup_w" ] || popup_w="60"
   [ -n "$popup_h" ] || popup_h="6"
-  popup_dur_s="$(tmux show -gv @codex_popup_duration 2>/dev/null || true)"
+  popup_dur_s="$(tmux show-options -gqv @codex_popup_duration 2>/dev/null || true)"
   [ -n "$popup_dur_s" ] || popup_dur_s="2"
 
   # Use bash to print the message and sleep briefly; popup closes on exit (-E).

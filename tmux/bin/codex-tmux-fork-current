@@ -26,7 +26,7 @@ tty_short="${pane_tty#/dev/}"
 pane_pid="$(tmux display-message -p -t "$target_pane" '#{pane_pid}' 2>/dev/null || true)"
 [ -n "$pane_path" ] || pane_path="$HOME"
 
-log_file="$(tmux show -gv @codex_fork_log_file 2>/dev/null || true)"
+log_file="$(tmux show-options -gqv @codex_fork_log_file 2>/dev/null || true)"
 [ -n "$log_file" ] || log_file="$HOME/.tmux-codex-fork.log"
 
 fork_source=""
@@ -150,7 +150,7 @@ resolve_session_id() {
   done <<<"$pids"
 
   # 4) Fallback: pane-local thread id captured by notify hook.
-  p="$(tmux show -pv -t "$target_pane" @codex_pane_thread_id 2>/dev/null || true)"
+  p="$(tmux show-options -pqv -t "$target_pane" @codex_pane_thread_id 2>/dev/null || true)"
   if [ -n "$p" ]; then
     fork_source="pane_option:@codex_pane_thread_id"
     fork_pid="-"
