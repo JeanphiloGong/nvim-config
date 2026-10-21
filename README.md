@@ -90,6 +90,7 @@ npm install -g @mermaid-js/mermaid-cli
 - 搜索/跳转（Telescope）：`<leader>ff` 文件、`<leader>fg` 全局搜索、`<leader>fb` 缓冲区、`<leader>fh` 帮助；`gd` 智能分屏打开定义（优先均衡分布，必要时再按宽高比兜底）、`gD` 定义列表、`gr` 引用、`gi` 实现；在 Telescope 内用 `<leader>s` 智能分屏打开条目。
 - 诊断列表：`<leader>xx` 打开 Trouble 诊断，`<leader>xq` 打开 quickfix。
 - 补全：`<Tab>` 确认候选，`<C-Space>` 触发补全。
+- 练习检查点：`<leader>us` 保存当前 buffer 内容和光标位置，`<leader>ur` 恢复；检查点在关闭 buffer 后失效。
 - Markdown：`<leader>mp` 预览，`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。
 - Mermaid 导出：在 `.mmd`/`.mermaid` 文件中，`<leader>ms` 导出 SVG，`<leader>mn` 导出 PNG（等价命令 `:MermaidToSvg` / `:MermaidToPng`，后台异步执行）。
 - Mermaid 自动导出：保存 `.mmd`/`.mermaid` 后会后台异步执行 `:MermaidToSvg`（需已安装 `mmdc`，不阻塞编辑）。
