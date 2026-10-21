@@ -27,7 +27,7 @@ begin_restore() {
 
 thread_id_from_process() {
   local pane_id="$1"
-  local pane_tty tty_short pid fd target thread_id
+  local pane_tty tty_short pid fd target thread_id candidates=""
 
   pane_tty="$(tmux display-message -p -t "$pane_id" '#{pane_tty}' 2>/dev/null || true)"
   [ -n "$pane_tty" ] || return 1
@@ -40,14 +40,34 @@ thread_id_from_process() {
       case "$target" in
         */thread-writer-locks/*.lock)
           thread_id="${target##*/}"
-          printf '%s\n' "${thread_id%.lock}"
-          return 0
+          candidates+="${thread_id%.lock}"$'\n'
           ;;
       esac
     done
   done < <(ps -t "$tty_short" -o pid=,comm= 2>/dev/null | awk '$2 == "codex" {print $1}')
 
-  return 1
+  # A v2 process can hold locks for both the CLI and its internal agents.
+  python3 - "$candidates" <<'PY'
+import json, os, sqlite3, sys
+from pathlib import Path
+
+home = Path(os.environ.get("CODEX_SQLITE_HOME") or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+try:
+    with sqlite3.connect((home / "state_5.sqlite").resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2) as db:
+        roots = set()
+        for thread in sys.argv[1].splitlines():
+            row = db.execute("SELECT source, rollout_path FROM threads WHERE id = ?", (thread,)).fetchone()
+            if not row or not row[1] or not Path(row[1]).is_file():
+                continue
+            source = json.loads(row[0]) if row[0] and row[0].startswith("{") else row[0]
+            if source == "subagent" or isinstance(source, dict) and "subagent" in source:
+                continue
+            roots.add(thread)
+        if len(roots) == 1:
+            print(roots.pop())
+except (OSError, ValueError, sqlite3.Error):
+    pass
+PY
 }
 
 snapshot_threads() {
@@ -88,6 +108,7 @@ snapshot_threads() {
 
   if ! python3 - "$candidates" "$tmp" <<'PY'
 import os
+import json
 import re
 import sqlite3
 import sys
@@ -113,9 +134,12 @@ if rows:
             valid_rows = []
             for row in rows:
                 record = db.execute(
-                    "SELECT rollout_path FROM threads WHERE id = ?", (row[3],)
+                    "SELECT rollout_path, source FROM threads WHERE id = ?", (row[3],)
                 ).fetchone()
                 if record and record[0] and Path(record[0]).is_file():
+                    source = json.loads(record[1]) if record[1] and record[1].startswith("{") else record[1]
+                    if source == "subagent" or isinstance(source, dict) and "subagent" in source:
+                        continue
                     valid_rows.append(row)
     except (OSError, sqlite3.Error, ValueError):
         # Keep the previous snapshot if Codex is briefly unavailable.
@@ -147,6 +171,27 @@ restore_threads() {
     [ -n "${window_index:-}" ] || continue
     [ -n "${pane_index:-}" ] || continue
     [ -n "${thread_id:-}" ] || continue
+
+    # Old snapshots may still contain an internal agent id. Never execute it.
+    python3 - "$thread_id" <<'PY' || continue
+import json, os, re, sqlite3, sys
+from pathlib import Path
+
+thread = sys.argv[1]
+if not re.fullmatch(r"[0-9a-fA-F-]{36}", thread):
+    sys.exit(1)
+home = Path(os.environ.get("CODEX_SQLITE_HOME") or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+try:
+    with sqlite3.connect((home / "state_5.sqlite").resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2) as db:
+        row = db.execute("SELECT source, rollout_path FROM threads WHERE id = ?", (thread,)).fetchone()
+    if not row or not row[1] or not Path(row[1]).is_file():
+        sys.exit(1)
+    source = json.loads(row[0]) if row[0] and row[0].startswith("{") else row[0]
+    if source == "subagent" or isinstance(source, dict) and "subagent" in source:
+        sys.exit(1)
+except (OSError, ValueError, sqlite3.Error):
+    sys.exit(1)
+PY
 
     target="${session_name}:${window_index}.${pane_index}"
     tmux has-session -t "$session_name" 2>/dev/null || continue

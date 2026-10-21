@@ -14,9 +14,9 @@ import sqlite3
 import sys
 
 with sqlite3.connect(sys.argv[1]) as db:
-    db.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)")
+    db.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, source TEXT)")
     db.execute(
-        "INSERT INTO threads VALUES (?, ?)",
+        "INSERT INTO threads VALUES (?, ?, 'cli')",
         ("01a00000-0000-7000-8000-000000000001", sys.argv[2]),
     )
 PY
@@ -63,6 +63,8 @@ SH
 chmod +x "$tmp_root/bin/tmux"
 
 state_file="$tmp_root/resurrect-state"
+export CODEX_HOME="$tmp_root/codex"
+export CODEX_SQLITE_HOME="$CODEX_HOME"
 snapshot_file="$tmp_root/tmux-resurrect.txt"
 log_file="$tmp_root/tmux.log"
 
@@ -94,5 +96,20 @@ grep -F '@codex_pane_thread_id 01a00000-0000-7000-8000-000000000001' "$log_file"
 grep -F '@codex_last_win test:0' "$log_file" >/dev/null
 grep -F '@codex_last_pane %new' "$log_file" >/dev/null
 grep -F '@codex_last_thread_id 01a00000-0000-7000-8000-000000000001' "$log_file" >/dev/null
+
+# A previously polluted cache must not become a resume command or be restored.
+python3 - "$CODEX_HOME/state_5.sqlite" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute('UPDATE threads SET source = ?', ('{"subagent":{"thread_spawn":{}}}',))
+PY
+: >"$log_file"
+TMUX_TEST_LOG="$log_file" TMUX_TEST_STATE="$state_file" PATH="$tmp_root/bin:$PATH" "$entry" restore
+test ! -s "$log_file"
+TMUX_TEST_LOG="$log_file" TMUX_TEST_STATE="$state_file" PATH="$tmp_root/bin:$PATH" "$entry" save "$snapshot_file"
+if grep -q '01a00000-' "$state_file" "$snapshot_file"; then
+  printf 'subagent id persisted in restore state or command\n' >&2
+  exit 1
+fi
 
 printf 'codex-tmux-resurrect-state smoke: OK\n'

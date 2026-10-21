@@ -14,6 +14,7 @@ NOTIFY = Path(__file__).resolve().parents[1] / "bin/codex-tmux-notify"
 PARENT = "01a00000-0000-7000-8000-000000000001"
 CHILD_A = "01a00000-0000-7000-8000-000000000002"
 CHILD_B = "01a00000-0000-7000-8000-000000000003"
+SUBAGENT = "01a00000-0000-7000-8000-000000000004"
 
 
 def main():
@@ -44,14 +45,17 @@ def main():
             return tmux("show", "-gqv", "@codex_last_pane")
 
         with sqlite3.connect(root / "state_5.sqlite") as db:
-            db.execute("CREATE TABLE threads (id TEXT, rollout_path TEXT, cwd TEXT)")
-            for thread in (CHILD_A, CHILD_B):
+            db.execute("CREATE TABLE threads (id TEXT, rollout_path TEXT, cwd TEXT, source TEXT)")
+            for thread in (CHILD_A, CHILD_B, SUBAGENT):
                 rollout = root / f"{thread}.jsonl"
                 rollout.write_text(json.dumps({"payload": {
                     "id": thread, "forked_from_id": PARENT,
                 }}) + "\n")
-                db.execute("INSERT INTO threads VALUES (?, ?, ?)",
-                           (thread, str(rollout), directory))
+                source = ({"subagent": {"thread_spawn": {"parent_thread_id": PARENT}}}
+                          if thread == SUBAGENT else "cli")
+                db.execute("INSERT INTO threads VALUES (?, ?, ?, ?)",
+                           (thread, str(rollout), directory,
+                            json.dumps(source) if isinstance(source, dict) else source))
 
         # Controlled argv, not actual Codex/model calls. tmux and ps are real.
         command = "bash -c " + shlex.quote(f'exec -a "codex fork {PARENT}" sleep 300')
@@ -65,6 +69,15 @@ def main():
             time.sleep(0.2)
             assert emit(CHILD_A) == a and cache(a) == CHILD_A
             print("PASS: unique parent fallback")
+
+            history = (root / "history").read_text()
+            assert emit(SUBAGENT) == "unchanged", "subagent must not route by parent"
+            assert cache(a) == CHILD_A
+            assert (root / "history").read_text() == history
+            set_cache(a, SUBAGENT)
+            assert emit(SUBAGENT) == "unchanged", "subagent must not route by stale cache"
+            set_cache(a, CHILD_A)
+            print("PASS: subagent notifications leave pane and history untouched")
 
             b = tmux("split-window", "-h", "-t", a, "-c", directory,
                      "-P", "-F", "#{pane_id}", command)

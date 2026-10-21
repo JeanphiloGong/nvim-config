@@ -20,8 +20,8 @@ root = pathlib.Path(sys.argv[1])
 rollout = root / 'saved.jsonl'
 rollout.write_text('{"payload":{"forked_from_id":"01a00000-0000-7000-8000-000000000003"}}\n')
 with sqlite3.connect(root / 'state_5.sqlite') as db:
-    db.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT)')
-    db.execute('INSERT INTO threads VALUES (?, ?, ?)', (sys.argv[2], str(rollout), str(root)))
+    db.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT, source TEXT)')
+    db.execute("INSERT INTO threads VALUES (?, ?, ?, 'cli')", (sys.argv[2], str(rollout), str(root)))
 PY
 
 cat >"$tmp_root/bin/ps" <<'SH'

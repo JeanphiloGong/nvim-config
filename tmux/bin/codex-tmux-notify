@@ -62,6 +62,12 @@ try:
   sqlite_home = Path(os.environ.get("CODEX_SQLITE_HOME") or codex_home)
   db_path = (sqlite_home / "state_5.sqlite").resolve()
   with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=0.2) as db:
+    source_row = db.execute("SELECT source FROM threads WHERE id = ?", (candidate,)).fetchone()
+    if not source_row:
+      sys.exit(0)
+    source = json.loads(source_row[0]) if source_row[0] and source_row[0].startswith("{") else source_row[0]
+    if source == "subagent" or isinstance(source, dict) and "subagent" in source:
+      sys.exit(0)
     try:
       row = db.execute(
         "SELECT rollout_path, cwd FROM threads WHERE id = ?", (candidate,)

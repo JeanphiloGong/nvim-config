@@ -14,18 +14,23 @@ export TMUX_CODEX_RESURRECT_FILE="$tmp_root/resume.tsv"
 saved_id="01a00000-0000-7000-8000-000000000001"
 missing_id="01a00000-0000-7000-8000-000000000002"
 process_id="01a00000-0000-7000-8000-000000000003"
+subagent_id="01a00000-0000-7000-8000-000000000004"
 rollout="$tmp_root/saved.jsonl"
 process_rollout="$tmp_root/process.jsonl"
 touch "$rollout"
 touch "$process_rollout"
-python3 - "$CODEX_HOME/state_5.sqlite" "$saved_id" "$rollout" "$process_id" "$process_rollout" <<'PY'
+python3 - "$CODEX_HOME/state_5.sqlite" "$saved_id" "$rollout" "$process_id" "$process_rollout" "$subagent_id" <<'PY'
+import json
 import sqlite3
 import sys
 
 with sqlite3.connect(sys.argv[1]) as db:
-    db.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)")
-    db.execute("INSERT INTO threads VALUES (?, ?)", (sys.argv[2], sys.argv[3]))
-    db.execute("INSERT INTO threads VALUES (?, ?)", (sys.argv[4], sys.argv[5]))
+    db.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, source TEXT)")
+    db.execute("INSERT INTO threads VALUES (?, ?, 'cli')", (sys.argv[2], sys.argv[3]))
+    db.execute("INSERT INTO threads VALUES (?, ?, 'cli')", (sys.argv[4], sys.argv[5]))
+    db.execute("INSERT INTO threads VALUES (?, ?, ?)", (
+        sys.argv[6], sys.argv[5], json.dumps({"subagent": {"thread_spawn": {
+            "parent_thread_id": sys.argv[4], "depth": 1}}})))
 PY
 
 cat >"$tmp_root/bin/tmux" <<'SH'
@@ -45,6 +50,7 @@ case "$1" in
       printf 'demo\t0\t1\t%%2\tnode\n'
       printf 'demo\t0\t2\t%%3\tbash\n'
       printf 'demo\t0\t3\t%%4\tbash\n'
+      printf 'demo\t0\t4\t%%5\tnode\n'
     else
       printf '0\n1\n'
     fi
@@ -54,6 +60,7 @@ case "$1" in
       *'%1'*'@codex_pane_thread_id'*) printf '%s\n' "$TMUX_TEST_SAVED_THREAD" ;;
       *'%2'*'@codex_pane_thread_id'*) printf '%s\n' "$TMUX_TEST_MISSING_THREAD" ;;
       *'%3'*'@codex_pane_thread_id'*) printf '%s\n' "$TMUX_TEST_SAVED_THREAD" ;;
+      *'%5'*'@codex_pane_thread_id'*) printf '%s\n' "$TMUX_TEST_SUBAGENT_THREAD" ;;
     esac
     ;;
   has-session)
@@ -76,7 +83,7 @@ chmod +x "$tmp_root/bin/tmux"
 cat >"$tmp_root/bin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
-  *'-t pts/4 -o pid=,comm='*) printf '%s\n' '1234 codex' ;;
+  *'-t pts/4 -o pid=,comm='*) printf '%s\n' '1234 codex' '1235 codex' ;;
 esac
 SH
 chmod +x "$tmp_root/bin/ps"
@@ -84,7 +91,8 @@ chmod +x "$tmp_root/bin/ps"
 cat >"$tmp_root/bin/readlink" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  /proc/1234/fd/*) printf '%s/thread-writer-locks/%s.lock\n' "$CODEX_HOME" "$TMUX_TEST_PROCESS_THREAD" ;;
+  /proc/1234/fd/*) printf '%s/thread-writer-locks/%s.lock\n' "$CODEX_HOME" "$TMUX_TEST_SUBAGENT_THREAD" ;;
+  /proc/1235/fd/*) printf '%s/thread-writer-locks/%s.lock\n' "$CODEX_HOME" "$TMUX_TEST_PROCESS_THREAD" ;;
 esac
 SH
 chmod +x "$tmp_root/bin/readlink"
@@ -93,12 +101,17 @@ export TMUX_TEST_LOG="$tmp_root/tmux.log"
 export TMUX_TEST_SAVED_THREAD="$saved_id"
 export TMUX_TEST_MISSING_THREAD="$missing_id"
 export TMUX_TEST_PROCESS_THREAD="$process_id"
+export TMUX_TEST_SUBAGENT_THREAD="$subagent_id"
 PATH="$tmp_root/bin:$PATH" "$entry" snapshot
 grep -F $'demo\t0\t0\t' "$TMUX_CODEX_RESURRECT_FILE" >/dev/null
 grep -F "$saved_id" "$TMUX_CODEX_RESURRECT_FILE" >/dev/null
 test "$(grep -Fc "$saved_id" "$TMUX_CODEX_RESURRECT_FILE")" -eq 1
 grep -F $'demo\t0\t3\t'"$process_id" "$TMUX_CODEX_RESURRECT_FILE" >/dev/null
 grep -F "set -pq -t %4 @codex_pane_thread_id $process_id" "$TMUX_TEST_LOG" >/dev/null
+if grep -F "$subagent_id" "$TMUX_CODEX_RESURRECT_FILE" "$TMUX_TEST_LOG"; then
+  printf 'subagent polluted snapshot or pane cache\n' >&2
+  exit 1
+fi
 if grep -F "$missing_id" "$TMUX_CODEX_RESURRECT_FILE" >/dev/null; then
   printf 'invalid Codex thread was saved\n' >&2
   exit 1
@@ -110,6 +123,8 @@ PATH="$tmp_root/bin:$PATH" "$entry" snapshot
 test "$(cat "$TMUX_CODEX_RESURRECT_FILE")" = "$before_restore_snapshot"
 
 : >"$TMUX_TEST_LOG"
+# Simulate an old snapshot that still contains an internal agent.
+printf 'demo\t0\t1\t%s\n' "$subagent_id" >>"$TMUX_CODEX_RESURRECT_FILE"
 PATH="$tmp_root/bin:$PATH" "$entry" restore
 grep -F "send-keys -t demo:0.0 codex resume $saved_id C-m" "$TMUX_TEST_LOG" >/dev/null
 if grep -F 'demo:0.1' "$TMUX_TEST_LOG" >/dev/null; then
@@ -117,5 +132,13 @@ if grep -F 'demo:0.1' "$TMUX_TEST_LOG" >/dev/null; then
   exit 1
 fi
 test ! -e "${TMUX_CODEX_RESURRECT_FILE}.restoring"
+
+# Two CLI locks must not be resolved by file descriptor order.
+: >"$TMUX_TEST_LOG"
+TMUX_TEST_SUBAGENT_THREAD="$saved_id" PATH="$tmp_root/bin:$PATH" "$entry" snapshot
+if grep -F $'demo\t0\t3\t' "$TMUX_CODEX_RESURRECT_FILE" || grep -F 'set -pq -t %4' "$TMUX_TEST_LOG"; then
+  printf 'ambiguous CLI locks selected an arbitrary thread\n' >&2
+  exit 1
+fi
 
 printf 'codex-tmux-resurrect smoke: OK\n'

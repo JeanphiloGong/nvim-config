@@ -41,6 +41,11 @@ Ephemeral recap threads are not persisted and cannot replace the main thread's
 cached id, summary, or notification history. Missing ids, unavailable databases,
 and missing rollout files leave existing state untouched.
 
+Persisted internal agents are excluded using the database `source.subagent`
+marker (including multi-agent v2). Their completion notifications must not
+replace a pane's CLI thread, activity, or history. A normal `codex fork` remains
+eligible: `forked_from_id` alone does not identify an internal agent.
+
 For shared-server notifications without a usable terminal, the hook searches
 all panes for a unique exact child-thread cache before considering a unique
 `codex fork <parent>` process match. Multiple exact matches or multiple parent
@@ -97,6 +102,19 @@ rollout file still exist. For a running Codex process, it can refresh the pane
 cache before the first completion notification. Stale pane-local ids are
 ignored after Codex exits. Pane ids such as `%17` are intentionally not
 persisted because tmux assigns new ids after a server restart.
+
+Lock discovery examines all thread locks, filters out internal agents, and
+updates the cache only when exactly one eligible thread remains. Snapshot save
+and restore also validate the database `source` field. The resurrect layout
+writer clears unvalidated Codex commands instead of persisting an internal
+agent's `codex resume` command. Missing database metadata fails closed.
+
+Already saved resurrect layouts are not automatically repaired on restore:
+resurrect executes their process commands before the post-restore hook. After
+correcting a polluted pane cache, save a fresh layout with `<prefix> + Ctrl-s`
+before restarting tmux. These checks do not change shared Codex daemon feature
+settings; an incompatible daemon may still require choosing "Run without
+daemon this time" in Codex.
 
 After resurrect restores the panes, its post-restore hook sends
 `codex resume <thread-id>` to each saved Codex pane. A pane that is already

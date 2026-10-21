@@ -23,6 +23,39 @@ pane_exists() {
     awk -v expected="$pane_index" '$0 == expected { found = 1 } END { exit !found }'
 }
 
+validated_state() {
+  python3 - "$1" <<'PY'
+import json
+import os
+import re
+import sqlite3
+import sys
+from pathlib import Path
+
+home = Path(os.environ.get("CODEX_SQLITE_HOME") or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+try:
+    with sqlite3.connect((home / "state_5.sqlite").resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2) as db:
+        for raw in Path(sys.argv[1]).read_text().splitlines():
+            if raw == "version\t1":
+                print(raw)
+                continue
+            fields = raw.split("\t")
+            if len(fields) != 5 or fields[0] not in {"pane", "last"}:
+                continue
+            if not re.fullmatch(r"[0-9a-fA-F-]{36}", fields[4]):
+                continue
+            row = db.execute("SELECT rollout_path, source FROM threads WHERE id = ?", (fields[4],)).fetchone()
+            if not row or not row[0] or not Path(row[0]).is_file():
+                continue
+            source = json.loads(row[1]) if row[1] and row[1].startswith("{") else row[1]
+            if source == "subagent" or isinstance(source, dict) and "subagent" in source:
+                continue
+            print(raw)
+except (OSError, ValueError, sqlite3.Error):
+    sys.exit(1)
+PY
+}
+
 if [ "$mode" = "save" ]; then
   mkdir -p "$state_dir" 2>/dev/null || exit 0
   tmp_file="$(mktemp "${state_file}.tmp.XXXXXX")" || exit 0
@@ -50,6 +83,8 @@ if [ "$mode" = "save" ]; then
     fi
   } >"$tmp_file"
 
+  valid_state="$(validated_state "$tmp_file")" || exit 0
+  printf '%s\n' "$valid_state" >"$tmp_file"
   chmod 600 "$tmp_file"
   mv -f "$tmp_file" "$state_file"
 
@@ -72,9 +107,6 @@ try:
         if len(fields) == 5 and fields[0] == "pane":
             pane_threads[(fields[1], fields[2], fields[3])] = fields[4]
 
-    if not pane_threads:
-        sys.exit(0)
-
     lines = snapshot_path.read_text().splitlines(keepends=True)
     rewritten = []
     changed = False
@@ -86,8 +118,9 @@ try:
             key = (fields[1], fields[2], fields[5])
             thread_id = pane_threads.get(key)
             full_command = fields[10][1:] if fields[10].startswith(":") else fields[10]
-            if thread_id and re.search(r"(?:^|[ /])codex(?:\s|$)", full_command):
-                fields[10] = f":codex resume {thread_id}"
+            if re.search(r"(?:^|[ /])codex(?:\s|$)", full_command):
+                # Do not replay an unvalidated resume command from the process list.
+                fields[10] = f":codex resume {thread_id}" if thread_id else ":"
                 body = "\t".join(fields)
                 changed = True
         rewritten.append(body + newline)
@@ -120,42 +153,7 @@ command -v python3 >/dev/null 2>&1 || exit 0
 valid_state="$(mktemp "${TMPDIR:-/tmp}/codex-tmux-resurrect-state.XXXXXX")" || exit 0
 trap 'rm -f "$valid_state"' EXIT
 
-python3 - "$state_file" >"$valid_state" <<'PY'
-import os
-import sqlite3
-import sys
-from pathlib import Path
-
-state_path = Path(sys.argv[1])
-codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-sqlite_home = Path(os.environ.get("CODEX_SQLITE_HOME") or codex_home)
-db_path = (sqlite_home / "state_5.sqlite").resolve()
-
-try:
-    db = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=0.2)
-except (OSError, sqlite3.Error, ValueError):
-    sys.exit(0)
-
-try:
-    with db:
-        for raw in state_path.read_text().splitlines():
-            fields = raw.split("\t")
-            if len(fields) != 5 or fields[0] not in {"pane", "last"}:
-                continue
-            thread_id = fields[4].strip()
-            if not thread_id:
-                continue
-            try:
-                row = db.execute(
-                    "SELECT rollout_path FROM threads WHERE id = ?", (thread_id,)
-                ).fetchone()
-            except sqlite3.Error:
-                continue
-            if row and row[0] and Path(row[0]).is_file():
-                print("\t".join(fields))
-finally:
-    db.close()
-PY
+validated_state "$state_file" >"$valid_state" || exit 0
 
 last_restored=0
 while IFS=$'\t' read -r kind session window pane_index thread_id; do
