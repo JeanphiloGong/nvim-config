@@ -27,6 +27,29 @@ vim.keymap.set("n", "<leader>yr", function()
   copy_path("relative")
 end, { desc = "Yank relative path" })
 
+local function save_learning_checkpoint()
+  vim.b.learning_checkpoint = {
+    lines = vim.api.nvim_buf_get_lines(0, 0, -1, false),
+    cursor = vim.api.nvim_win_get_cursor(0),
+  }
+  vim.notify("已保存当前 buffer 检查点")
+end
+
+local function restore_learning_checkpoint()
+  local checkpoint = vim.b.learning_checkpoint
+  if not checkpoint then
+    vim.notify("当前 buffer 没有检查点", vim.log.levels.WARN)
+    return
+  end
+
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, checkpoint.lines)
+  vim.api.nvim_win_set_cursor(0, checkpoint.cursor)
+  vim.notify("已恢复当前 buffer 检查点")
+end
+
+vim.keymap.set("n", "<leader>us", save_learning_checkpoint, { desc = "保存练习检查点" })
+vim.keymap.set("n", "<leader>ur", restore_learning_checkpoint, { desc = "恢复练习检查点" })
+
 -- Markdown 快捷键
 vim.keymap.set("n", "<leader>mp", "<cmd>MarkdownPreview<cr>", { desc = "Markdown 预览" })
 vim.keymap.set("n", "<leader>mt", "<cmd>GenTocGFM<cr>", { desc = "生成目录 TOC" })
