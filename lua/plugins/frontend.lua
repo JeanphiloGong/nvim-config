@@ -2,6 +2,7 @@
 return {
   {
     "nvim-treesitter/nvim-treesitter",
+    branch = "main",
     lazy = false,
     build = ":TSUpdate",
     config = function()
@@ -26,24 +27,18 @@ return {
         "gotmpl",
       }
 
-      local ok_configs, configs = pcall(require, "nvim-treesitter.configs")
-      if ok_configs then
-        configs.setup({
-          ensure_installed = parsers,
-          sync_install = false,
-          auto_install = false,
-          highlight = { enable = true },
-          indent = { enable = true },
-        })
-        return
-      end
-
       local treesitter = require("nvim-treesitter")
+      treesitter.setup({})
       treesitter.install(parsers)
 
       vim.api.nvim_create_autocmd("FileType", {
-        callback = function()
-          pcall(vim.treesitter.start)
+        group = vim.api.nvim_create_augroup("TreesitterHighlight", { clear = true }),
+        callback = function(args)
+          local lang = vim.treesitter.language.get_lang(vim.bo[args.buf].filetype)
+          if lang and vim.list_contains(treesitter.get_installed("parsers"), lang) then
+            vim.treesitter.start(args.buf, lang)
+            vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+          end
         end,
       })
     end,

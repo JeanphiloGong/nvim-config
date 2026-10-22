@@ -16,7 +16,7 @@
 ```
 
 ## 快速开始
-1) 安装依赖：Neovim ≥ 0.12、git、make（编译 telescope-fzf-native）、Node + npm/yarn、Go、Rust/Cargo，以及 .NET SDK 8（C# LSP）。
+1) 安装依赖：Neovim ≥ 0.12、git、make（编译 telescope-fzf-native）、C 编译器、curl、tar、tree-sitter CLI ≥ 0.26.1（可运行 `cargo install tree-sitter-cli --locked`）、Node + npm/yarn、Go、Rust/Cargo，以及 .NET SDK 8（C# LSP）。
 2) 将本目录放到 `~/.config/nvim`，首次启动 Neovim 后执行：
    - `:Lazy sync`（安装/编译插件）
    - `:MasonInstall pyright svelte ts_ls`（安装常用 LSP）
