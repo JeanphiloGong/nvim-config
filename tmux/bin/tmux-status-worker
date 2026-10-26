@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Collect status and schedule recovery outside tmux's redraw loop."""
+import fcntl
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+import time
+
+
+def tmux(*args):
+    return subprocess.check_output(["tmux", *args], text=True).rstrip("\n")
+
+
+def main():
+    server = tmux("display-message", "-p", "#{pid}")
+    socket = tmux("display-message", "-p", "#{socket_path}")
+    directory = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "tmux"
+    directory.mkdir(parents=True, exist_ok=True)
+    lock = (directory / (hashlib.sha256(socket.encode()).hexdigest() + ".lock")).open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return
+    scripts = Path(__file__).resolve().parent
+    plugins = Path(os.environ.get("TMUX_PLUGIN_MANAGER_PATH", Path.home() / ".tmux/plugins"))
+    snapshot = save = None
+    next_metrics = next_save = 0
+    previous_cpu = None
+    git_cache = {}
+    while Path(f"/proc/{server}").exists():
+        try:
+            if tmux("display-message", "-p", "#{pid}") != server:
+                return
+            now = time.monotonic()
+            if snapshot is None or snapshot.poll() is not None:
+                snapshot = subprocess.Popen(["bash", str(scripts / "codex-tmux-resurrect"), "snapshot"])
+            if now >= next_save and (save is None or save.poll() is not None):
+                save = subprocess.Popen(["bash", str(plugins / "tmux-continuum/scripts/continuum_save.sh")])
+                next_save = now + 60
+            if now >= next_metrics:
+                cpu = [int(n) for n in Path("/proc/stat").read_text().splitlines()[0].split()[1:9]]
+                total, idle = sum(cpu), cpu[3] + cpu[4]
+                usage = 0.0
+                if previous_cpu and total > previous_cpu[0]:
+                    usage = 100 * (1 - (idle - previous_cpu[1]) / (total - previous_cpu[0]))
+                previous_cpu = total, idle
+                memory = {k: int(v.split()[0]) for k, v in
+                          (line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())}
+                ram = 100 * (1 - memory["MemAvailable"] / memory["MemTotal"])
+                tmux("set-option", "-g", "@system_status", f"CPU: {usage:.1f}% | RAM: {ram:.1f}%")
+                clients = tmux("list-clients", "-F", "#{pane_id}\t#{pane_current_path}")
+                paths, new_cache = {}, {}
+                for line in clients.splitlines():
+                    pane, path = line.split("\t", 1)
+                    if path not in paths:
+                        result = subprocess.run(["bash", str(scripts / "tmux-git-status"), path],
+                                                text=True, capture_output=True, timeout=5)
+                        paths[path] = result.stdout.strip()
+                    if git_cache.get(pane) != (path, paths[path]):
+                        tmux("set-option", "-p", "-t", pane, "@git_status", paths[path])
+                    new_cache[pane] = path, paths[path]
+                git_cache = new_cache
+                next_metrics = now + 10
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            # Panes and servers may disappear while collecting their status.
+            print(f"tmux-status-worker: {error}", flush=True)
+        time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()

@@ -13,8 +13,9 @@ panes, and lets you jump back quickly.
 - The current pane gets `@codex_pane_summary`.
 - The current pane gets `@codex_pane_thread_id` for future fork actions.
 - Recent completions are stored in `~/.tmux-codex-history`.
-- Codex panes are snapshotted every 5 seconds to `~/.tmux-codex-resume` and
-  restored with their matching `codex resume <thread-id>` command after
+- A background worker schedules Codex snapshots to `~/.tmux-codex-resume`
+  on a 5-second loop, without overlapping scans. Saved panes are restored
+  with their matching `codex resume <thread-id>` command after
   tmux-resurrect recreates the layout.
 
 Language Coach also writes to the shared status slot; the latest event wins.
@@ -95,7 +96,20 @@ deleted Codex thread is skipped rather than reintroduced into tmux state.
 ## Restart Recovery
 
 The Linux and WSL tmux profiles already enable tmux-resurrect and tmux-continuum.
-Their status bar invokes `bin/codex-tmux-resurrect snapshot` every 5 seconds.
+Both profiles start one `bin/tmux-status-worker` per tmux server. It schedules
+`bin/codex-tmux-resurrect snapshot` every 5 seconds, skipping a tick while a
+previous scan is running. A socket-specific file lock prevents duplicate workers
+when reloading the configuration or attaching multiple clients. The worker exits
+when its server exits. It checks continuum once per minute; the configured
+15-minute layout-save interval still applies.
+
+The status bar only displays tmux options: the worker samples CPU/RAM and Git
+for visible client panes every 10 seconds. A pane or project switch displays its
+cached Git status until the next sample. Git queries time out after 5 seconds.
+CPU usage is measured between samples; RAM uses total minus available memory.
+This avoids spawning shell jobs from status redraws. Run
+`python3 tmux/test/tmux-status-worker-smoke.py` to verify worker ownership,
+metrics, recovery scheduling, and shutdown using an isolated server.
 The snapshot records the logical `session:window.pane` location and only keeps a
 thread when the pane is still running Codex and Codex's `state_5.sqlite` row and
 rollout file still exist. For a running Codex process, it can refresh the pane
@@ -119,7 +133,7 @@ daemon this time" in Codex.
 After resurrect restores the panes, its post-restore hook sends
 `codex resume <thread-id>` to each saved Codex pane. A pane that is already
 running Codex is left untouched, and missing or invalid thread records are
-skipped. A new snapshot is created after the next status refresh, so closing a
+skipped. A new snapshot is created by the background worker, so closing a
 Codex pane removes it from the next recovery set.
 
 ### New Server Activation
@@ -135,7 +149,7 @@ tmux source-file "$HOME/.tmux.conf"
 
 On a fresh machine, first link the correct Linux or WSL profile and install the
 TPM plugins as described in `../README.md`. Start Codex inside tmux, wait for a
-status refresh, and confirm that the snapshot and hooks are active:
+worker scan, and confirm that the snapshot and hooks are active:
 
 ```sh
 test -s "$HOME/.tmux-codex-resume"

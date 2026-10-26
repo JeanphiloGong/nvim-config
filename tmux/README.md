@@ -109,7 +109,7 @@ chmod +x ~/.local/bin/codex-tmux-notify
 - 第 2 行左侧：当前 pane 路径的 Git 分支和 dirty/ahead/behind 标记
 - 第 2 行右侧：Codex、Language Coach 和短编排反馈共用的消息槽
 
-如果状态栏闪烁，可以把 `status-interval` 调到 5 或 10 秒。
+状态栏只显示缓存；`bin/tmux-status-worker` 每个 tmux server 运行一份，每 10 秒更新 CPU/RAM 和可见 pane 的 Git 信息，每 5 秒调度不重叠的 Codex 快照，每分钟检查自动保存。切换项目后 Git 信息最迟在下一次采样更新。
 
 ## 安装与平台说明
 

@@ -109,8 +109,10 @@ existing configuration.
    - The `f` and `F` bindings only fork a real persisted Codex thread ID from
      `CODEX_THREAD_ID` or the pane's validated notification cache; do not use
      `CODEX_SESSION_ID`, a tmux pane, window, or session name as a fallback.
-   - The selected tmux profile snapshots active Codex thread mappings every
-     five seconds and resumes them after tmux-resurrect recreates the panes.
+   - The selected tmux profile starts one `bin/tmux-status-worker` per server.
+     It schedules nonoverlapping Codex thread snapshots every five seconds,
+     samples status every ten seconds, and checks continuum every minute.
+     Saved threads resume after tmux-resurrect recreates the panes.
      On an already bootstrapped host, a repository update only needs the tmux
      configuration sourced again; reinstall TPM plugins only when missing.
    - Recovery state is machine-local. Do not claim that pulling this repository
