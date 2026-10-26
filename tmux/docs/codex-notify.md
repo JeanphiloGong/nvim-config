@@ -9,7 +9,7 @@ panes, and lets you jump back quickly.
 - Codex turn completion updates the second status line:
   `Codex: <session:window> | <summary?>`.
 - The summary is read from the notify JSON when possible.
-- Pane borders can show `index | user label | Codex summary`.
+- Pane border labels are disabled by default; thread tracking and recovery remain enabled.
 - The current pane gets `@codex_pane_summary`.
 - The current pane gets `@codex_pane_thread_id` for future fork actions.
 - Recent completions are stored in `~/.tmux-codex-history`.

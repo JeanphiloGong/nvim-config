@@ -237,7 +237,7 @@ copied database with old absolute paths is portable.
       resolves to its checked-out path.
 - [ ] `tmux show-options -gv prefix` reports `C-a`,
       `tmux show-options -gv status` reports `2`, and
-      `tmux show-options -gv pane-border-status` reports `top` after the
+      `tmux show-options -gv pane-border-status` reports `off` after the
       selected config is sourced.
 - [ ] TPM plugins install, including `tmux-continuum`, and
       `tmux source-file ~/.tmux.conf` succeeds.
