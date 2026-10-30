@@ -31,6 +31,12 @@ vim.filetype.add({
 -- init.lua 配置（如果你用的是 Lua 配置）
 vim.opt.number = true         -- 显示绝对行号（当前行）
 vim.opt.relativenumber = true -- 其它行显示相对行号
+-- Show file paths relative to the current window's working directory.
+vim.opt.statusline = vim.o.statusline:gsub("%%f", function()
+  return "%{expand('%') == '' ? '[No Name]' : expand('%:p:.')}"
+end)
+-- Keep successful writes from echoing long file paths in the command area.
+vim.opt.shortmess:append("W")
 -- Set tab size (number of spaces per tab)
 vim.opt.tabstop = 4      -- Number of spaces when pressing <Tab>
 vim.opt.softtabstop = 4  -- Number of spaces for insert mode <Tab>
