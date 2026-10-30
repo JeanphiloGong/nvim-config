@@ -36,6 +36,7 @@
 - `numToStr/Comment.nvim`：`gc` 系列用于行注释/取消注释（toggle），`gb` 系列用于块注释/取消注释。
   - `gcc`：切换当前行注释状态；`gcip`：切换当前段落；可视模式选中后按 `gc`/`gb` 直接切换选区注释。
   - 按键都是“切换”语义，重复执行即可取消注释；会根据文件类型自动选择正确的注释符。
+  - JavaScript/TypeScript（含 JSX/TSX）在 `init.lua` 中移除 `formatoptions` 的 `c/r/o`：回车或 `o`/`O` 换行不再自动续写注释，也不自动折行注释；手动注释快捷键仍可使用。
 - `windwp/nvim-autopairs`：自动补全括号/引号，兼容补全插入。
 - `lukas-reineke/indent-blankline.nvim`（ibl）：以 `|` 显示缩进参考线。
 

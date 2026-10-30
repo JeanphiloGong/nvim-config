@@ -79,6 +79,15 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
+-- Do not continue line comments automatically in JS/TS buffers.
+vim.api.nvim_create_autocmd("FileType", {
+  group = indent_group,
+  pattern = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
+  callback = function()
+    vim.opt_local.formatoptions:remove({ "c", "r", "o" })
+  end,
+})
+
 -- 自动优化 Markdown 编辑体验
 vim.api.nvim_create_autocmd("FileType", {
   group = indent_group,
