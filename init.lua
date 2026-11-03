@@ -35,8 +35,9 @@ vim.opt.relativenumber = true -- 其它行显示相对行号
 vim.opt.statusline = vim.o.statusline:gsub("%%f", function()
   return "%{expand('%') == '' ? '[No Name]' : expand('%:p:.')}"
 end)
--- Keep successful writes from echoing long file paths in the command area.
-vim.opt.shortmess:append("W")
+-- Keep progress messages, including successful writes, out of the command area.
+vim.opt.messagesopt:remove("progress:c")
+vim.opt.messagesopt:append("progress:")
 -- Set tab size (number of spaces per tab)
 vim.opt.tabstop = 4      -- Number of spaces when pressing <Tab>
 vim.opt.softtabstop = 4  -- Number of spaces for insert mode <Tab>
