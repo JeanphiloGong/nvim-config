@@ -32,6 +32,7 @@
   - 界面前缀/指示符已定制，安装时会自动编译 fzf-native。
 
 ## 包裹/编辑增强
+- JavaScript/TypeScript 的反引号多行字符串沿用上一行缩进，方便编辑内嵌 SQL；普通代码仍使用 Treesitter 自动缩进。
 - 底部状态栏按当前窗口的工作目录（`:pwd`）显示文件相对路径，例如 `pi/actions.ts`。
 - `:w` 成功时不再显示包含文件路径的保存消息（`shortmess+=W`）；保存错误仍正常提示，状态栏的修改标记会在保存后消失。
 - `kylechui/nvim-surround`：`ys` 添加包裹，`ds` 删除，`cs` 替换；自定义 `t` 包裹会提示输入标签，例如 `ystw` 后输入 `div` 生成 `<div>…</div>`。
