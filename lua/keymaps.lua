@@ -1,3 +1,6 @@
+-- Silence successful :w messages while keeping write errors visible.
+vim.cmd([[cnoreabbrev <expr> w getcmdtype() == ':' && getcmdline() == 'w' ? 'silent write' : 'w']])
+
 vim.keymap.set("n", "<C-b>", "<cmd>Neotree toggle<cr>", { desc = "Toggle NeoTree" })
 vim.keymap.set("n", "<leader>e", "<cmd>Neotree toggle source=filesystem position=left<cr>", { desc = "NeoTree Files" })
 vim.keymap.set("n", "<leader>gs", "<cmd>Neotree toggle source=git_status position=float<cr>", { desc = "NeoTree Git Status" })
