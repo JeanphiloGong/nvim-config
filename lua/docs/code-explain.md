@@ -1,0 +1,111 @@
+# Code explanations
+
+Explain selected lines beside the source, ask follow-up questions, and keep the
+conversation as a local Markdown document. Explanations and follow-up answers
+use English and preserve code identifiers.
+
+## Workflow
+
+1. Press `Shift+V`, then `j` / `k` to select the method's lines.
+2. Press `<leader>ae` (`Space a e`) to open an explanation on the right.
+3. In that document, press `<leader>aa` to enter a follow-up question.
+4. Press `q` to close the explanation window. The document stays on disk.
+5. Press `<leader>ah` to pick a saved conversation for the current project.
+6. Press `<leader>am` to choose a model from the configured provider.
+
+Equivalent commands are `:'<,'>CodeExplain`, `:CodeExplainAsk`,
+`:CodeExplainHistory`, and `:CodeExplainModel`. A range such as
+`:10,25CodeExplain` also works. Selection is line-based. New explanations reuse
+the explanation window in the current tab. `Ctrl-w h` / `Ctrl-w l` switch between
+the source and the explanation.
+
+Text appears and saves as it arrives. Closing the window lets generation
+continue; exiting Neovim stops the request and keeps the partial answer with an
+interruption notice. Failed or truncated streams also retain their partial text.
+
+## Models and speed
+
+The default is `gpt-6.1-terra` with reasoning effort `none`. Requests explicitly
+set `service_tier: "fast"`. These settings belong to the explanation feature.
+Existing saved model and effort preferences still apply.
+
+Higher reasoning effort can increase the delay before text appears. Fast mode
+does not guarantee that `xhigh` will be faster than `none`. See the
+[local measurements](code-explain-benchmarks.md) for observations and limits.
+The answer starts directly after the source snapshot, without an extra
+explanation heading, model information, or service tier details. Current tests
+returned `default` for both `fast` and its official equivalent, `priority`, so
+Fast processing has not been confirmed by the configured provider.
+
+Official [Terra documentation](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
+lists `xhigh` support and Fast pricing at twice Standard. Actual billing through
+the configured provider must be checked with that provider.
+
+Choose a model with `<leader>am`, or specify it and an optional reasoning effort:
+
+```vim
+:CodeExplainModel gpt-6.1-terra none
+:CodeExplainModel gpt-6.1-terra xhigh
+:CodeExplainModel gpt-6.1-sol low
+```
+
+Choosing Terra defaults its effort to `none`; another model defaults to `low`.
+Use the optional second argument for a different supported effort; `default`
+omits the reasoning option from the API request. The provider validates model
+and effort availability.
+Selections persist in `stdpath("data")/code-explain/model.json`.
+
+## Storage and context
+
+Documents live under `stdpath("data")/code-explain/`, grouped by project, outside
+the source repository. Each includes the source path, selected line numbers,
+creation time, and a snapshot taken directly from the buffer, including unsaved
+changes. Model and service settings are omitted from the explanation document.
+Closing a window or restarting Neovim does not delete a document. Remove
+unwanted records explicitly from that directory.
+
+Each follow-up sends the original snapshot and saved conversation again.
+Reopening an existing record, including one made with the earlier Codex backend,
+restores that context. The snapshot remains the reference if the source changes.
+Long conversations send more context on each follow-up.
+
+The fast path sends the selection and conversation directly to the model. It
+does not inspect the project or run tools. Include relevant imports and type
+definitions in the selection when needed; missing context is stated explicitly.
+
+## Requirements and implementation
+
+Use Python 3.11+ on `PATH` and a Responses API provider configured in
+`$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). The helper reads the
+provider's `env_key` environment variable (default `OPENAI_API_KEY`) or the
+`OPENAI_API_KEY` field of that Codex home's `auth.json`. ChatGPT OAuth tokens
+alone cannot authenticate this direct API path. Credentials stay in the Python
+process and are never passed through a shell command or written into records.
+
+`lua/code_explain.lua` handles the windows, Markdown, history, and model picker.
+`scripts/code-explain.py` uses Python's standard library to stream Responses API
+text events, following the official [streaming reference](https://developers.openai.com/api/docs/guides/streaming-responses).
+There is no agent-framework dependency. The helper validates completion at the
+API boundary; the Lua view updates at most every 100 ms without moving the
+reader's cursor. No Codex session files are created by explanation requests.
+
+New Neovim processes load the module automatically. In an existing process,
+wait for any explanation to finish, then reset the module cache and reload:
+
+```vim
+:lua vim.loader.reset(vim.fn.stdpath("config")); package.loaded.code_explain = nil; require("code_explain").setup()
+```
+
+## Verification
+
+From the configuration directory:
+
+```sh
+python3 test/code-explain-api.py
+nvim --headless -u NONE -l test/code-explain-smoke.lua
+```
+
+These checks use a local HTTP server, an executable double, and temporary data.
+They verify streaming before completion, request parameters, provider errors,
+the visual mapping, snapshots, saving, follow-ups, history, model persistence,
+and editor shutdown. They need no real credentials or network connection.
