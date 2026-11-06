@@ -1,10 +1,64 @@
-# Code explanations
+# code-explain.nvim
 
 Explain selected lines beside the source, ask follow-up questions, and keep the
 conversation as a local Markdown document. Explanations and follow-up answers
 use English and preserve code identifiers.
 
+The bundled teaching style lives in `prompts/code-explain.md`. Set `prompt_file`
+to use your own file. It is read for each request, so edits apply without
+restarting Neovim.
+
+## Installation
+
+Add this directory to your plugin manager. For lazy.nvim, when it is placed
+under the Neovim configuration's `local/` directory:
+
+```lua
+{
+  dir = vim.fn.stdpath("config") .. "/local/code-explain.nvim",
+  name = "code-explain.nvim",
+  main = "code_explain",
+  cmd = { "CodeExplain", "CodeExplainAsk", "CodeExplainHistory", "CodeExplainModel" },
+  opts = {},
+  keys = {
+    { "<leader>ae", ":CodeExplain<cr>", mode = "x", silent = true, desc = "Explain selected code" },
+    { "<leader>aa", "<cmd>CodeExplainAsk<cr>", desc = "Ask about code explanation" },
+    { "<leader>ah", "<cmd>CodeExplainHistory<cr>", desc = "Code explanation history" },
+    { "<leader>am", "<cmd>CodeExplainModel<cr>", desc = "Code explanation model" },
+  },
+}
+```
+
+Without a plugin manager, add this directory to `runtimepath` and call
+`require("code_explain").setup()`. No other Neovim configuration is required.
+The plugin registers commands; the host configuration owns global keymaps.
+
+## Configuration
+
+`setup()` accepts four optional settings:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `model` | `gpt-6.1-terra` | Initial model, before a saved model selection exists |
+| `reasoning_effort` | `none` | Initial reasoning effort |
+| `codex_home` | `$CODEX_HOME` or `~/.codex` | Directory containing the provider configuration and API-key credentials |
+| `prompt_file` | The plugin's `prompts/code-explain.md` | Teaching instructions, loaded on every request |
+
+For example, to use a custom prompt:
+
+```lua
+require("code_explain").setup({
+  prompt_file = vim.fn.stdpath("config") .. "/my-code-teaching.md",
+})
+```
+
+Create that file before requesting an explanation. Supply absolute paths for
+custom files and directories. Model selections made with `:CodeExplainModel`
+take precedence over the initial model settings and survive restarts.
+
 ## Workflow
+
+With the example keymaps above:
 
 1. Press `Shift+V`, then `j` / `k` to select the method's lines.
 2. Press `<leader>ae` (`Space a e`) to open an explanation on the right.
@@ -31,7 +85,7 @@ Existing saved model and effort preferences still apply.
 
 Higher reasoning effort can increase the delay before text appears. Fast mode
 does not guarantee that `xhigh` will be faster than `none`. See the
-[local measurements](code-explain-benchmarks.md) for observations and limits.
+[local measurements](docs/benchmarks.md) for observations and limits.
 The answer starts directly after the source snapshot, without an extra
 explanation heading, model information, or service tier details. Current tests
 returned `default` for both `fast` and its official equivalent, `priority`, so
@@ -49,7 +103,8 @@ Choose a model with `<leader>am`, or specify it and an optional reasoning effort
 :CodeExplainModel gpt-6.1-sol low
 ```
 
-Choosing Terra defaults its effort to `none`; another model defaults to `low`.
+Choosing the configured initial model uses its configured reasoning effort;
+another model defaults to `low`.
 Use the optional second argument for a different supported effort; `default`
 omits the reasoning option from the API request. The provider validates model
 and effort availability.
@@ -75,30 +130,25 @@ definitions in the selection when needed; missing context is stated explicitly.
 
 ## Requirements and implementation
 
-Use Python 3.11+ on `PATH` and a Responses API provider configured in
-`$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). The helper reads the
+Use Neovim with `vim.system` and `vim.fs.root` (verified on Neovim 0.12.5),
+Python 3.11+ on `PATH`, and a Responses API provider configured in
+`codex_home/config.toml`. The helper reads the
 provider's `env_key` environment variable (default `OPENAI_API_KEY`) or the
 `OPENAI_API_KEY` field of that Codex home's `auth.json`. ChatGPT OAuth tokens
 alone cannot authenticate this direct API path. Credentials stay in the Python
 process and are never passed through a shell command or written into records.
 
 `lua/code_explain.lua` handles the windows, Markdown, history, and model picker.
+`prompts/code-explain.md` contains the teaching instructions and examples.
 `scripts/code-explain.py` uses Python's standard library to stream Responses API
 text events, following the official [streaming reference](https://developers.openai.com/api/docs/guides/streaming-responses).
 There is no agent-framework dependency. The helper validates completion at the
 API boundary; the Lua view updates at most every 100 ms without moving the
 reader's cursor. No Codex session files are created by explanation requests.
 
-New Neovim processes load the module automatically. In an existing process,
-wait for any explanation to finish, then reset the module cache and reload:
-
-```vim
-:lua vim.loader.reset(vim.fn.stdpath("config")); package.loaded.code_explain = nil; require("code_explain").setup()
-```
-
 ## Verification
 
-From the configuration directory:
+From this plugin directory:
 
 ```sh
 python3 test/code-explain-api.py
@@ -107,5 +157,16 @@ nvim --headless -u NONE -l test/code-explain-smoke.lua
 
 These checks use a local HTTP server, an executable double, and temporary data.
 They verify streaming before completion, request parameters, provider errors,
-the visual mapping, snapshots, saving, follow-ups, history, model persistence,
-and editor shutdown. They need no real credentials or network connection.
+consumer-defined mappings, snapshots, saving, follow-ups, history, model
+persistence, setup options, prompt edits, and editor shutdown. They need no
+real credentials, network connection, lazy.nvim, or a surrounding Neovim configuration.
+
+## Layout
+
+```text
+lua/code_explain.lua        Windows, records, commands, and request orchestration
+scripts/code-explain.py     Provider configuration and Responses API streaming
+prompts/code-explain.md     Teaching instructions and examples
+test/                      Standalone tests
+docs/benchmarks.md          Measured latency and comparison limits
+```

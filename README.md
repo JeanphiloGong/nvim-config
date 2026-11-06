@@ -91,7 +91,7 @@ npm install -g @mermaid-js/mermaid-cli
 - 诊断列表：`<leader>xx` 打开 Trouble 诊断，`<leader>xq` 打开 quickfix。
 - 补全：`<Tab>` 确认候选，`<C-Space>` 触发补全。
 - 练习检查点：`<leader>us` 保存当前 buffer 内容和光标位置，`<leader>ur` 恢复；检查点在关闭 buffer 后失效。
-- 代码解释（需 Python 3.11+ 和已配置 API key 的 Codex provider）：`Shift+V` 选区后按 `<leader>ae` 分屏查看流式英文解释，`<leader>aa` 追问，`<leader>ah` 重开讲解，`<leader>am` 选择模型；`q` 关闭窗口并保留 Markdown。[使用说明](lua/docs/code-explain.md)。
+- 代码解释（需 Python 3.11+ 和已配置 API key 的 Codex provider）：`Shift+V` 选区后按 `<leader>ae` 分屏查看流式英文解释，`<leader>aa` 追问，`<leader>ah` 重开讲解，`<leader>am` 选择模型；`q` 关闭窗口并保留 Markdown。插件位于 `local/code-explain.nvim/`，[使用说明](local/code-explain.nvim/README.md)，快捷键在 `lua/plugins/code-explain.lua` 中配置。
 - Markdown：`<leader>mp` 预览，`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。
 - Mermaid 导出：在 `.mmd`/`.mermaid` 文件中，`<leader>ms` 导出 SVG，`<leader>mn` 导出 PNG（等价命令 `:MermaidToSvg` / `:MermaidToPng`，后台异步执行）。
 - Mermaid 自动导出：保存 `.mmd`/`.mermaid` 后会后台异步执行 `:MermaidToSvg`（需已安装 `mmdc`，不阻塞编辑）。

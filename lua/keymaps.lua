@@ -50,8 +50,6 @@ end
 vim.keymap.set("n", "<leader>us", save_learning_checkpoint, { desc = "保存练习检查点" })
 vim.keymap.set("n", "<leader>ur", restore_learning_checkpoint, { desc = "恢复练习检查点" })
 
-require("code_explain").setup()
-
 -- Markdown 快捷键
 vim.keymap.set("n", "<leader>mp", "<cmd>MarkdownPreview<cr>", { desc = "Markdown 预览" })
 vim.keymap.set("n", "<leader>mt", "<cmd>GenTocGFM<cr>", { desc = "生成目录 TOC" })

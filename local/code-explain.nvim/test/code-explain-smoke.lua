@@ -2,6 +2,7 @@
 local temp = vim.fn.tempname() .. " code-explain"
 local original_path = vim.env.PATH
 local original_data = vim.env.XDG_DATA_HOME
+local plugin_dir = vim.fs.dirname(vim.fs.dirname(vim.fn.fnamemodify(arg[0], ":p")))
 local notices = {}
 vim.notify = function(message)
   notices[#notices + 1] = message
@@ -34,6 +35,8 @@ local ok, err = xpcall(function()
   vim.fn.writefile(vim.split([=[#!/bin/sh
 printf '%s\n' "$@" > "$CODE_EXPLAIN_TEST_ARGS"
 pwd > "$CODE_EXPLAIN_TEST_ARGS.cwd"
+printf '%s\n' "$CODEX_HOME" > "$CODE_EXPLAIN_TEST_ARGS.codex-home"
+if [ ! -f "$1" ]; then exit 9; fi
 if [ "$2" = models ]; then
   if [ "$CODE_EXPLAIN_TEST_MODELS_EMPTY" = 1 ]; then exit 1; fi
   printf '%s\n' '{"models":["gpt-6.1-sol","gpt-6.1-terra","gpt-image-2","gpt-4o-audio-preview"]}'
@@ -59,9 +62,13 @@ printf '%s\n' '{"type":"done"}'
   vim.fn.setfperm(bin .. "/python3", "rwx------")
   vim.fn.writefile({ "package example", "// original disk contents" }, source)
 
-  vim.opt.rtp:prepend(vim.fn.getcwd())
+  vim.opt.rtp:prepend(plugin_dir)
   vim.g.mapleader = " "
-  require("keymaps")
+  local explain = require("code_explain")
+  explain.setup()
+  assert(vim.fn.maparg("<leader>ae", "x") == "", "Plugin assigned a global visual mapping")
+  assert(vim.fn.maparg("<leader>aa", "n") == "", "Plugin assigned a global follow-up mapping")
+  vim.keymap.set("x", "<leader>ae", ":CodeExplain<cr>", { silent = true })
   assert(vim.fn.exists(":CodeExplain") == 2, "CodeExplain is not registered")
   vim.cmd.edit(vim.fn.fnameescape(source))
   vim.bo.filetype = "go"
@@ -214,21 +221,21 @@ printf '%s\n' '{"type":"done"}'
   vim.env.CODE_EXPLAIN_TEST_MODELS_EMPTY = nil
 
   local restart_script = temp .. "/restart.lua"
-  vim.env.CODE_EXPLAIN_TEST_CONFIG = vim.fn.getcwd()
+  vim.env.CODE_EXPLAIN_TEST_PLUGIN = plugin_dir
   vim.env.CODE_EXPLAIN_TEST_SOURCE = source
   vim.env.CODE_EXPLAIN_TEST_RECORD = record
   vim.env.CODE_EXPLAIN_TEST_SHUTDOWN_RECORD = temp .. "/shutdown-record"
   vim.env.CODE_EXPLAIN_TEST_ANSWER = "An answer after restarting Neovim."
-  vim.fn.writefile(vim.split([=[vim.opt.rtp:prepend(vim.env.CODE_EXPLAIN_TEST_CONFIG)
+  vim.fn.writefile(vim.split([=[vim.opt.rtp:prepend(vim.env.CODE_EXPLAIN_TEST_PLUGIN)
 vim.g.mapleader = " "
-require("keymaps")
+require("code_explain").setup()
 vim.cmd.edit(vim.fn.fnameescape(vim.env.CODE_EXPLAIN_TEST_SOURCE))
 vim.ui.select = function(items, _, callback)
   assert(vim.tbl_contains(items, vim.env.CODE_EXPLAIN_TEST_RECORD))
   callback(vim.env.CODE_EXPLAIN_TEST_RECORD)
 end
 vim.cmd.CodeExplainHistory()
-vim.cmd.cd(vim.fn.fnameescape(vim.env.CODE_EXPLAIN_TEST_CONFIG))
+vim.cmd.cd(vim.fn.fnameescape(vim.env.CODE_EXPLAIN_TEST_PLUGIN))
 vim.ui.input = function(_, callback) callback("Continue the explanation after restarting") end
 vim.cmd.CodeExplainAsk()
 assert(vim.wait(5000, function()
@@ -280,6 +287,28 @@ vim.cmd("qa!")
   wait_for_answer(fenced_record, "An answer after restarting Neovim.")
   contains(read(fenced_record), "````markdown\n```go\nfunc example() {}\n```\n````")
   vim.api.nvim_feedkeys("q", "xt", false)
+
+  local custom_prompt = temp .. "/teaching.md"
+  local custom_home = temp .. "/codex home"
+  vim.fn.writefile({ "Teach from this custom prompt." }, custom_prompt)
+  vim.fn.delete(preferences)
+  explain.setup({ model = "configured-model", reasoning_effort = "high", prompt_file = custom_prompt, codex_home = custom_home })
+  vim.cmd("1,3CodeExplain")
+  wait_for_answer(vim.api.nvim_buf_get_name(0), "An answer after restarting Neovim.")
+  local configured = vim.json.decode(read(vim.env.CODE_EXPLAIN_TEST_PROMPT))
+  assert(configured.model == "configured-model" and configured.effort == "high", "Setup model settings were ignored")
+  assert(configured.instructions == "Teach from this custom prompt.", "Custom prompt was not loaded")
+  assert(read(vim.env.CODE_EXPLAIN_TEST_ARGS .. ".codex-home") == custom_home, "Configured Codex home was not passed to the helper")
+  vim.api.nvim_feedkeys("q", "xt", false)
+  vim.fn.writefile({ "Teach from the edited prompt." }, custom_prompt)
+  vim.cmd("1,3CodeExplain")
+  wait_for_answer(vim.api.nvim_buf_get_name(0), "An answer after restarting Neovim.")
+  assert(vim.json.decode(read(vim.env.CODE_EXPLAIN_TEST_PROMPT)).instructions == "Teach from the edited prompt.",
+    "Prompt edits did not apply to the next request")
+  vim.api.nvim_feedkeys("q", "xt", false)
+  explain.setup()
+  print("Setup options, Codex home, and prompt edits work without the owner's configuration: OK")
+
   local before_missing = #notices
   vim.fn.rename(bin .. "/python3", bin .. "/python3-disabled")
   vim.env.PATH = bin
