@@ -94,6 +94,10 @@ snapshot for background work; the file can change when another follow-up starts.
 Streaming, failed requests, and interrupted editor shutdown do not emit it.
 Consumer errors are reported after the explanation is saved.
 
+The host configuration uses this hook for its optional
+[Obsidian learning Wiki](../../tools/learning-wiki/README.md). The standalone
+plugin has no Wiki or Obsidian dependency.
+
 ## Models and speed
 
 The default is `gpt-6.1-terra` with reasoning effort `none`. Requests explicitly
