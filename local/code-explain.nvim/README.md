@@ -84,6 +84,16 @@ Text appears and saves as it arrives. Closing the window lets generation
 continue; exiting Neovim stops the request and keeps the partial answer with an
 interruption notice. Failed or truncated streams also retain their partial text.
 
+## Completion hook
+
+After saving a successful explanation or follow-up, the plugin emits the Neovim
+`User` event `CodeExplainComplete`. `event.data` contains the absolute `path`,
+the full saved `content` (including its final newline), and a `version` pair
+`{ seconds, nanoseconds }` from the saved file's modification time. Use that
+snapshot for background work; the file can change when another follow-up starts.
+Streaming, failed requests, and interrupted editor shutdown do not emit it.
+Consumer errors are reported after the explanation is saved.
+
 ## Models and speed
 
 The default is `gpt-6.1-terra` with reasoning effort `none`. Requests explicitly

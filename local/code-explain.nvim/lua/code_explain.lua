@@ -112,9 +112,20 @@ end
 local function finish(path, failure)
   local job = jobs[path]
   jobs[path] = nil
-  save(path, render(job, failure))
+  local lines = render(job, failure)
+  save(path, lines)
   vim.notify(failure and "Code explanation failed; the record and partial answer were kept." or "Code explanation saved.",
     failure and vim.log.levels.ERROR or vim.log.levels.INFO)
+  if not failure then
+    local mtime = vim.uv.fs_stat(path).mtime
+    local ok = pcall(vim.api.nvim_exec_autocmds, "User", {
+      pattern = "CodeExplainComplete",
+      data = { path = path, content = table.concat(lines, "\n") .. "\n", version = { mtime.sec, mtime.nsec } },
+    })
+    if not ok then
+      vim.notify("Explanation saved; a CodeExplainComplete hook failed.", vim.log.levels.WARN)
+    end
+  end
 end
 
 local function receive(path, job, data)

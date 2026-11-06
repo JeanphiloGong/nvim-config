@@ -4,6 +4,11 @@ local original_path = vim.env.PATH
 local original_data = vim.env.XDG_DATA_HOME
 local plugin_dir = vim.fs.dirname(vim.fs.dirname(vim.fn.fnamemodify(arg[0], ":p")))
 local notices = {}
+local completions = {}
+vim.api.nvim_create_autocmd("User", {
+  pattern = "CodeExplainComplete",
+  callback = function(event) completions[#completions + 1] = event.data end,
+})
 vim.notify = function(message)
   notices[#notices + 1] = message
 end
@@ -98,12 +103,17 @@ printf '%s\n' '{"type":"done"}'
   assert(read(source) == "package example\n// original disk contents", "Source file was written")
   assert(vim.fn.getreg('"') == "keep this register", "Selection overwrote the register")
   wait_for_answer(record, "A streamed prefix.")
+  assert(#completions == 0, "Streaming emitted a completion event")
   assert(not read(record):find("A saved explanation of Resolve.", 1, true), "Answer was buffered until completion")
   vim.fn.writefile({}, vim.env.CODE_EXPLAIN_TEST_RELEASE)
   vim.env.CODE_EXPLAIN_TEST_RELEASE = nil
   wait_for_answer(record, "A saved explanation of Resolve.")
   assert(not vim.fn.execute("messages"):find("W10", 1, true), "Updating the explanation produced a readonly warning")
   local document = read(record)
+  assert(#completions == 1 and completions[1].path == record, "Successful save did not emit its path")
+  assert(completions[1].content == document .. "\n", "Completion did not carry the exact saved snapshot")
+  local mtime = vim.uv.fs_stat(record).mtime
+  assert(vim.deep_equal(completions[1].version, { mtime.sec, mtime.nsec }), "Completion version differs from the save")
   contains(document, source)
   contains(document, "3-6")
   contains(document, "return s.User, nil")
@@ -135,6 +145,10 @@ printf '%s\n' '{"type":"done"}'
   assert(read(record) == before_cancel, "Cancelling input modified the record")
 
   vim.env.CODE_EXPLAIN_TEST_ANSWER = "A follow-up answer about value copies."
+  local broken_hook = vim.api.nvim_create_autocmd("User", {
+    pattern = "CodeExplainComplete",
+    callback = function() error("Consumer failure") end,
+  })
   vim.env.CODE_EXPLAIN_TEST_RELEASE = temp .. "/release"
   vim.ui.input = function(_, callback) callback("Why is the user copied?") end
   vim.cmd.CodeExplainAsk()
@@ -146,6 +160,11 @@ printf '%s\n' '{"type":"done"}'
   assert(input_calls == 0, "A second request was allowed while generating")
   vim.fn.writefile({}, vim.env.CODE_EXPLAIN_TEST_RELEASE)
   wait_for_answer(record, "A follow-up answer about value copies.")
+  vim.api.nvim_del_autocmd(broken_hook)
+  assert(#completions == 2, "Follow-up did not emit a completion")
+  assert(completions[1].content == document .. "\n", "Follow-up changed the earlier event snapshot")
+  contains(completions[2].content, "A follow-up answer about value copies.")
+  contains(read(record), "A follow-up answer about value copies.")
   assert(vim.api.nvim_win_get_cursor(0)[1] == 3, "Answer update moved the reader's cursor")
   contains(read(record), "Why is the user copied?")
   local follow_up = read(vim.env.CODE_EXPLAIN_TEST_PROMPT)
@@ -168,6 +187,7 @@ printf '%s\n' '{"type":"done"}'
   vim.cmd.CodeExplainAsk()
   wait_for_answer(record, "The model returned no explanation.")
   vim.env.CODE_EXPLAIN_TEST_EMPTY = nil
+  assert(#completions == 2, "Failed or empty generation emitted a completion")
   print("Failure and empty-response handling preserve the existing conversation: OK")
 
   vim.api.nvim_feedkeys("q", "xt", false)
@@ -250,6 +270,10 @@ local settings = vim.json.decode(prompt)
 assert(settings.model == "gpt-6.1-sol" and settings.effort == "low")
 assert(vim.fn.readfile(vim.env.CODE_EXPLAIN_TEST_ARGS .. ".cwd")[1] == vim.fs.dirname(vim.env.CODE_EXPLAIN_TEST_SOURCE))
 vim.cmd.close()
+vim.api.nvim_create_autocmd("User", {
+  pattern = "CodeExplainComplete",
+  callback = function() vim.fn.writefile({ "unexpected" }, vim.env.CODE_EXPLAIN_TEST_SHUTDOWN_RECORD .. ".event") end,
+})
 vim.env.CODE_EXPLAIN_TEST_RELEASE = vim.env.CODE_EXPLAIN_TEST_SHUTDOWN_RECORD .. ".gate"
 vim.fn.delete(vim.env.CODE_EXPLAIN_TEST_ARGS)
 vim.cmd("1CodeExplain")
@@ -263,6 +287,8 @@ vim.cmd("qa!")
   contains(read(record), "An answer after restarting Neovim.")
   local interrupted = vim.fn.readfile(vim.env.CODE_EXPLAIN_TEST_SHUTDOWN_RECORD)[1]
   contains(read(interrupted), "Interrupted: Neovim exited")
+  assert(vim.fn.filereadable(vim.env.CODE_EXPLAIN_TEST_SHUTDOWN_RECORD .. ".event") == 0,
+    "Editor shutdown emitted a successful completion")
   assert(not read(interrupted):find("Generating explanation...", 1, true), "Shutdown left a stale pending status")
   print("Fresh Neovim restores context and model choice; shutdown preserves unfinished requests: OK")
 
