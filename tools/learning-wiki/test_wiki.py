@@ -23,7 +23,7 @@ class WikiTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="learning wiki ")
         self.root = Path(self.temp.name)
-        self.vault = self.root / "Learning Wiki"
+        self.vault = self.root / "Obsidian Vault/04-CodeWiki"
         self.home = self.root / "codex"
         self.home.mkdir()
         self.requests = []

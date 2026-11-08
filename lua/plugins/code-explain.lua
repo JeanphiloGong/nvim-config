@@ -1,5 +1,5 @@
 local function wiki_directory()
-  return vim.fn.expand(vim.g.learning_wiki_vault or "~/Documents/Learning Wiki")
+  return vim.fn.expand(vim.g.learning_wiki_vault or "~/Documents/Obsidian Vault/04-CodeWiki")
 end
 
 return {

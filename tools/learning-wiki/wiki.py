@@ -247,7 +247,7 @@ def ingest(snapshot, vault, codex_home):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--vault", type=Path, default=Path("~/Documents/Learning Wiki"))
+    parser.add_argument("--vault", type=Path, default=Path("~/Documents/Obsidian Vault/04-CodeWiki"))
     parser.add_argument("--codex-home", type=Path, default=Path(os.environ.get("CODEX_HOME", "~/.codex")))
     parser.add_argument("records", type=Path, nargs="*", help="Completed records; otherwise read one snapshot JSON from stdin")
     args = parser.parse_args()

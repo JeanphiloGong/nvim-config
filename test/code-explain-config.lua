@@ -14,7 +14,7 @@ local ok, err = xpcall(function()
   vim.fn.mkdir(temp .. "/project/.git", "p")
   vim.env.PATH = temp .. "/bin:" .. original_path
   vim.env.XDG_DATA_HOME = temp .. "/data"
-  vim.g.learning_wiki_vault = temp .. "/Learning Wiki"
+  vim.g.learning_wiki_vault = temp .. "/Obsidian Vault/04-CodeWiki"
   vim.env.CODE_EXPLAIN_TEST_WIKI = temp .. "/wiki-snapshot"
   vim.fn.writefile({
     "#!/bin/sh",

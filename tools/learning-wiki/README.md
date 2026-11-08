@@ -1,10 +1,41 @@
 # Learning Wiki
 
 Completed code explanations and follow-ups become English concept notes in
-`~/Documents/Learning Wiki`. Open that folder with Obsidian's **Open folder as
-vault**, then start at `Learning.md`. Obsidian builds backlinks and its graph
-from the relative Markdown links. No Obsidian plugin, paid service, or desktop
-process is needed for generation.
+`~/Documents/Obsidian Vault/04-CodeWiki`. Open the parent folder
+`~/Documents/Obsidian Vault` with Obsidian's **Open folder as vault** to keep
+personal notes and code learning in one vault. `Home.md` is the personal entry
+point; `04-CodeWiki/Learning.md` is the code index. Obsidian builds backlinks
+and its graph from the relative Markdown links. No Obsidian plugin, paid
+service, or desktop process is needed for generation.
+
+## Personal notes
+
+The personal vault uses the same default root as the `obsidian-notes` skill.
+Create Markdown files directly in Neovim or Obsidian, or ask that skill to save
+a note. Personal notes follow your requested language; generated code concepts
+remain English. The folder conventions are:
+
+| Folder | Contents |
+| --- | --- |
+| `00-收件箱/` | Quick captures and ideas without a settled topic |
+| `01-日记/` | Daily entries named `YYYY-MM-DD.md` |
+| `02-主题笔记/` | Work and projects, learning, life plans, and reflections |
+| `03-附件/` | Attachments |
+| `04-CodeWiki/` | Automatically organized code explanations |
+
+Create topic subfolders when you need them. The automatic processor only
+manages `04-CodeWiki`; it does not reorganize personal notes. On another
+device, copy or synchronize the entire `Obsidian Vault`, including the hidden
+`04-CodeWiki/.learning-wiki` directory. The editor configuration does not
+synchronize your notes or create the personal home page. The processor can
+create its code subfolder on the first successful explanation.
+
+To migrate an existing `~/Documents/Learning Wiki`, finish pending updates,
+close editors using its old location, and move that entire folder to
+`~/Documents/Obsidian Vault/04-CodeWiki` before the next update. Preserve all
+hidden files; the relative internal links remain valid. The new defaults use
+the destination directly. An explicit `vim.g.learning_wiki_vault` or `--vault`
+still selects a custom output directory.
 
 ## Daily use
 
@@ -27,7 +58,7 @@ To change the vault or disable automatic updates, set these before plugin
 initialization in your Neovim configuration:
 
 ```lua
-vim.g.learning_wiki_vault = vim.fn.expand("~/Documents/Learning Wiki")
+vim.g.learning_wiki_vault = vim.fn.expand("~/Documents/Obsidian Vault/04-CodeWiki")
 vim.g.learning_wiki_enabled = false -- Omit this line to enable automatic updates.
 ```
 
@@ -37,7 +68,7 @@ made. Retry a completed record or import older completed records explicitly:
 
 ```sh
 python3 ~/.config/nvim/tools/learning-wiki/wiki.py \
-  --vault "$HOME/Documents/Learning Wiki" \
+  --vault "$HOME/Documents/Obsidian Vault/04-CodeWiki" \
   "/absolute/path/to/completed-explanation.md"
 ```
 
@@ -47,6 +78,8 @@ successful completions. Custom provider credentials can be selected with
 `--codex-home /path/to/codex-home`. Credentials are not placed in the vault.
 
 ## Files and ownership
+
+Inside `04-CodeWiki`:
 
 ```text
 Learning.md                 Index linking to concepts and conversations
