@@ -4,11 +4,15 @@ Explain selected lines beside the source, ask follow-up questions, and keep the
 conversation as a local Markdown document. Explanations and follow-up answers
 use English and preserve code identifiers.
 
-Initial explanations quote each declaration, assignment, condition, and return
-in source order, with a separate explanation immediately below. They explain
-syntax, variable roles, call arguments, and compound expressions where they
-appear, followed by an execution example and relevant boundaries. There is no
-fixed word limit; standalone braces and blank lines do not need separate entries.
+Initial explanations start with the purpose, inputs, and result, then quote each
+declaration, assignment, condition, and return in source order. Each explanation
+first connects the statement to the surrounding flow: where its data comes from,
+what later consumes it, or what a failure branch prevents. It then teaches syntax,
+variable roles, call arguments, and compound expressions where they appear,
+followed by an execution example and relevant boundaries. Missing helper details
+are qualified without obscuring the role established by the visible caller.
+There is no fixed word limit; standalone braces and blank lines do not need
+separate entries.
 Follow-ups stay focused on the latest question. The prompt includes a complete
 teaching example and examples for missing context and a narrow follow-up.
 The bundled teaching style lives in `prompts/code-explain.md`. Set `prompt_file`
