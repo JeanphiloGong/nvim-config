@@ -68,7 +68,7 @@ take precedence over the initial model settings and survive restarts.
 With the example keymaps above:
 
 1. Press `Shift+V`, then `j` / `k` to select the method's lines.
-2. Press `<leader>ae` (`Space a e`) to open an explanation on the right.
+2. Press `<leader>ae` (`Space a e`) to open an explanation in a split.
 3. In that document, press `<leader>aa` to enter a follow-up question.
 4. Press `q` to close the explanation window. The document stays on disk.
 5. Press `<leader>ah` to pick a saved conversation for the current project.
@@ -76,9 +76,16 @@ With the example keymaps above:
 
 Equivalent commands are `:'<,'>CodeExplain`, `:CodeExplainAsk`,
 `:CodeExplainHistory`, and `:CodeExplainModel`. A range such as
-`:10,25CodeExplain` also works. Selection is line-based. New explanations reuse
-the explanation window in the current tab. `Ctrl-w h` / `Ctrl-w l` switch between
-the source and the explanation.
+`:10,25CodeExplain` also works. Selection is line-based. When creating a window,
+the plugin first balances the current tab: more columns than rows opens below,
+and more rows than columns opens to the right. When the counts match, a source
+window at least twice as wide in columns as it is tall in lines opens to the
+right; otherwise it opens below. Floating windows are excluded from the counts,
+and new splits are equalized.
+
+New explanations and history reuse the explanation window in the current tab.
+An existing window keeps its split direction after resizing. `Ctrl-w h`,
+`Ctrl-w j`, `Ctrl-w k`, and `Ctrl-w l` move between the windows.
 
 Text appears and saves as it arrives. Closing the window lets generation
 continue; exiting Neovim stops the request and keeps the partial answer with an

@@ -91,7 +91,7 @@ npm install -g @mermaid-js/mermaid-cli
 - 诊断列表：`<leader>xx` 打开 Trouble 诊断，`<leader>xq` 打开 quickfix。
 - 补全：`<Tab>` 确认候选，`<C-Space>` 触发补全。
 - 练习检查点：`<leader>us` 保存当前 buffer 内容和光标位置，`<leader>ur` 恢复；检查点在关闭 buffer 后失效。
-- 代码解释（需 Python 3.11+ 和已配置 API key 的 Codex provider）：`Shift+V` 选区后按 `<leader>ae` 分屏查看流式英文解释，`<leader>aa` 追问，`<leader>ah` 重开讲解，`<leader>am` 选择模型；`q` 关闭窗口并保留 Markdown。插件位于 `local/code-explain.nvim/`，[使用说明](local/code-explain.nvim/README.md)，快捷键在 `lua/plugins/code-explain.lua` 中配置。
+- 代码解释（需 Python 3.11+ 和已配置 API key 的 Codex provider）：`Shift+V` 选区后按 `<leader>ae` 智能分屏查看流式英文解释（同 `gd`，先均衡布局，再按当前窗口宽高比选择上下或左右），`<leader>aa` 追问，`<leader>ah` 重开讲解，`<leader>am` 选择模型；`q` 关闭窗口并保留 Markdown。插件位于 `local/code-explain.nvim/`，[使用说明](local/code-explain.nvim/README.md)，快捷键在 `lua/plugins/code-explain.lua` 中配置。
 - Learning Wiki: completed explanations update English concept notes in `~/Documents/Obsidian Vault/04-CodeWiki` in the background. Open `~/Documents/Obsidian Vault` as an Obsidian vault for both personal notes and code learning, or use `<leader>aw` / `:LearningWikiOpen` for the code index in Neovim. See [setup, manual notes, and imports](tools/learning-wiki/README.md).
 - Personal notes: `<leader>nf` finds notes, `<leader>ns` searches their contents, `<leader>nn` creates an inbox note, `<leader>nd` opens today's journal, `<leader>nb` lists backlinks, `<leader>ne` browses the vault directory from any project, and `<leader>nh` opens `Home.md`. [obsidian.nvim setup and usage](lua/docs/obsidian.md).
 - Markdown：`<leader>mp` 预览，`<leader>mt` 生成 TOC，`<leader>mu` 更新 TOC。

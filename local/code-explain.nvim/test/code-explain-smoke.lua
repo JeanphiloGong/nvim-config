@@ -345,6 +345,62 @@ vim.cmd("qa!")
   vim.fn.rename(bin .. "/python3-disabled", bin .. "/python3")
   assert(not table.concat(notices, "\n"):find("private-provider-diagnostic", 1, true), "Provider logs leaked through notifications")
   print("Empty selections, nested Markdown fences, and missing Python are handled: OK")
+
+  local layout_script = temp .. "/layout.lua"
+  vim.fn.writefile(vim.split([=[local layout = vim.json.decode(vim.env.CODE_EXPLAIN_TEST_LAYOUT)
+vim.opt.rtp:prepend(vim.env.CODE_EXPLAIN_TEST_PLUGIN)
+require("code_explain").setup()
+vim.cmd.edit(vim.fn.fnameescape(vim.env.CODE_EXPLAIN_TEST_SOURCE))
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "// unsaved source" })
+local source = vim.api.nvim_get_current_buf()
+if layout.setup then vim.cmd(layout.setup) end
+if layout.popup then
+  vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false,
+    { relative = "editor", row = 1, col = 0, width = 20, height = 5, style = "minimal" })
+end
+local base = vim.api.nvim_get_current_win()
+local count = #vim.api.nvim_tabpage_list_wins(0)
+local dimensions = ("%d columns, %d lines, %dx%d source"):format(
+  vim.o.columns, vim.o.lines, vim.api.nvim_win_get_width(base), vim.api.nvim_win_get_height(base))
+vim.ui.select = function(items, _, callback)
+  assert(vim.tbl_contains(items, vim.env.CODE_EXPLAIN_TEST_RECORD))
+  callback(vim.env.CODE_EXPLAIN_TEST_RECORD)
+end
+vim.cmd.CodeExplainHistory()
+local target = vim.api.nvim_get_current_win()
+assert(#vim.api.nvim_tabpage_list_wins(0) == count + 1, "Missing new explanation window")
+local base_pos = vim.api.nvim_win_get_position(base)
+local target_pos = vim.api.nvim_win_get_position(target)
+if layout.direction == "vertical" then
+  assert(target_pos[1] == base_pos[1] and target_pos[2] > base_pos[2], "Expected right split")
+else
+  assert(target_pos[2] == base_pos[2] and target_pos[1] > base_pos[1], "Expected lower split: " .. dimensions)
+end
+assert(vim.api.nvim_buf_get_name(0) == vim.env.CODE_EXPLAIN_TEST_RECORD)
+assert(vim.bo[source].modified and vim.api.nvim_buf_get_lines(source, 0, -1, false)[1] == "// unsaved source")
+vim.api.nvim_set_current_win(base)
+vim.cmd.CodeExplainHistory()
+assert(vim.api.nvim_get_current_win() == target, "History did not reuse the explanation window")
+assert(#vim.api.nvim_tabpage_list_wins(0) == count + 1, "Reopening history accumulated windows")
+assert(vim.deep_equal(target_pos, vim.api.nvim_win_get_position(target)), "Reuse rearranged the split")
+vim.cmd("qa!")
+]=], "\n"), layout_script)
+  local layouts = {
+    { name = "wide window", columns = 200, lines = 40, direction = "vertical" },
+    { name = "narrow window", columns = 80, lines = 60, direction = "horizontal" },
+    { name = "two wide columns", columns = 400, lines = 40, setup = "vsplit", direction = "horizontal" },
+    { name = "two tall rows", columns = 80, lines = 120, setup = "split", direction = "vertical" },
+    { name = "floating popup", columns = 80, lines = 60, popup = true, direction = "horizontal" },
+  }
+  for _, layout in ipairs(layouts) do
+    local result = vim.system({ vim.v.progpath, "--headless", "-u", "NONE", "-i", "NONE", "-n",
+      "--cmd", ("set columns=%d lines=%d"):format(layout.columns, layout.lines),
+      "-c", "lua dofile(vim.env.CODE_EXPLAIN_TEST_LAYOUT_SCRIPT)" },
+      { env = { CODE_EXPLAIN_TEST_LAYOUT = vim.json.encode(layout), CODE_EXPLAIN_TEST_LAYOUT_SCRIPT = layout_script },
+        text = true }):wait(5000)
+    assert(result.code == 0, layout.name .. ": " .. (result.stderr or ""))
+  end
+  print("Wide/narrow windows, existing rows/columns, floating popups, and explanation reuse: OK")
 end, debug.traceback)
 
 vim.api.nvim_exec_autocmds("VimLeavePre", {})

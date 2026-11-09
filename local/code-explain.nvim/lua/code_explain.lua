@@ -63,7 +63,13 @@ local function open_record(path)
   local buf = vim.fn.bufadd(path)
   vim.fn.bufload(buf)
   local target
+  local cols, rows = {}, {}
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_get_config(win).relative == "" then
+      local position = vim.api.nvim_win_get_position(win)
+      rows[position[1]] = true
+      cols[position[2]] = true
+    end
     if vim.b[vim.api.nvim_win_get_buf(win)].code_explain then
       target = win
       break
@@ -72,7 +78,11 @@ local function open_record(path)
   if target then
     vim.api.nvim_set_current_win(target)
   else
-    vim.cmd("rightbelow vsplit")
+    local col_count, row_count = vim.tbl_count(cols), vim.tbl_count(rows)
+    local width, height = vim.api.nvim_win_get_width(0), vim.api.nvim_win_get_height(0)
+    local vertical = row_count > col_count or (row_count == col_count and width >= 2 * height)
+    vim.cmd(vertical and "rightbelow vsplit" or "rightbelow split")
+    vim.cmd("wincmd =")
   end
   vim.api.nvim_win_set_buf(0, buf)
   vim.b[buf].code_explain = true
